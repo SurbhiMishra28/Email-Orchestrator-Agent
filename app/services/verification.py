@@ -201,11 +201,15 @@ def verify_email(email: str, check_smtp: bool = True, check_catch_all: bool = Tr
     mx_check_status = "passed" if mx_ok else "failed"
     
     if not mx_ok:
+        definitive_mx_failure = mx_error in {
+            "Domain does not exist",
+            "No MX records found",
+        }
         return VerificationResult(
             email=email,
-            status="undeliverable",
+            status="undeliverable" if definitive_mx_failure else "inconclusive",
             smtp_check="not_checked",
-            mx_check=mx_check_status,
+            mx_check=mx_check_status if definitive_mx_failure else "unreachable",
             catch_all=False,
             disposable=is_disposable(domain),
             domain=domain,

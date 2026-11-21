@@ -60,6 +60,16 @@ class Settings:
 
     # Follow-up drafting (never sends on its own)
     FOLLOWUPS_ENABLED: bool = os.getenv("FOLLOWUPS_ENABLED", "true").lower() == "true"
+
+    # Absolute origin used to build open-pixel and click-tracking URLs. It must
+    # be reachable by recipients, so a public deployment sets it explicitly;
+    # the default keeps local development working.
+    PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000")
+
+    # How many queue passes one process may run at once. Sending is still
+    # serialized per tenant by the pacing rule in ``services/limits.py``; this
+    # bounds how much work a burst of async submissions can start.
+    SEND_CONCURRENCY: int = int(os.getenv("SEND_CONCURRENCY", "2"))
     
     # CORS - loopback origins by default; wildcard + credentials is invalid.
     CORS_ORIGINS: str = os.getenv(
@@ -70,10 +80,21 @@ class Settings:
     
     # NVIDIA API
     NVIDIA_API_KEY: Optional[str] = os.getenv("NVIDIA_API_KEY")
-    NVIDIA_MODEL: str = os.getenv("NVIDIA_MODEL", "nvidia/nllama-3-70b")
+    NVIDIA_MODEL: str = os.getenv("NVIDIA_MODEL", "nvidia/nllama-3.1-nemotron-70b-instruct")
     
     # Frontend
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:8000")
+
+    # JWT Settings for SaaS authentication
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
+    # When true the app runs as a single-user local tool: one implicit tenant is
+    # provisioned at startup and requests do not need a bearer token. Set to
+    # false for the multi-tenant SaaS deployment.
+    SINGLE_USER_MODE: bool = os.getenv("SINGLE_USER_MODE", "true").lower() == "true"
+    # Identity used for that implicit local tenant.
+    LOCAL_USER_EMAIL: str = os.getenv("LOCAL_USER_EMAIL", "local@localhost")
+    LOCAL_TENANT_NAME: str = os.getenv("LOCAL_TENANT_NAME", "Local")
 
 
 # Global settings instance

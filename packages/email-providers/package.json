@@ -1,0 +1,23 @@
+﻿{
+    "name":  "@email-orchestrator/email-providers",
+    "version":  "0.0.1",
+    "private":  true,
+    "main":  "dist/index.js",
+    "types":  "dist/index.d.ts",
+    "scripts":  {
+                    "build":  "tsc",
+                    "dev":  "tsc --watch",
+                    "lint":  "tsc --noEmit"
+                },
+    "dependencies":  {
+                         "nodemailer":  "^6.9.10",
+                         "@sendgrid/mail":  "^8.1.0",
+                         "mailgun.js":  "^10.2.0",
+                         "@aws-sdk/client-ses":  "^3.500.0",
+                         "@email-orchestrator/shared-types":  "*"
+                     },
+    "devDependencies":  {
+                            "@types/nodemailer":  "^6.4.14",
+                            "typescript":  "^5.3.3"
+                        }
+}

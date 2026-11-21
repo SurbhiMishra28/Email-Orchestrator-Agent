@@ -154,22 +154,39 @@ Query Parameters:
 
 **POST** `/api/contacts/import`
 
-**Request**: multipart/form-data with `file` field containing CSV
+**Request** (JSON):
+```json
+{
+  "csv": "email,name,company,role\nuser@example.com,John Doe,Acme Corp,CTO\n",
+  "default_eligible": true
+}
+```
 
 **CSV Format**:
 ```csv
-email,name,company,role,industry,eligible_to_email
-user@example.com,John Doe,Acme Corp,CTO,Software,true
+email,name,company,role,email_permission
+user@example.com,John Doe,Acme Corp,CTO,true
 ```
+
+`email_permission` is optional. When the column is absent, imported rows take
+`default_eligible` from the request (default `true`), so a plain
+`email,name` file still produces mailable contacts. An explicit
+`email_permission` value always wins. Existing contacts are refreshed in place,
+not duplicated.
 
 **Response**:
 ```json
 {
   "imported": 50,
-  "failed": 2,
-  "errors": ["Invalid email: bad-email@"]
+  "updated": 3,
+  "skipped": 0,
+  "automatic_outreach_queued": 0,
+  "errors": ["bad-email@: Invalid email address"]
 }
 ```
+
+When the tenant has `AUTOPILOT` and `AUTO_APPROVE` enabled, intro drafts for the
+newly eligible contacts are queued as a background task.
 
 ---
 

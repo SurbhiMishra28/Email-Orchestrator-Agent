@@ -1,8 +1,9 @@
-"""Templates API router."""
-from fastapi import APIRouter, HTTPException
+"""Templates API router (tenant-scoped)."""
+from fastapi import APIRouter, Depends, HTTPException
 from typing import List
 
 from app.db import SessionLocal, Template, Log, Contact, Draft
+from app.deps import current_tenant_id
 from app.models.schemas import TemplateCreate, TemplateUpdate, TemplateOut, TemplateUseRequest, TemplateExpandRequest
 
 router = APIRouter()
@@ -16,29 +17,47 @@ def get_db():
         db.close()
 
 
+def _get_tenant_template(db, template_id: int, tenant_id: int) -> Template:
+    template = (
+        db.query(Template)
+        .filter(Template.id == template_id, Template.tenant_id == tenant_id)
+        .first()
+    )
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return template
+
+
 @router.get("")
-def list_templates(active_only: bool = True):
+def list_templates(active_only: bool = True, tenant_id: int = Depends(current_tenant_id)):
     db = SessionLocal()
     try:
-        query = db.query(Template)
+        query = db.query(Template).filter(Template.tenant_id == tenant_id)
         if active_only:
             query = query.filter(Template.is_active == True)
-        templates = query.all()
+        templates = query.order_by(Template.id.asc()).all()
         return {"templates": [TemplateOut.model_validate(t) for t in templates]}
     finally:
         db.close()
 
 
 @router.post("", response_model=TemplateOut)
-def create_template(template: TemplateCreate):
+def create_template(
+    template: TemplateCreate,
+    tenant_id: int = Depends(current_tenant_id),
+):
     db = SessionLocal()
     try:
-        db_template = Template(**template.model_dump())
+        db_template = Template(**template.model_dump(), tenant_id=tenant_id)
         db.add(db_template)
         db.commit()
         db.refresh(db_template)
         
-        log = Log(message=f"Created template: {template.name}", level="info")
+        log = Log(
+            message=f"Created template: {template.name}",
+            level="info",
+            tenant_id=tenant_id,
+        )
         db.add(log)
         db.commit()
         
@@ -48,10 +67,15 @@ def create_template(template: TemplateCreate):
 
 
 @router.get("/categories")
-def get_template_categories():
+def get_template_categories(tenant_id: int = Depends(current_tenant_id)):
     db = SessionLocal()
     try:
-        categories = db.query(Template.category).distinct().all()
+        categories = (
+            db.query(Template.category)
+            .filter(Template.tenant_id == tenant_id)
+            .distinct()
+            .all()
+        )
         category_list = [c[0] for c in categories]
         return {"categories": category_list if category_list else ["intro", "followup", "outreach", "nurture"]}
     finally:
@@ -59,18 +83,33 @@ def get_template_categories():
 
 
 @router.post("/use")
-async def use_template(request: TemplateUseRequest):
+async def use_template(
+    request: TemplateUseRequest,
+    tenant_id: int = Depends(current_tenant_id),
+):
     """Create a draft from a template with personalization.
 
     Sending is always a separate, explicit step, so the result is a draft.
     """
     db = SessionLocal()
     try:
-        template = db.query(Template).filter(Template.id == request.template_id, Template.is_active == True).first()
+        template = (
+            db.query(Template)
+            .filter(
+                Template.id == request.template_id,
+                Template.tenant_id == tenant_id,
+                Template.is_active == True,
+            )
+            .first()
+        )
         if not template:
             raise HTTPException(status_code=404, detail="Template not found or inactive")
 
-        contact = db.query(Contact).filter(Contact.id == request.contact_id).first()
+        contact = (
+            db.query(Contact)
+            .filter(Contact.id == request.contact_id, Contact.tenant_id == tenant_id)
+            .first()
+        )
         if not contact:
             raise HTTPException(status_code=404, detail="Contact not found")
 
@@ -83,6 +122,7 @@ async def use_template(request: TemplateUseRequest):
             subject=result["subject"],
             body=result["body"],
             status="draft",
+            tenant_id=tenant_id,
         )
         db.add(draft)
         db.commit()
@@ -99,15 +139,20 @@ async def use_template(request: TemplateUseRequest):
 
 
 @router.post("/expand")
-async def expand_template_endpoint(request: TemplateExpandRequest):
+async def expand_template_endpoint(
+    request: TemplateExpandRequest,
+    tenant_id: int = Depends(current_tenant_id),
+):
     """Expand a template with contact variables."""
     db = SessionLocal()
     try:
-        template = db.query(Template).filter(Template.id == request.template_id).first()
-        if not template:
-            raise HTTPException(status_code=404, detail="Template not found")
+        template = _get_tenant_template(db, request.template_id, tenant_id)
 
-        contact = db.query(Contact).filter(Contact.id == request.contact_id).first()
+        contact = (
+            db.query(Contact)
+            .filter(Contact.id == request.contact_id, Contact.tenant_id == tenant_id)
+            .first()
+        )
         if not contact:
             raise HTTPException(status_code=404, detail="Contact not found")
 
@@ -120,13 +165,15 @@ async def expand_template_endpoint(request: TemplateExpandRequest):
 
 
 @router.post("/{template_id}", response_model=TemplateOut)
-def update_template(template_id: int, template: TemplateUpdate):
+def update_template(
+    template_id: int,
+    template: TemplateUpdate,
+    tenant_id: int = Depends(current_tenant_id),
+):
     """Update a template by ID."""
     db = SessionLocal()
     try:
-        db_template = db.query(Template).filter(Template.id == template_id).first()
-        if not db_template:
-            raise HTTPException(status_code=404, detail="Template not found")
+        db_template = _get_tenant_template(db, template_id, tenant_id)
         
         for field, value in template.model_dump(exclude_unset=True).items():
             setattr(db_template, field, value)
@@ -139,12 +186,10 @@ def update_template(template_id: int, template: TemplateUpdate):
 
 
 @router.delete("/{template_id}")
-def delete_template(template_id: int):
+def delete_template(template_id: int, tenant_id: int = Depends(current_tenant_id)):
     db = SessionLocal()
     try:
-        db_template = db.query(Template).filter(Template.id == template_id).first()
-        if not db_template:
-            raise HTTPException(status_code=404, detail="Template not found")
+        db_template = _get_tenant_template(db, template_id, tenant_id)
         
         db.delete(db_template)
         db.commit()
@@ -154,21 +199,21 @@ def delete_template(template_id: int):
 
 
 @router.post("/{template_id}/duplicate")
-def duplicate_template(template_id: int):
+def duplicate_template(template_id: int, tenant_id: int = Depends(current_tenant_id)):
     db = SessionLocal()
     try:
-        original = db.query(Template).filter(Template.id == template_id).first()
-        if not original:
-            raise HTTPException(status_code=404, detail="Template not found")
+        original = _get_tenant_template(db, template_id, tenant_id)
         
         new_template = Template(
             name=f"{original.name} (Copy)",
             category=original.category,
             subject_template=original.subject_template,
             body_template=original.body_template,
+            footer_template=original.footer_template,
             variables=original.variables,
             tags=original.tags,
-            is_active=original.is_active
+            is_active=original.is_active,
+            tenant_id=tenant_id,
         )
         db.add(new_template)
         db.commit()

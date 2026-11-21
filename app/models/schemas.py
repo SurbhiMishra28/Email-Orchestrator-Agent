@@ -14,6 +14,8 @@ class ContactBase(BaseModel):
     linkedin: Optional[str] = Field(default=None, max_length=255)
     notes: Optional[str] = None
     eligible_to_email: bool = False
+    email_blacklisted: bool = False
+    tags: List[str] = []
 
 
 class ContactCreate(ContactBase):
@@ -30,6 +32,8 @@ class ContactUpdate(BaseModel):
     linkedin: Optional[str] = None
     notes: Optional[str] = None
     eligible_to_email: Optional[bool] = None
+    email_blacklisted: Optional[bool] = None
+    tags: Optional[List[str]] = None
 
 
 class ContactOut(ContactBase):
@@ -74,6 +78,7 @@ class TemplateBase(BaseModel):
     category: str = Field(default="intro", max_length=100)
     subject_template: str = Field(..., min_length=1, max_length=500)
     body_template: str = Field(..., min_length=1, max_length=50000)
+    footer_template: str = Field(default="", description="Footer to append to email body")
     variables: Dict[str, Any] = {}
     tags: List[str] = []
     is_active: bool = True
@@ -88,6 +93,7 @@ class TemplateUpdate(BaseModel):
     category: Optional[str] = None
     subject_template: Optional[str] = None
     body_template: Optional[str] = None
+    footer_template: Optional[str] = None
     variables: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
     is_active: Optional[bool] = None
@@ -138,6 +144,14 @@ class SettingsBase(BaseModel):
     domain_cap: int = 3
     AUTO_APPROVE: bool = False
     AUTOPILOT: bool = False
+    # Footer and sender signature configuration
+    footer_text: str = ""
+    sender_name: str = ""
+    sender_role: str = ""
+    company_website: str = ""
+    calendly_url: str = ""
+    # Opt-in open/click tracking. Off means outbound mail stays plain text.
+    tracking_enabled: bool = False
 
 
 class SettingsUpdate(SettingsBase):
@@ -198,3 +212,8 @@ class QueueStatus(BaseModel):
 # CSV Import batch
 class CSVImport(BaseModel):
     csv: str
+    # A list without an email_permission column would otherwise import every
+    # row as ineligible, so nothing is ever sent. The uploader owns the list,
+    # so rows are eligible unless they say otherwise; pass false to import
+    # them paused for a manual review.
+    default_eligible: bool = True

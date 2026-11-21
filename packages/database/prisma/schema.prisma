@@ -1,0 +1,354 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// --- Core Models ---
+
+model User {
+  id              Int          @id @default(autoincrement)
+  email           String       @unique
+  password        String
+  name            String?
+  image           String?
+  emailVerified   DateTime?
+  createdAt       DateTime     @default(now)
+  updatedAt       DateTime     @updatedAt
+  organization    Organization? @relation(fields: [organizationId], references: [id])
+  organizationId  Int?
+  role            String       @default("MEMBER") // OWNER, ADMIN, MANAGER, MEMBER, VIEWER
+  invitations     Invitation[]
+  apiKeys         ApiKey[]
+  events          Event[]
+  logs            Log[]
+}
+
+model Organization {
+  id              Int          @id @default(autoincrement)
+  name            String
+  slug            String       @unique
+  description     String?
+  plan            String       @default("free") // free, pro, enterprise
+  status          String       @default("active") // active, suspended, deleted
+  settings        Settings     @relation(fields: [organizationId], references: [id], reference: OnDeleteCascade)
+  createdAt       DateTime     @default(now)
+  updatedAt       DateTime     @updatedAt
+  owners          OrganizationRole[]
+  members         OrganizationRole[]
+  users           User[]
+}
+
+model OrganizationRole {
+  id              Int          @id @default(autoincrement)
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  Int
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role            String       // OWNER, ADMIN, MANAGER, MEMBER, VIEWER
+  joinedAt        DateTime     @default(now)
+
+  @@ unique([organizationId, userId])
+}
+
+model Invitation {
+  id              Int          @id @default(autoincrement)
+  email           String
+  role            String       // OWNER, ADMIN, MANAGER, MEMBER, VIEWER
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  Int
+  invitedBy       User         @relation(fields: [invitedById], references: [id], onDelete: SetNull)
+  invitedById     Int
+  status          String       @default("pending") // pending, accepted, expired
+  createdAt       DateTime     @default(now)
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+
+  @@ unique([organizationId, email])
+}
+
+model ApiKey {
+  id              Int          @id @default(autoincrement)
+  key             String       @unique
+  name            String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  Int
+  permissions     String[]     // e.g., ["contacts:read", "contacts:write", "campaigns:write"]
+  lastUsed        DateTime?
+  expiresAt       DateTime?
+  createdAt       DateTime     @default(now)
+  createdBy       User         @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdById     Int
+}
+
+// --- Contact Models ---
+
+model Contact {
+  id              Int          @id @default(autoincrement)
+  email           String       @unique
+  name            String?
+  company         String?
+  role            String?
+  industry        String?
+  phone           String?
+  linkedin        String?
+  notes           String?
+  eligibleToEmail Boolean      @default(false)
+  tags            String[]     @default([])
+  customFields    Json         @default({})
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  Int
+  createdAt       DateTime     @default(now)
+  updatedAt       DateTime     @updatedAt
+  events          Event[]
+  verifications   EmailVerification[]
+  drafts          Draft[]
+}
+
+model Tag {
+  id              Int          @id @default(autoincrement)
+  name            String       @unique
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  Int
+  contacts        Contact[]    @relation("ContactTag")
+  createdAt       DateTime     @default(now)
+
+  @@ unique([organizationId, name])
+}
+
+// --- Template Models ---
+
+model Template {
+  id              Int          @id @default(autoincrement)
+  name            String
+  category        String       @default("intro")
+  subjectTemplate String
+  bodyTemplate    String
+  footerTemplate  String       @default("")
+  variables       Json         @default({})
+  tags            String[]     @default([])
+  isActive        Boolean      @default(true)
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  Int
+  createdAt       DateTime     @default(now)
+  updatedAt       DateTime     @updatedAt
+  usageLogs       TemplateUsageLog[]
+}
+
+model TemplateUsageLog {
+  id              Int          @id @default(autoincrement)
+  template        Template     @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  templateId      Int
+  contact         Contact      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactId       Int
+  usedAt          DateTime     @default(now)
+  wasApproved     Boolean
+  wasSent         Boolean
+}
+
+// --- Campaign Models ---
+
+model Campaign {
+  id              Int          @id @default(autoincrement)
+  name            String
+  description     String?
+  type            String       @default("regular") // regular, ab_test, automated
+  status          String       @default("draft") // draft, scheduled, sending, completed, paused, archived
+  template        Template?    @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  templateId      Int?
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  Int
+  targetSegment   Segment?
+  targetSegmentId Int
+  abTestConfig    Json?
+  scheduledAt     DateTime?
+  sentAt          DateTime?
+  delivered       Int          @default(0)
+  opened          Int          @default(0)
+  clicked         Int          @default(0)
+  replied         Int          @default(0)
+  bounced         Int          @default(0)
+  unsubscribed    Int          @default(0)
+  createdAt       DateTime     @default(now)
+  updatedAt       DateTime     @updatedAt
+  createdBy       User         @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdById     Int
+}
+
+// --- Segment Models ---
+
+model Segment {
+  id              Int          @id @default(autoincrement)
+  name            String
+  description     String?
+  query           Json         // JSON query for filtering contacts
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  Int
+  createdAt       DateTime     @default(now)
+  updatedAt       DateTime     @updatedAt
+  contacts        Contact[]    @relation("SegmentContact")
+}
+
+// Join model for Segment-Contact many-to-many
+model SegmentContact {
+  id          Int     @id @default(autoincrement)
+  segment     Segment @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+  segmentId   Int
+  contact     Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contactId   Int
+  addedAt     DateTime @default(now)
+
+  @@ unique([segmentId, contactId])
+}
+
+// --- Email Verification Models ---
+
+model EmailVerification {
+  id              Int          @id @default(autoincrement)
+  email           String       @unique
+  contact         Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactId       Int?
+  status          String       // not_checked, deliverable, undeliverable, risky, inconclusive
+  smtpCheck       String       @default("not_checked")
+  mxCheck         String       @default("not_checked")
+  catchAll        Boolean      @default(false)
+  disposable      Boolean      @default(false)
+  domain          String?
+  lastChecked     DateTime?
+  createdAt       DateTime     @default(now)
+  updatedAt       DateTime     @updatedAt
+}
+
+// --- Draft Models ---
+
+model Draft {
+  id              Int          @id @default(autoincrement)
+  subject         String
+  body            String
+  status          String       // draft, sent, failed
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  Int
+  contact         Contact      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactId       Int
+  variables       Json         @default({})
+  priority        String       @default("normal") // normal, high
+  createdAt       DateTime     @default(now)
+  sentAt          DateTime?
+  errorMessage    String?
+  attempts        Int          @default(0)
+  lastAttemptAt   DateTime?
+}
+
+// --- Event Models ---
+
+model Event {
+  id              Int          @id @default(autoincrement)
+  type            String       // email_sent, reply_classified, followup_generated, etc.
+  payload         Json
+  contact         Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactId       Int?
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  Int
+  createdAt       DateTime     @default(now)
+}
+
+// --- Settings Models ---
+
+model Settings {
+  id              Int          @id @default(autoincrement)
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  Int
+  goal            String       @default("book intro calls with sales leaders")
+  businessName    String       @default("")
+  businessOffer   String       @default("")
+  dailyCap        Int          @default(50)
+  domainCap       Int          @default(3)
+  AUTO_APPROVE    Boolean      @default(false)
+  AUTOPILOT       Boolean      @default(false)
+  footerText      String       @default("")
+  senderName      String       @default("")
+  senderRole      String       @default("")
+  companyWebsite  String       @default("")
+  calendlyUrl     String       @default("")
+  createdAt       DateTime     @default(now)
+  updatedAt       DateTime     @updatedAt
+}
+
+// --- Inbox/IMAP Models ---
+
+model InboxConfig {
+  id              Int          @id @default(autoincrement)
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  Int
+  imapHost        String
+  imapPort        Int          @default(993)
+  imapUser        String
+  imapPassword    String
+  imapTls         Boolean      @default(true)
+  lastSync        DateTime?
+  status          String       @default("disconnected") // disconnected, connected, error
+  createdAt       DateTime     @default(now)
+  updatedAt       DateTime     @updatedAt
+}
+
+// --- Reply Models ---
+
+model Reply {
+  id              Int          @id @default(autoincrement)
+  email           String
+  subject         String
+  bodyPreview     String
+  sentiment       String       // positive, negative, neutral, mixed
+  classification  String       // interest, objection, query, compliment, complaint, unsubscribe, irrelevant
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  Int
+  contact         Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactId       Int?
+  createdAt       DateTime     @default(now)
+  autoReplyStatus String       @default("pending") // pending, sent, failed
+  autoReplyMessage String?
+}
+
+// --- Follow-up Models ---
+
+model FollowUp {
+  id              Int          @id @default(autoincrement)
+  campaign        Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId      Int?
+  contact         Contact      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactId       Int
+  stage           Int          // 1, 2, 3, etc.
+  subject         String
+  body            String
+  status          String       // scheduled, sent, replied, bounced, unsubscribed
+  scheduledAt     DateTime
+  sentAt          DateTime?
+  repliedAt       DateTime?
+  createdAt       DateTime     @default(now)
+}
+
+// --- Queue/Job Models ---
+
+model QueueJob {
+  id              Int          @id @default(autoincrement)
+  type            String       // send_campaign, send_draft, process_replies, etc.
+  payload         Json
+  status          String       // pending, running, completed, failed
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  Int
+  createdAt       DateTime     @default(now)
+  completedAt     DateTime?
+  errorMessage    String?
+}
+
+// --- Audit Log Models ---
+
+model AuditLog {
+  id              Int          @id @default(autoincrement)
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  Int
+  action          String       // e.g., "contact_created", "campaign_sent", "user_invited"
+  entityType      String       // e.g., "Contact", "Campaign", "User"
+  entityId        Int
+  performedBy     User         @relation(fields: [performedById], references: [id], onDelete: SetNull)
+  performedById   Int
+  metadata        Json
+  createdAt       DateTime     @default(now)
+}

@@ -1,7 +1,8 @@
-"""SMTP configuration API router."""
-from fastapi import APIRouter, HTTPException
+"""Per-tenant SMTP configuration API router."""
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.db import Log, SMTPConfig, SessionLocal
+from app.deps import current_tenant_id
 from app.models.schemas import SMTPConfigBase, SMTPConfigOut
 from app.services.mailer import test_connection
 
@@ -16,11 +17,21 @@ def get_db():
         db.close()
 
 
+def _get_or_create_config(db, tenant_id: int) -> SMTPConfig:
+    config = db.query(SMTPConfig).filter(SMTPConfig.tenant_id == tenant_id).first()
+    if not config:
+        config = SMTPConfig(tenant_id=tenant_id)
+        db.add(config)
+        db.commit()
+        db.refresh(config)
+    return config
+
+
 @router.get("/status", response_model=SMTPConfigOut)
-def get_smtp_status():
+def get_smtp_status(tenant_id: int = Depends(current_tenant_id)):
     db = SessionLocal()
     try:
-        config = db.query(SMTPConfig).first()
+        config = db.query(SMTPConfig).filter(SMTPConfig.tenant_id == tenant_id).first()
         if not config:
             return SMTPConfigOut(
                 host=None,
@@ -47,40 +58,32 @@ def get_smtp_status():
 
 
 @router.post("/config")
-def save_smtp_config(config: SMTPConfigBase):
+def save_smtp_config(
+    config: SMTPConfigBase,
+    tenant_id: int = Depends(current_tenant_id),
+):
     db = SessionLocal()
     try:
         if config.port is not None and not 1 <= config.port <= 65535:
             raise HTTPException(status_code=422, detail="SMTP port must be between 1 and 65535")
 
-        existing = db.query(SMTPConfig).first()
+        existing = _get_or_create_config(db, tenant_id)
 
-        if existing:
-            existing.host = (config.host or "").strip() or None
-            existing.port = config.port or 587
-            existing.user = (config.user or "").strip() or None
-            existing.sender = (config.sender or "").strip() or None
-            # A blank password means "keep the saved one" rather than clearing it.
-            if config.password:
-                existing.password = config.password
-            existing.configured = bool(existing.host and (existing.sender or existing.user))
-            existing.authentication_configured = bool(existing.user and existing.password)
-        else:
-            existing = SMTPConfig(
-                host=(config.host or "").strip() or None,
-                port=config.port or 587,
-                user=(config.user or "").strip() or None,
-                password=config.password or None,
-                sender=(config.sender or "").strip() or None,
-                configured=bool((config.host or "").strip()),
-                authentication_configured=bool(config.user and config.password),
-            )
-            db.add(existing)
+        existing.host = (config.host or "").strip() or None
+        existing.port = config.port or 587
+        existing.user = (config.user or "").strip() or None
+        existing.sender = (config.sender or "").strip() or None
+        # A blank password means "keep the saved one" rather than clearing it.
+        if config.password:
+            existing.password = config.password
+        existing.configured = bool(existing.host and (existing.sender or existing.user))
+        existing.authentication_configured = bool(existing.user and existing.password)
 
         db.add(
             Log(
                 message=f"SMTP config saved: {'configured' if existing.configured else 'not configured'}",
                 level="info",
+                tenant_id=tenant_id,
             )
         )
         db.commit()
@@ -95,11 +98,14 @@ def save_smtp_config(config: SMTPConfigBase):
 
 
 @router.post("/test")
-def test_smtp_config(config: SMTPConfigBase):
+def test_smtp_config(
+    config: SMTPConfigBase,
+    tenant_id: int = Depends(current_tenant_id),
+):
     """Test SMTP connectivity, falling back to saved credentials for blanks."""
     db = SessionLocal()
     try:
-        saved = db.query(SMTPConfig).first()
+        saved = db.query(SMTPConfig).filter(SMTPConfig.tenant_id == tenant_id).first()
     finally:
         db.close()
 

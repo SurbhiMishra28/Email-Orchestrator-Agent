@@ -142,7 +142,7 @@ agent.close()
 2. Calculate days since original send
 3. Check if contact already has follow-up drafts
 4. Create new draft using follow-up template
-5. Set status to "draft" (requires manual approval)
+5. Leave it at `status="draft"`; the same queue pass sends it, no approval step
 
 **Endpoint**: `POST /api/queue/followups`
 

@@ -79,8 +79,8 @@ def _received_at(message) -> datetime:
     return datetime.now(timezone.utc)
 
 
-def fetch_recent(limit: int = 25) -> List[dict]:
-    """Return the newest ``limit`` messages without marking them as read."""
+def fetch_recent(limit: int = 25, after_uid: Optional[int] = None) -> List[dict]:
+    """Fetch recent messages, or the next UID batch after ``after_uid``."""
     if not is_configured():
         raise InboxNotConfigured(
             "IMAP is not configured. Set IMAP_HOST, IMAP_USER and IMAP_PASS."
@@ -96,11 +96,15 @@ def fetch_recent(limit: int = 25) -> List[dict]:
         if status != "OK":
             raise InboxError("Could not open the INBOX folder")
 
-        status, data = client.uid("search", None, "ALL")
+        if after_uid is None:
+            status, data = client.uid("search", None, "ALL")
+        else:
+            status, data = client.uid("search", None, "UID", f"{after_uid + 1}:*")
         if status != "OK" or not data or not data[0]:
             return []
 
-        uids = data[0].split()[-limit:]
+        all_uids = data[0].split()
+        uids = all_uids[-limit:] if after_uid is None else all_uids[:limit]
         messages = []
         for uid in reversed(uids):
             status, parts = client.uid("fetch", uid, "(BODY.PEEK[])")
@@ -130,18 +134,32 @@ def fetch_recent(limit: int = 25) -> List[dict]:
                 pass
 
 
-def sync_inbox(limit: int = 25) -> dict:
+def sync_inbox(limit: int = 25, tenant_id: Optional[int] = None) -> dict:
     """Fetch messages and persist the ones not seen before."""
-    fetched = fetch_recent(limit)
     db = SessionLocal()
     added = 0
     try:
+        known_query = db.query(InboxMessage.uid)
+        if tenant_id is not None:
+            known_query = known_query.filter(InboxMessage.tenant_id == tenant_id)
+        known_uids = known_query.all()
+        numeric_uids = [
+            int(row[0]) for row in known_uids
+            if row[0] and str(row[0]).isdigit()
+        ]
+        fetched = fetch_recent(
+            limit,
+            after_uid=max(numeric_uids) if numeric_uids else None,
+        )
         for item in fetched:
-            exists = (
-                db.query(InboxMessage)
-                .filter(InboxMessage.uid == item["uid"])
-                .first()
+            exists_query = db.query(InboxMessage).filter(
+                InboxMessage.uid == item["uid"]
             )
+            if tenant_id is not None:
+                exists_query = exists_query.filter(
+                    InboxMessage.tenant_id == tenant_id
+                )
+            exists = exists_query.first()
             if exists:
                 continue
             db.add(
@@ -151,11 +169,18 @@ def sync_inbox(limit: int = 25) -> dict:
                     subject=item["subject"],
                     snippet=item["snippet"],
                     received_at=item["received_at"],
+                    tenant_id=tenant_id,
                 )
             )
             added += 1
         if added:
-            db.add(Log(message=f"Synced {added} inbox message(s)", level="info"))
+            db.add(
+                Log(
+                    message=f"Synced {added} inbox message(s)",
+                    level="info",
+                    tenant_id=tenant_id,
+                )
+            )
         db.commit()
         return {"fetched": len(fetched), "new": added}
     finally:

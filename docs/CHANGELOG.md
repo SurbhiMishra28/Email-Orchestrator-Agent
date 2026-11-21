@@ -12,10 +12,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SenderAgent** - Low-level SMTP sending agent with validation and error handling
 - **CalendarAgent** - Meeting scheduling integration (Google Calendar, Microsoft, Calendly, manual)
 - **AIBrainAgent** - AI intelligence layer for content optimization and A/B testing
+- **Zero-touch autopilot** - `POST /api/run` drafts intros, syncs the inbox, classifies and answers replies, generates follow-ups and sends, with no approval step
+- **Queue drain** - `services/send_worker.drain_queue()` keeps passing the queue so a single Run delivers the whole ready batch instead of one paced email
+- **Batch sends drain too** - `/api/queue/run-all` and `/api/queue/run-async` use the same drain, so "Send selected" and campaign sends no longer stop after one email; whatever the bounded synchronous drain cannot finish is returned as `queued: true` with a `job_id`
+- **Async send jobs** - `POST /api/queue/run-async` plus `GET /api/queue/jobs/{job_id}` run sends on the background worker so a large batch never holds an HTTP request open
+- **Template aliases** - `INTRO_CATEGORIES` / `FOLLOWUP_CATEGORIES` accept the legacy `personalized_mail`, `outreach`, `initial` and `followups_mail` spellings
+- **CSV import eligibility** - `CSVImport.default_eligible` keeps imports mailable when the file has no `email_permission` column
+- **Bulk contact deletion** - `DELETE /api/contacts/all?confirm=true` and `DELETE /api/contacts/bulk` remove contacts with their drafts, events, list memberships and verification links
+- **Engagement tracking** (opt-in) - HMAC-signed open/click pixels via `/api/track/open/{token}` and `/api/track/click/{token}`, attribution at `/api/tracking`
+- **A/B testing** - `/api/ab-tests` experiment and variant CRUD with deterministic variant assignment and per-variant results
 
 ### Changed
 - Updated agent documentation to reflect complete implementation
 - Added comprehensive docstrings to all agent classes
+- `/api/run` and `/api/scheduling/run-now` return immediately with a `job_id`; sending continues server-side
+- Reply handling no longer gates on human review: every reply is classified and answered in the same pass
+- All destructive UI actions now use an in-app confirmation modal instead of `window.confirm`
 
 ---
 

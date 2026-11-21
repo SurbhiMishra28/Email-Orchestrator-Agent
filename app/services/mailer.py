@@ -66,9 +66,13 @@ def is_configured(smtp_config) -> bool:
     return bool(host and sender)
 
 
-def send_email(smtp_config, recipient: str, subject: str, body: str, from_name: Optional[str] = None, from_email: Optional[str] = None) -> str:
-    """Send a plain-text email, raising a clear error when that is impossible.
-    
+def send_email(smtp_config, recipient: str, subject: str, body: str, from_name: Optional[str] = None, from_email: Optional[str] = None, html_body: Optional[str] = None) -> str:
+    """Send an email, raising a clear error when that is impossible.
+
+    ``body`` is always sent as the plain-text part. ``html_body`` is optional and
+    only supplied when a tenant opted into engagement tracking, in which case the
+    message becomes ``multipart/alternative`` with both parts.
+
     Returns the message-id of the sent email.
     """
     host, port, user, password, sender = _connection_parts(smtp_config)
@@ -95,6 +99,8 @@ def send_email(smtp_config, recipient: str, subject: str, body: str, from_name: 
     # Compliance: give recipients a way to opt out of further mail.
     message["List-Unsubscribe"] = f"<mailto:{final_sender}?subject=unsubscribe>"
     message.set_content(body or "")
+    if html_body:
+        message.add_alternative(html_body, subtype="html")
 
     try:
         server = _open_server(host, port)

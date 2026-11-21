@@ -1,18 +1,10 @@
 """Basic tests for Email Orchestrator."""
 import pytest
-from fastapi.testclient import TestClient
-from app.main import app
-
-
-@pytest.fixture(scope="module")
-def client():
-    # Entering the client runs app startup, which creates missing tables.
-    with TestClient(app) as test_client:
-        yield test_client
+from app.agents import CalendarAgent
 
 
 def test_health_check(client):
-    """Test health check endpoint."""
+    """Health check endpoint stays public."""
     response = client.get("/health")
     assert response.status_code == 200
     data = response.json()
@@ -61,3 +53,20 @@ def test_redraft_unknown_draft_is_404(client):
     """Redrafting a missing draft must not create or arm anything."""
     response = client.post("/api/drafts/999999/redraft")
     assert response.status_code == 404
+
+
+def test_agent_method_lifecycle_is_streamed_over_websocket(client):
+    """Agent method lifecycle events are sent to connected clients in real time."""
+    with client.websocket_connect("/ws/live-logs") as websocket:
+        CalendarAgent().available()
+        events = [websocket.receive_json() for _ in range(4)]
+
+    assert [(event["scope"], event["status"]) for event in events] == [
+        ("agent", "started"),
+        ("method", "started"),
+        ("method", "completed"),
+        ("agent", "completed"),
+    ]
+    assert all(event["agent"] == "CalendarAgent" for event in events)
+    assert all(event["method"] == "available" for event in events)
+    assert all("timestamp" in event for event in events)

@@ -6,6 +6,7 @@ import os
 import re
 from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime, timezone, timedelta
+from urllib.parse import urlparse
 from jinja2 import Template as JinjaTemplate
 from dataclasses import dataclass, field
 
@@ -13,12 +14,20 @@ logger = logging.getLogger(__name__)
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-if os.getenv("NVIDIA_API_KEY"):
+# Import the NVIDIA client unconditionally: this module is imported before
+# ``app.config`` loads .env in some entry points (scripts, tests), so an
+# os.getenv guard here silently left ChatNVIDIA undefined and every AI
+# expansion fell back to the plain template engine.
+try:
     from langchain_nvidia_ai_endpoints import ChatNVIDIA
+except ImportError:  # optional dependency
+    ChatNVIDIA = None
 
 from app.db import SessionLocal, Contact, Draft, Template, Log, ToolUse, Settings, Event, SMTPConfig
+from app.live_logs import instrument_agent
 from app.services.limits import check_send_allowed
 from app.services.mailer import MailDeliveryError, MailNotConfigured, is_configured, send_email
+from app.services.usage import EMAILS_SENT, REPLIES_RECEIVED, record_usage
 
 
 @dataclass
@@ -52,7 +61,12 @@ def get_llm_client():
     
     if not api_key:
         return None
-    
+    if ChatNVIDIA is None:
+        logger.warning(
+            "langchain-nvidia-ai-endpoints is not installed; using the template engine."
+        )
+        return None
+
     try:
         return ChatNVIDIA(model=model, api_key=api_key, temperature=0.7)
     except Exception as e:
@@ -64,12 +78,21 @@ async def expand_template_with_ai(template: Template, contact: Contact, custom_v
     """Expand a template using AI for personalization."""
     db = SessionLocal()
     try:
-        # Get settings for context
-        settings_row = db.query(Settings).first()
+        # Get the tenant's settings for context. The template and contact carry
+        # the tenant, and the template's own tenant is authoritative.
+        settings_query = db.query(Settings)
+        tenant_id = getattr(template, "tenant_id", None) or getattr(contact, "tenant_id", None)
+        if tenant_id is not None:
+            settings_query = settings_query.filter(Settings.tenant_id == tenant_id)
+        settings_row = settings_query.first()
         settings = {
             "goal": settings_row.goal if settings_row else "",
             "business_name": settings_row.business_name if settings_row else "",
             "business_offer": settings_row.business_offer if settings_row else "",
+            "footer_text": settings_row.footer_text if settings_row else "",
+            "sender_name": settings_row.sender_name if settings_row else "",
+            "sender_role": settings_row.sender_role if settings_row else "",
+            "company_website": settings_row.company_website if settings_row else "",
         }
         
         variables = {
@@ -81,6 +104,11 @@ async def expand_template_with_ai(template: Template, contact: Contact, custom_v
             "goal": settings.get("goal", ""),
             "business_name": settings.get("business_name", ""),
             "business_offer": settings.get("business_offer", ""),
+            "footer_text": settings.get("footer_text", ""),
+            "sender_name": settings.get("sender_name", ""),
+            "sender_role": settings.get("sender_role", ""),
+            "company_website": settings.get("company_website", ""),
+            "calendly_url": settings_row.calendly_url if settings_row else "",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "contact_email": contact.email,
         }
@@ -101,6 +129,7 @@ async def expand_template_with_ai(template: Template, contact: Contact, custom_v
                     HumanMessage(
                         content=f"""Subject Template: {template.subject_template}
 Body Template: {template.body_template}
+Footer Template: {template.footer_template or 'None - use global footer_text variable'}
 Contact: {contact.name}, {contact.company}, {contact.role}
 Variables: {json.dumps(variables, indent=2)}
 
@@ -126,20 +155,33 @@ Reply with a single JSON object and nothing else, using the shape
                         data = None
 
                 if isinstance(data, dict) and data.get("subject") and data.get("body"):
-                    return {"subject": data["subject"], "body": data["body"]}
+                    # Append footer if not already included and template has footer
+                    body = data["body"]
+                    footer = template.footer_template or variables.get("footer_text", "")
+                    if footer and footer.strip() and not body.rstrip().endswith(footer.strip()):
+                        body = f"{body.rstrip()}\n\n{footer}"
+                    return {"subject": data["subject"], "body": body}
                 logger.warning("AI expansion returned an unusable response; using the template engine.")
             except Exception as e:
                 logger.warning(f"AI expansion failed, using template engine: {e}")
-        
+
         # Fallback to template engine
+        body = expand_template_variables(template.body_template, variables)
+
+        # Append footer if template has one
+        footer = template.footer_template or variables.get("footer_text", "")
+        if footer.strip():
+            body = f"{body.rstrip()}\n\n{footer}"
+
         return {
             "subject": expand_template_variables(template.subject_template, variables),
-            "body": expand_template_variables(template.body_template, variables)
+            "body": body
         }
     finally:
         db.close()
 
 
+@instrument_agent
 class EmailAgent:
     """Orchestrates email sending workflow."""
     
@@ -175,16 +217,29 @@ class EmailAgent:
                 contact_id=contact.id,
                 subject=subject,
                 body=body,
-                status="draft"
+                status="draft",
+                tenant_id=getattr(contact, "tenant_id", None),
             )
             self.db.add(draft)
             self.db.commit()
             self.db.refresh(draft)
 
             if auto_approve and send_via_smtp:
-                smtp_config = self.db.query(SMTPConfig).first()
+                smtp_config = get_smtp_for_tenant(
+                    self.db, getattr(contact, "tenant_id", None)
+                )
                 try:
-                    send_email(smtp_config, contact.email, subject, body)
+                    from app.services.tracking import send_html_for_draft
+
+                    send_email(
+                        smtp_config,
+                        contact.email,
+                        subject,
+                        body,
+                        html_body=send_html_for_draft(
+                            self.db, draft, getattr(contact, "tenant_id", None)
+                        ),
+                    )
                     draft.status = "sent"
                     draft.sent_at = datetime.now(timezone.utc)
                 except MailNotConfigured as exc:
@@ -196,7 +251,11 @@ class EmailAgent:
                 self.db.commit()
 
             # Log
-            log = Log(message=f"Draft created for {contact.email} from template {template.name}", level="info")
+            log = Log(
+                message=f"Draft created for {contact.email} from template {template.name}",
+                level="info",
+                tenant_id=getattr(contact, "tenant_id", None),
+            )
             self.db.add(log)
             self.db.commit()
 
@@ -216,6 +275,7 @@ class EmailAgent:
             self.db.close()
 
 
+@instrument_agent
 class QueueManager:
     """Manages the email orchestration queue."""
     
@@ -231,12 +291,16 @@ class QueueManager:
     def last_poll(self) -> Optional[float]:
         return self._last_poll
     
-    async def process_queue(self) -> Dict[str, Any]:
+    async def process_queue(self, tenant_id: Optional[int] = None) -> Dict[str, Any]:
         """Send queued drafts through SMTP.
 
         Drafts are skipped (never marked sent) when SMTP is unconfigured or the
         recipient is not eligible. Only a message accepted by the relay sets
         ``status="sent"``.
+
+        When ``tenant_id`` is given, only that tenant's drafts and SMTP config
+        are touched. Background jobs pass one tenant at a time so a queue pass
+        can never send another tenant's mail.
         """
         self._last_poll = datetime.now(timezone.utc).timestamp()
         db = SessionLocal()
@@ -245,19 +309,22 @@ class QueueManager:
             # Blocked drafts are retried: the block was often a fixable state
             # (recipient not yet approved, SMTP not configured) and eligibility
             # is re-checked below before anything is sent.
-            drafts = (
-                db.query(Draft)
-                .filter(Draft.status.in_(["draft", "blocked"]))
-                .limit(10)
-                .all()
+            draft_query = db.query(Draft).filter(
+                Draft.status.in_(["draft", "blocked"])
             )
+            if tenant_id is not None:
+                draft_query = draft_query.filter(Draft.tenant_id == tenant_id)
+            drafts = draft_query.order_by(Draft.id.asc()).limit(10).all()
             results = {"processed": 0, "sent": 0, "failed": 0, "skipped": 0, "details": []}
 
             if not drafts:
                 self._alive = True
                 return results
 
-            smtp_config = db.query(SMTPConfig).first()
+            smtp_query = db.query(SMTPConfig)
+            if tenant_id is not None:
+                smtp_query = smtp_query.filter(SMTPConfig.tenant_id == tenant_id)
+            smtp_config = smtp_query.first()
             if not is_configured(smtp_config):
                 results["skipped"] = len(drafts)
                 results["details"].append(
@@ -267,7 +334,13 @@ class QueueManager:
                 return results
 
             for draft in drafts:
-                contact = db.query(Contact).filter(Contact.id == draft.contact_id).first()
+                draft_tenant = tenant_id if tenant_id is not None else draft.tenant_id
+                contact_query = db.query(Contact).filter(Contact.id == draft.contact_id)
+                if draft_tenant is not None:
+                    contact_query = contact_query.filter(
+                        Contact.tenant_id == draft_tenant
+                    )
+                contact = contact_query.first()
 
                 if not contact or not contact.email or not contact.eligible_to_email:
                     results["skipped"] += 1
@@ -300,10 +373,12 @@ class QueueManager:
                         Draft.id == draft.id,
                         Draft.status.in_(["draft", "blocked"]),
                     )
-                    .update(
-                        {Draft.status: "sending"},
-                        synchronize_session=False,
-                    )
+                )
+                if draft_tenant is not None:
+                    claimed = claimed.filter(Draft.tenant_id == draft_tenant)
+                claimed = claimed.update(
+                    {Draft.status: "sending"},
+                    synchronize_session=False,
                 )
                 db.commit()
                 if not claimed:
@@ -323,16 +398,34 @@ class QueueManager:
 
                 try:
                     # smtplib blocks; keep the event loop responsive.
+                    from app.services.tracking import send_html_for_draft
+
                     await asyncio.to_thread(
                         send_email,
                         smtp_config,
                         contact.email,
                         draft.subject,
                         draft.body,
+                        None,
+                        None,
+                        send_html_for_draft(db, draft, draft_tenant),
                     )
                 except MailDeliveryError as exc:
                     draft.status = "failed"
                     draft.error_message = str(exc)
+                    if (draft.variables or {}).get("message_kind") == "auto_reply":
+                        db.add(
+                            Event(
+                                tenant_id=draft_tenant,
+                                contact_id=draft.contact_id,
+                                event_type="auto_reply_failed",
+                                data={
+                                    "reply_event_id": (draft.variables or {}).get("reply_event_id"),
+                                    "message": str(exc),
+                                    "subject": draft.subject,
+                                },
+                            )
+                        )
                     db.commit()
                     results["failed"] += 1
                     results["details"].append(
@@ -342,6 +435,20 @@ class QueueManager:
                     draft.status = "sent"
                     draft.sent_at = datetime.now(timezone.utc)
                     draft.error_message = None
+                    record_usage(db, draft_tenant, EMAILS_SENT)
+                    if (draft.variables or {}).get("message_kind") == "auto_reply":
+                        db.add(
+                            Event(
+                                tenant_id=draft_tenant,
+                                contact_id=draft.contact_id,
+                                event_type="auto_reply_sent",
+                                data={
+                                    "reply_event_id": (draft.variables or {}).get("reply_event_id"),
+                                    "message": "Automatic reply sent",
+                                    "subject": draft.subject,
+                                },
+                            )
+                        )
                     db.commit()
                     results["sent"] += 1
                     results["details"].append(
@@ -372,6 +479,7 @@ class ReplyClassification:
     needs_human_review: bool  # Whether to flag for human review
 
 
+@instrument_agent
 class ReplyAnalyzerAgent:
     """Analyzes incoming email replies and classifies them."""
     
@@ -595,7 +703,9 @@ Classify this email reply."""
                 contact = self.db.query(Contact).filter(Contact.email == sender_email).first()
             
             # Create event record
+            reply_tenant = getattr(contact, "tenant_id", None)
             event = Event(
+                tenant_id=reply_tenant,
                 contact_id=contact.id if contact else None,
                 event_type="reply_received",
                 data={
@@ -613,9 +723,10 @@ Classify this email reply."""
                 }
             )
             self.db.add(event)
+            record_usage(self.db, reply_tenant, REPLIES_RECEIVED)
             
             # Log the event
-            log = Log(message=f"Reply classified as {classification.reply_type} (confidence: {classification.confidence}) from {sender_email}", level="info")
+            log = Log(message=f"Reply classified as {classification.reply_type} (confidence: {classification.confidence}) from {sender_email}", level="info", tenant_id=reply_tenant)
             self.db.add(log)
             self.db.commit()
             
@@ -652,6 +763,27 @@ Classify this email reply."""
 # PERSONALIZED EMAIL AGENT
 # ============================================================================
 
+def get_settings_for_tenant(db, tenant_id: Optional[int]):
+    """Return the settings row for ``tenant_id``.
+
+    Falls back to the first row only when no tenant is given, which keeps the
+    single-tenant background jobs working while never mixing tenant settings.
+    """
+    query = db.query(Settings)
+    if tenant_id is not None:
+        query = query.filter(Settings.tenant_id == tenant_id)
+    return query.order_by(Settings.id.asc()).first()
+
+
+def get_smtp_for_tenant(db, tenant_id: Optional[int]):
+    """Return the SMTP config row for ``tenant_id``."""
+    query = db.query(SMTPConfig)
+    if tenant_id is not None:
+        query = query.filter(SMTPConfig.tenant_id == tenant_id)
+    return query.order_by(SMTPConfig.id.asc()).first()
+
+
+@instrument_agent
 class PersonalizedEmailAgent:
     """Generates personalized email content for specific contacts.
     
@@ -674,11 +806,17 @@ class PersonalizedEmailAgent:
     
     def _get_contact_context(self, contact: Contact) -> Dict[str, Any]:
         """Build context dictionary from contact information."""
-        settings_row = self.db.query(Settings).first()
+        settings_row = get_settings_for_tenant(
+            self.db, getattr(contact, "tenant_id", None)
+        )
         settings = {
             "goal": settings_row.goal if settings_row else "",
             "business_name": settings_row.business_name if settings_row else "",
             "business_offer": settings_row.business_offer if settings_row else "",
+            "footer_text": settings_row.footer_text if settings_row else "",
+            "sender_name": settings_row.sender_name if settings_row else "",
+            "sender_role": settings_row.sender_role if settings_row else "",
+            "company_website": settings_row.company_website if settings_row else "",
         }
         
         return {
@@ -690,6 +828,11 @@ class PersonalizedEmailAgent:
             "goal": settings.get("goal", ""),
             "business_name": settings.get("business_name", ""),
             "business_offer": settings.get("business_offer", ""),
+            "footer_text": settings.get("footer_text", ""),
+            "sender_name": settings.get("sender_name", ""),
+            "sender_role": settings.get("sender_role", ""),
+            "company_website": settings.get("company_website", ""),
+            "calendly_url": settings_row.calendly_url if settings_row else "",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "contact_email": contact.email,
         }
@@ -834,6 +977,7 @@ Make it sound natural and engaging, referencing the specific contact details pro
 # SENDER AGENT
 # ============================================================================
 
+@instrument_agent
 class SenderAgent:
     """Handles email delivery through SMTP with proper error handling.
     
@@ -967,44 +1111,34 @@ class SenderAgent:
 # CALENDAR AGENT
 # ============================================================================
 
+@instrument_agent
 class CalendarAgent:
-    """Manages meeting scheduling and calendar integration.
+    """Provide a configured Calendly booking link without claiming event creation."""
     
-    Supports integration with:
-    - Google Calendar API
-    - Microsoft Graph API
-    - Calendly API
-    - Manual scheduling
-    """
-    
-    def __init__(self, provider: str = "manual", api_key: Optional[str] = None):
+    def __init__(
+        self,
+        provider: str = "manual",
+        api_key: Optional[str] = None,
+        booking_url: Optional[str] = None,
+    ):
         """Initialize calendar agent.
         
         Args:
-            provider: Calendar provider ('google', 'microsoft', 'calendly', 'manual')
-            api_key: API key for the provider (if required)
+            provider: Calendar provider. Only a configured Calendly link is supported.
+            api_key: Reserved for future provider integrations.
         """
         self.provider = provider.lower()
         self.api_key = api_key
-        self._available_providers = ["google", "microsoft", "calendly", "manual"]
+        self.booking_url = (booking_url or "").strip()
     
     def list_calendars(self) -> List[Dict[str, Any]]:
-        """List available calendars.
-        
-        Returns:
-            List of calendar dictionaries with 'id', 'name', 'timezone'
-        """
-        if self.provider == "manual":
-            return [{"id": "default", "name": "Default Calendar", "timezone": "UTC"}]
-        
-        if self.provider == "google":
-            return self._list_google_calendars()
-        
-        if self.provider == "microsoft":
-            return self._list_microsoft_calendars()
-        
+        """List the configured Calendly booking page, if available."""
         if self.provider == "calendly":
-            return self._list_calendly_events()
+            return (
+                [{"id": "calendly-link", "name": "Calendly booking page", "url": self.booking_url}]
+                if self.available()
+                else []
+            )
         
         return []
     
@@ -1017,93 +1151,14 @@ class CalendarAgent:
         description: Optional[str] = None,
         location: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Create a calendar event.
-        
-        Args:
-            summary: Event title
-            start_time: Start datetime (timezone-aware preferred)
-            duration_minutes: Event duration
-            attendees: List of attendee emails
-            description: Event description
-            location: Physical or virtual location
-            
-        Returns:
-            Dictionary with event details including 'id' and 'status'
-        """
-        from datetime import timedelta
-        
-        end_time = start_time + timedelta(minutes=duration_minutes)
-        
-        if self.provider == "manual":
-            return self._create_manual_event(
-                summary, start_time, end_time, attendees, description, location
-            )
-        
-        if self.provider == "google":
-            return self._create_google_event(
-                summary, start_time, end_time, attendees, description, location
-            )
-        
-        if self.provider == "microsoft":
-            return self._create_microsoft_event(
-                summary, start_time, end_time, attendees, description, location
-            )
-        
+        """Fail explicitly because bookings are created by invitees through Calendly."""
         if self.provider == "calendly":
-            return self._create_calendly_event(
-                summary, start_time, duration_minutes, attendees, description
+            raise ValueError(
+                "Calendly events are created when invitees book through the configured booking link."
             )
-        
-        raise ValueError(f"Unsupported calendar provider: {self.provider}")
-    
-    def _create_manual_event(
-        self,
-        summary: str,
-        start_time: datetime,
-        end_time: datetime,
-        attendees: Optional[List[str]],
-        description: Optional[str],
-        location: Optional[str]
-    ) -> Dict[str, Any]:
-        """Create event in manual mode (for development/testing)."""
-        return {
-            "id": f"manual-{int(datetime.now().timestamp())}",
-            "summary": summary,
-            "start": start_time.isoformat(),
-            "end": end_time.isoformat(),
-            "attendees": attendees or [],
-            "description": description,
-            "location": location,
-            "status": "confirmed",
-            "provider": "manual"
-        }
-    
-    def _list_google_calendars(self) -> List[Dict[str, Any]]:
-        """List Google Calendar calendars (stub implementation)."""
-        return [{"id": "google-primary", "name": "Google Calendar", "timezone": "America/New_York"}]
-    
-    def _create_google_event(self, **kwargs) -> Dict[str, Any]:
-        """Create Google Calendar event (stub implementation)."""
-        logger.info(f"Google Calendar event creation would be called with: {kwargs}")
-        return {"id": "google-event-id", "status": "confirmed", "provider": "google"}
-    
-    def _list_microsoft_calendars(self) -> List[Dict[str, Any]]:
-        """List Microsoft Calendar calendars (stub implementation)."""
-        return [{"id": "microsoft-primary", "name": "Outlook Calendar", "timezone": "America/New_York"}]
-    
-    def _create_microsoft_event(self, **kwargs) -> Dict[str, Any]:
-        """Create Microsoft Calendar event (stub implementation)."""
-        logger.info(f"Microsoft Calendar event creation would be called with: {kwargs}")
-        return {"id": "microsoft-event-id", "status": "confirmed", "provider": "microsoft"}
-    
-    def _list_calendly_events(self) -> List[Dict[str, Any]]:
-        """List Calendly events (stub implementation)."""
-        return []
-    
-    def _create_calendly_event(self, **kwargs) -> Dict[str, Any]:
-        """Create Calendly event (stub implementation)."""
-        logger.info(f"Calendly event creation would be called with: {kwargs}")
-        return {"id": "calendly-event-id", "status": "confirmed", "provider": "calendly"}
+        raise ValueError(
+            f"Calendar event creation is not configured for provider '{self.provider}'."
+        )
     
     def generate_meeting_link(self, meeting_type: str = "call") -> str:
         """Generate a meeting link for the configured provider.
@@ -1114,22 +1169,24 @@ class CalendarAgent:
         Returns:
             Meeting URL
         """
-        if self.provider == "google":
-            return "https://meet.google.com/xxx-xxxx-xxx"
-        elif self.provider == "microsoft":
-            return "https://teams.microsoft.com/l/meetup-join/xxx"
-        else:
-            return "https://example.com/meeting"
+        return self.booking_url if self.available() else ""
     
     def available(self) -> bool:
         """Check if calendar integration is available."""
-        return self.provider in self._available_providers
+        parsed = urlparse(self.booking_url)
+        hostname = (parsed.hostname or "").lower()
+        return (
+            self.provider == "calendly"
+            and parsed.scheme == "https"
+            and (hostname == "calendly.com" or hostname.endswith(".calendly.com"))
+        )
 
 
 # ============================================================================
 # AI BRAIN AGENT
 # ============================================================================
 
+@instrument_agent
 class AIBrainAgent:
     """AI-powered intelligence layer for email enhancement.
     
@@ -1351,6 +1408,7 @@ def create_agent_for_task(task_type: str, **kwargs) -> Any:
 # AUTO-RESPONSE WORKFLOW
 # ============================================================================
 
+@instrument_agent
 class AutoResponder:
     """Handles automatic replies to classified email responses.
     
@@ -1361,13 +1419,13 @@ class AutoResponder:
     RESPONSE_TEMPLATES = {
         "positive_response": {
             "subject_prefix": "Re:",
-            "body": """Hi {{ first_name }},
+            "body": """Welcome, {{ first_name }}!
 
-Thank you for your response! I'm excited about the potential to work together.
+Thank you for your interest in {{ sender_company }}. I'm glad you're considering working with us.
 
-As discussed, I'd like to schedule a brief call to explore how we can help Skora Infotech grow its digital presence. I have a couple of tailored ideas for your web optimization and SEO needs.
+I'd be happy to discuss how we can help with {{ business_offer }}.
 
-How does {{ meeting_proposal }} sound?
+{% if calendar_link %}Choose a time that works for you: {{ calendar_link }}{% else %}Reply with a convenient time and we will coordinate.{% endif %}
 
 Looking forward to connecting!
 
@@ -1382,14 +1440,11 @@ Best regards,
 
 Thanks for your question! I'd be happy to provide more details about our services.
 
-At Skora Infotech, we specialize in helping businesses like yours:
-- Build high-converting digital ecosystems
-- Drive organic traffic through targeted SEO
-- Implement automated customer acquisition pipelines
+At {{ sender_company }}, we help businesses with {{ business_offer }}.
 
 I can share specific growth ideas tailored for your company. Would you like to schedule a brief call to discuss?
 
-I'm available {{ availability_options }}.
+{% if calendar_link %}Choose a time here: {{ calendar_link }}{% endif %}
 
 Looking forward to helping you out!
 
@@ -1404,9 +1459,9 @@ Best regards,
 
 Perfect! I'm looking forward to our call.
 
-Here's a calendar invite link: {{ calendar_link }}
+{% if calendar_link %}Choose a time that works for you: {{ calendar_link }}{% else %}Reply with a convenient time and we will coordinate.{% endif %}
 
-I'll be ready to discuss how we can help Skora Infotech scale its online acquisition channels through targeted web optimization, SEO, and performance marketing.
+I'll be ready to discuss how we can help {{ sender_company }} with {{ business_offer }}.
 
 Looking forward to speaking with you.
 
@@ -1431,11 +1486,23 @@ Best regards,
         self.contact_id = contact_id
         self.smtp_config = smtp_config
         self.sender_agent = sender_agent
-        self.settings = self.db.query(Settings).first()
-        self.sender_name = "The Team"
+        contact_tenant_id = None
+        if contact_id is not None:
+            contact_row = (
+                self.db.query(Contact).filter(Contact.id == contact_id).first()
+            )
+            if contact_row is not None:
+                contact_tenant_id = contact_row.tenant_id
+        self.settings = get_settings_for_tenant(self.db, contact_tenant_id)
+        self.sender_name = (
+            self.settings.sender_name if self.settings and self.settings.sender_name else "The Team"
+        )
         self.sender_company = self.settings.business_name or "Your Company" if self.settings else "Your Company"
-        self.sender_title = "Team Member"
-        self.calendar_agent = CalendarAgent()
+        self.sender_title = self.settings.sender_role if self.settings and self.settings.sender_role else "Team Member"
+        self.calendar_agent = CalendarAgent(
+            provider="calendly",
+            booking_url=self.settings.calendly_url if self.settings else None,
+        )
     
     def generate_response(
         self, 
@@ -1461,7 +1528,7 @@ Best regards,
             return None
         
         contact = self.db.query(Contact).filter(Contact.id == self.contact_id).first()
-        if not contact:
+        if not contact or not contact.eligible_to_email:
             return None
         
         template = self.RESPONSE_TEMPLATES[reply_type]
@@ -1475,6 +1542,7 @@ Best regards,
             "sender_name": self.sender_name,
             "sender_title": self.sender_title,
             "sender_company": self.sender_company,
+            "business_offer": self.settings.business_offer or "our services" if self.settings else "our services",
             "meeting_proposal": self._generate_meeting_proposal(),
             "question_topic": "your question",
             "additional_info": "I'd be happy to provide more details on our services. Let's discuss this during our call.",
@@ -1490,6 +1558,7 @@ Best regards,
             "subject": subject,
             "body": body,
             "reply_type": reply_type,
+            "reply_event_id": classification.get("event_id"),
             "to_email": sender_email,
             "from_name": self.sender_name,
             "timestamp": datetime.now(timezone.utc).isoformat()
@@ -1509,60 +1578,53 @@ Best regards,
         return f"{meeting_day.strftime('%A, %B %d at 10:00 AM EST')}"
     
     def _generate_calendar_link(self) -> str:
-        """Generate a calendar meet link."""
+        """Return the configured Calendly booking URL, if available."""
         if self.calendar_agent and self.calendar_agent.available():
             return self.calendar_agent.generate_meeting_link("call")
-        return "https://calendly.com/placeholder/meeting"
+        return ""
     
     def send_response(
         self, 
         response: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Send the auto-response email.
-        
-        Args:
-            response: Response dictionary from generate_response
-            
-        Returns:
-            Result dictionary with send status
-        """
+        """Queue the auto-response so standard sending limits are enforced."""
         if not response:
             return {"success": False, "message": "No response generated"}
         
-        if not self.sender_agent:
-            self.sender_agent = SenderAgent(smtp_config=self.smtp_config)
-        
-        if not self.sender_agent.is_configured():
-            return {
-                "success": False, 
-                "message": "SMTP not configured",
-                "response": response
-            }
-        
+        contact = self.db.query(Contact).filter(Contact.id == self.contact_id).first()
+        if not contact or not contact.eligible_to_email:
+            return {"success": False, "message": "Contact is not eligible for email"}
+
         try:
-            success, message, msg_id = self.sender_agent.send(
-                to_email=response["to_email"],
-                subject=response["subject"],
-                body=response["body"],
-                from_name=response.get("from_name"),
-                from_email=self.smtp_config.sender if self.smtp_config else None
+            self.db.add(
+                Draft(
+                    contact_id=self.contact_id,
+                    tenant_id=contact.tenant_id,
+                    subject=response["subject"],
+                    body=response["body"],
+                    status="draft",
+                    variables={
+                        "message_kind": "auto_reply",
+                        "reply_event_id": response.get("reply_event_id"),
+                    },
+                )
             )
-            
+            self.db.commit()
             return {
-                "success": success,
-                "message": message,
-                "message_id": msg_id,
+                "success": True,
+                "message": "Automatic reply queued",
                 "response": {
                     "subject": response["subject"],
                     "body_preview": response["body"][:200],
-                    "to_email": response["to_email"]
-                }
+                    "to_email": response["to_email"],
+                },
             }
         except Exception as e:
+            self.db.rollback()
             return {
                 "success": False,
                 "message": str(e),
-                "response": response
+                "response": response,
             }
     
     def log_interaction(
@@ -1571,7 +1633,26 @@ Best regards,
         send_result: Dict[str, Any]
     ) -> None:
         """Log the auto-response interaction."""
-        log = Log(message=f"Auto-response sent for reply {event_id}: {send_result.get('message', 'unknown')}")
+        sent = bool(send_result.get("success"))
+        status = "queued" if sent else "failed"
+        contact = self.db.query(Contact).filter(Contact.id == self.contact_id).first()
+        tenant_id = contact.tenant_id if contact else None
+        event = Event(
+            contact_id=self.contact_id,
+            tenant_id=tenant_id,
+            event_type=f"auto_reply_{status}",
+            data={
+                "reply_event_id": event_id,
+                "message": send_result.get("message", "unknown"),
+                "subject": (send_result.get("response") or {}).get("subject"),
+            },
+        )
+        self.db.add(event)
+        log = Log(
+            message=f"Auto-response {status} for reply {event_id}: {send_result.get('message', 'unknown')}",
+            level="info" if sent else "warning",
+            tenant_id=tenant_id,
+        )
         self.db.add(log)
         self.db.commit()
     

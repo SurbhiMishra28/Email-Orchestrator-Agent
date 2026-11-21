@@ -8,6 +8,9 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    // esbuild 0.21.x miscompiles this bundle into a TDZ error
+    // ("Cannot access 'ln' before initialization") that leaves the app blank.
+    minify: 'terser',
     rollupOptions: {
       input: path.resolve(__dirname, 'index.html'),
     },
@@ -23,6 +26,15 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+      },
+      '/health': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/ws': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        ws: true,
       },
     },
   },

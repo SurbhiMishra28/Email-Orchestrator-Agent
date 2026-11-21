@@ -1,0 +1,92 @@
+=============================================================================
+SKORA INFOTECH - EMAIL TEMPLATES
+WeWork-style footer format
+=============================================================================
+
+HEADER FOR ALL EMAILS:
+Skora Infotech
+For all the ways you grow your business, we're here
+--------------------------------------------------------------------------------
+
+================================================================================
+TEMPLATE 1: PERSONALIZED OUTREACH EMAIL
+================================================================================
+
+Hi {FirstName},
+
+This is {YourName} from Skora Infotech's team. We work with businesses to grow their online presence through websites, marketing and SEO.
+
+I noticed you might be interested in growing your online presence. Would you be open to a quick chat about how we can help?
+
+If yes, I can share some ideas that might work for {Company}.
+
+Best,
+{YourName}
+{YourPosition}
+Skora Infotech Pvt Ltd
+
+--------------------------------------------------------------------------------
+[ f ] [ twitter ] [ instagram ] [ in ]
+Refer friends | Download the Skora App
+Unsubscribe | Terms | Privacy
+View in a browser
+
+This email was sent from Skora Infotech
+https://skorainfotech.com/
+
+================================================================================
+TEMPLATE 2: REPLY TO INTERESTED LEAD
+================================================================================
+
+Hi {FirstName},
+
+Great to hear from you! Thank you for responding.
+
+I'm happy to share a few ideas tailored for {Company}. Based on what I see, we could help with:
+• Improving your website's visibility on search engines
+• Creating targeted marketing campaigns to drive qualified leads
+• Optimizing your online presence for better conversion
+
+Would you be open to a 15-minute call this week? I can walk you through a quick plan specific to {Company}.
+
+Best regards,
+{YourName}
+{YourPosition}
+Skora Infotech Pvt Ltd
+
+--------------------------------------------------------------------------------
+[ f ] [ twitter ] [ instagram ] [ in ]
+Refer friends | Download the Skora App
+Unsubscribe | Terms | Privacy
+View in a browser
+
+This email was sent from Skora Infotech
+https://skorainfotech.com/
+
+================================================================================
+TEMPLATE 3: FOLLOW-UP EMAIL
+================================================================================
+
+Hi {FirstName},
+
+Just following up on my previous email about growing {Company}'s online presence with Skora Infotech.
+
+I know things get busy, so I wanted to check in once more. We have helped similar businesses increase their leads and website traffic through SEO and digital marketing.
+
+If you're still interested, I'd love to set up a quick call. If not, just let me know and I'll step back.
+
+Thank you for your time!
+
+Best,
+{YourName}
+{YourPosition}
+Skora Infotech Pvt Ltd
+
+--------------------------------------------------------------------------------
+[ f ] [ twitter ] [ instagram ] [ in ]
+Refer friends | Download the Skora App
+Unsubscribe | Terms | Privacy
+View in a browser
+
+This email was sent from Skora Infotech
+https://skorainfotech.com/

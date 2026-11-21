@@ -18,3 +18,6 @@ langchain-nvidia-ai-endpoints>=0.3
 pymysql>=1.1
 # used by /api/deliverability/check (SPF/DMARC/MX DNS lookups)
 dnspython>=2.6
+# JWT authentication and password hashing (app/auth.py)
+python-jose[cryptography]>=3.3
+bcrypt>=4.0

@@ -1,14 +1,15 @@
-"""Agents API router - exposes subagents via REST API."""
+"""Agents API router - exposes subagents via REST API (tenant-scoped)."""
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
-from fastapi import APIRouter, HTTPException, Body, Query
+from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 from app.config import settings as app_settings
 from app.db import SessionLocal, Contact, Template, Draft, SMTPConfig, Settings, Log
+from app.deps import current_tenant_id
 from app.agents import (
     PersonalizedEmailAgent,
     SenderAgent,
@@ -20,6 +21,27 @@ from app.agents import (
 )
 
 router = APIRouter()
+
+
+def _tenant_contact(db, contact_id: int, tenant_id: int) -> Contact:
+    contact = (
+        db.query(Contact)
+        .filter(Contact.id == contact_id, Contact.tenant_id == tenant_id)
+        .first()
+    )
+    if not contact:
+        raise HTTPException(status_code=404, detail=f"Contact {contact_id} not found")
+    return contact
+
+
+def _tenant_smtp(db, tenant_id: int):
+    return (
+        db.query(SMTPConfig).filter(SMTPConfig.tenant_id == tenant_id).first()
+    )
+
+
+def _tenant_settings(db, tenant_id: int):
+    return db.query(Settings).filter(Settings.tenant_id == tenant_id).first()
 
 
 # ============================================================================
@@ -36,7 +58,8 @@ class PersonalizeRequest(BaseModel):
 
 @router.post("/personalize")
 async def personalize_email(
-    request: PersonalizeRequest
+    request: PersonalizeRequest,
+    tenant_id: int = Depends(current_tenant_id),
 ):
     """Generate personalized email content for a contact using a template.
     
@@ -46,9 +69,7 @@ async def personalize_email(
     db = SessionLocal()
     try:
         # Get contact
-        contact = db.query(Contact).filter(Contact.id == request.contact_id).first()
-        if not contact:
-            raise HTTPException(status_code=404, detail=f"Contact {request.contact_id} not found")
+        contact = _tenant_contact(db, request.contact_id, tenant_id)
         
         if not contact.eligible_to_email:
             raise HTTPException(
@@ -57,10 +78,15 @@ async def personalize_email(
             )
         
         # Get template
-        template = db.query(Template).filter(
-            Template.id == request.template_id,
-            Template.is_active == True
-        ).first()
+        template = (
+            db.query(Template)
+            .filter(
+                Template.id == request.template_id,
+                Template.tenant_id == tenant_id,
+                Template.is_active == True,
+            )
+            .first()
+        )
         if not template:
             raise HTTPException(status_code=404, detail=f"Template {request.template_id} not found or inactive")
         
@@ -99,7 +125,8 @@ class SendEmailRequest(BaseModel):
 
 @router.post("/send")
 async def send_email_endpoint(
-    request: SendEmailRequest
+    request: SendEmailRequest,
+    tenant_id: int = Depends(current_tenant_id),
 ):
     """Send an email directly using the SenderAgent.
     
@@ -108,7 +135,7 @@ async def send_email_endpoint(
     """
     db = SessionLocal()
     try:
-        smtp_config = db.query(SMTPConfig).first()
+        smtp_config = _tenant_smtp(db, tenant_id)
         
         agent = SenderAgent(smtp_config=smtp_config)
         
@@ -142,11 +169,11 @@ async def send_email_endpoint(
 
 
 @router.get("/test-smtp")
-def test_smtp_connection():
+def test_smtp_connection(tenant_id: int = Depends(current_tenant_id)):
     """Test SMTP connection using SenderAgent."""
     db = SessionLocal()
     try:
-        smtp_config = db.query(SMTPConfig).first()
+        smtp_config = _tenant_smtp(db, tenant_id)
         agent = SenderAgent(smtp_config=smtp_config)
         
         success, message = agent.test_connection()
@@ -180,9 +207,20 @@ class CalendarEventRequest(BaseModel):
 
 
 @router.get("/calendar")
-def list_calendars(provider: str = Query("manual", description="Calendar provider")):
+def list_calendars(
+    provider: str = Query("manual", description="Calendar provider"),
+    tenant_id: int = Depends(current_tenant_id),
+):
     """List available calendars."""
-    agent = CalendarAgent(provider=provider)
+    db = SessionLocal()
+    try:
+        settings_row = _tenant_settings(db, tenant_id)
+        agent = CalendarAgent(
+            provider=provider,
+            booking_url=settings_row.calendly_url if settings_row else None,
+        )
+    finally:
+        db.close()
     
     if not agent.available():
         raise HTTPException(
@@ -196,7 +234,8 @@ def list_calendars(provider: str = Query("manual", description="Calendar provide
 
 @router.post("/calendar/event")
 def create_calendar_event(
-    request: CalendarEventRequest
+    request: CalendarEventRequest,
+    tenant_id: int = Depends(current_tenant_id),
 ):
     """Create a calendar event.
     
@@ -215,6 +254,12 @@ def create_calendar_event(
         start_dt = datetime.fromisoformat(request.start_time.replace('Z', '+00:00'))
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid start_time format. Use ISO format.")
+
+    if request.provider.lower() == "calendly":
+        raise HTTPException(
+            status_code=501,
+            detail="Calendly events are created when invitees book through the configured Calendly link.",
+        )
     
     agent = CalendarAgent(provider=request.provider)
     
@@ -274,7 +319,8 @@ class ExtractActionItemsRequest(BaseModel):
 
 @router.post("/brain/enhance-subject")
 def enhance_subject(
-    request: EnhanceSubjectRequest = Body(...)
+    request: EnhanceSubjectRequest = Body(...),
+    tenant_id: int = Depends(current_tenant_id),
 ):
     """Enhance an email subject line using AI.
     
@@ -291,7 +337,8 @@ def enhance_subject(
 
 @router.post("/brain/enhance-body")
 def enhance_body(
-    request: EnhanceBodyRequest = Body(...)
+    request: EnhanceBodyRequest = Body(...),
+    tenant_id: int = Depends(current_tenant_id),
 ):
     """Enhance email body content using AI.
     
@@ -308,7 +355,8 @@ def enhance_body(
 
 @router.post("/brain/alternatives")
 def generate_alternatives(
-    request: GenerateAlternativesRequest = Body(...)
+    request: GenerateAlternativesRequest = Body(...),
+    tenant_id: int = Depends(current_tenant_id),
 ):
     """Generate alternative subject/body combinations for A/B testing."""
     agent = AIBrainAgent()
@@ -322,7 +370,8 @@ def generate_alternatives(
 
 @router.post("/brain/summarize")
 def summarize_thread(
-    request: SummarizeThreadRequest = Body(...)
+    request: SummarizeThreadRequest = Body(...),
+    tenant_id: int = Depends(current_tenant_id),
 ):
     """Summarize an email thread.
     
@@ -339,7 +388,8 @@ def summarize_thread(
 
 @router.post("/brain/action-items")
 def extract_action_items(
-    request: ExtractActionItemsRequest = Body(...)
+    request: ExtractActionItemsRequest = Body(...),
+    tenant_id: int = Depends(current_tenant_id),
 ):
     """Extract actionable items from email text."""
     agent = AIBrainAgent()
@@ -356,15 +406,18 @@ def extract_action_items(
 # ============================================================================
 
 @router.get("/status")
-def get_agents_status():
+def get_agents_status(tenant_id: int = Depends(current_tenant_id)):
     """Get status of all agents."""
     db = SessionLocal()
     try:
-        smtp_config = db.query(SMTPConfig).first()
-        settings = db.query(Settings).first()
+        smtp_config = _tenant_smtp(db, tenant_id)
+        settings_row = _tenant_settings(db, tenant_id)
         
         sender_agent = SenderAgent(smtp_config=smtp_config)
-        calendar_agent = CalendarAgent()
+        calendar_agent = CalendarAgent(
+            provider="calendly",
+            booking_url=settings_row.calendly_url if settings_row else None,
+        )
         ai_brain_agent = AIBrainAgent()
         
         return {
@@ -377,9 +430,9 @@ def get_agents_status():
                 "description": "Handles SMTP email delivery"
             },
             "calendar": {
-                "status": "available" if calendar_agent.available() else "limited",
+                "status": "configured" if calendar_agent.available() else "not_configured",
                 "provider": calendar_agent.provider,
-                "description": "Meeting scheduling integration"
+                "description": "Calendly booking link"
             },
             "ai_brain": {
                 "status": "enabled" if app_settings.NVIDIA_API_KEY else "disabled",
@@ -425,7 +478,10 @@ class AutoReplyResponse(BaseModel):
 
 
 @router.post("/auto-reply")
-def auto_reply(request: AutoReplyRequest):
+def auto_reply(
+    request: AutoReplyRequest,
+    tenant_id: int = Depends(current_tenant_id),
+):
     """Generate and send an automatic reply based on response classification.
     
     This endpoint takes a classified reply and generates an appropriate
@@ -447,9 +503,7 @@ def auto_reply(request: AutoReplyRequest):
     db = SessionLocal()
     try:
         # Get contact
-        contact = db.query(Contact).filter(Contact.id == request.contact_id).first()
-        if not contact:
-            raise HTTPException(status_code=404, detail=f"Contact {request.contact_id} not found")
+        contact = _tenant_contact(db, request.contact_id, tenant_id)
         
         if not contact.eligible_to_email:
             raise HTTPException(
@@ -458,7 +512,7 @@ def auto_reply(request: AutoReplyRequest):
             )
         
         # Get SMTP config
-        smtp_config = db.query(SMTPConfig).first()
+        smtp_config = _tenant_smtp(db, tenant_id)
         
         # Initialize auto-responder
         auto_responder = AutoResponder(
