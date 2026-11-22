@@ -1,4 +1,5 @@
 """Application configuration with environment variable support."""
+import logging
 import os
 from typing import Optional
 
@@ -151,7 +152,18 @@ class Settings:
     # When true the app runs as a single-user local tool: one implicit tenant is
     # provisioned at startup and requests do not need a bearer token. Set to
     # false for the multi-tenant SaaS deployment.
-    SINGLE_USER_MODE: bool = os.getenv("SINGLE_USER_MODE", "true").lower() == "true"
+    #
+    # This is never honoured on a hosted platform. Single-user mode means the
+    # API accepts unauthenticated reads *and* writes, so a deploy that inherited
+    # SINGLE_USER_MODE=true from a developer's .env would publish an open
+    # instance holding that .env's SMTP credentials -- anyone could send mail as
+    # the configured account. The unauthenticated mode is only safe on loopback,
+    # so it is forced off as soon as a platform URL is present.
+    SINGLE_USER_MODE: bool = (
+        os.getenv("SINGLE_USER_MODE", "true").lower() == "true"
+        and not _PLATFORM_PUBLIC_URL
+    )
+
     # Identity used for that implicit local tenant.
     LOCAL_USER_EMAIL: str = os.getenv("LOCAL_USER_EMAIL", "local@localhost")
     LOCAL_TENANT_NAME: str = os.getenv("LOCAL_TENANT_NAME", "Local")
@@ -159,3 +171,12 @@ class Settings:
 
 # Global settings instance
 settings = Settings()
+
+if _PLATFORM_PUBLIC_URL and os.getenv("SINGLE_USER_MODE", "").lower() == "true":
+    logging.getLogger(__name__).warning(
+        "SINGLE_USER_MODE=true was ignored because this instance is served at %s. "
+        "Single-user mode disables authentication, so it is only allowed on "
+        "loopback. Requests now require a bearer token; register an account to "
+        "sign in.",
+        _PLATFORM_PUBLIC_URL,
+    )

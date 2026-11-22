@@ -150,6 +150,58 @@ def test_platform_public_url_empty_without_a_platform(monkeypatch):
     assert config._platform_public_url() == ""
 
 
+def _settings_single_user_mode(env_overrides):
+    """Import app.config in a fresh interpreter and report SINGLE_USER_MODE."""
+    import os
+    import subprocess
+    import sys
+
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = {**os.environ}
+    for name in ("RENDER", "RENDER_EXTERNAL_URL", "RAILWAY_PUBLIC_DOMAIN", "FLY_APP_NAME"):
+        env.pop(name, None)
+    env.update(env_overrides)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from app.config import settings; print(settings.SINGLE_USER_MODE)",
+        ],
+        cwd=project_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert completed.returncode == 0, completed.stderr
+    return completed.stdout.strip()
+
+
+def test_single_user_mode_is_forced_off_on_a_hosted_platform():
+    """An open API with real SMTP credentials must never be published.
+
+    ``SINGLE_USER_MODE=true`` disables authentication entirely, so a deploy that
+    inherited it from a developer's .env let anyone read and write the account
+    and send mail as it. The setting is now ignored whenever the instance has a
+    public platform URL.
+    """
+    assert (
+        _settings_single_user_mode(
+            {
+                "SINGLE_USER_MODE": "true",
+                "RENDER_EXTERNAL_URL": "https://example.onrender.com",
+            }
+        )
+        == "False"
+    )
+
+
+def test_single_user_mode_still_works_locally():
+    assert (
+        _settings_single_user_mode({"SINGLE_USER_MODE": "true", "RENDER": ""}) == "True"
+    )
+
+
 def _import_db_with(url: str, extra_env=None) -> str:
     """Import app.db in a fresh interpreter and return its resolved URL.
 

@@ -77,6 +77,25 @@ The platform files set the safety defaults (`MAIL_SUPPRESS_SEND=true`,
 `AUTOPILOT=false`, `AUTO_APPROVE=false`) so a deploy cannot start mailing people
 before you have checked it.
 
+### Single-user mode is disabled on a public host
+
+`SINGLE_USER_MODE=true` turns authentication off: every request is served as one
+implicit local account, with no token required. That is correct for the local
+tool and **dangerous on a public URL** — the deployed API accepts unauthenticated
+reads and writes, so anyone who finds the address can read contacts, change
+settings, re-enable autopilot, and send mail as the configured mailbox.
+
+`app/config.py` therefore ignores the setting whenever the instance has a
+platform URL (`RENDER_EXTERNAL_URL`, `RAILWAY_PUBLIC_DOMAIN`, `FLY_APP_NAME`).
+Requests then need a bearer token and the dashboard shows its sign-in screen, so
+a `.env` copied from a laptop cannot publish an open instance. Register the first
+account on the deployed URL to create the owner.
+
+Treat any SMTP credentials that were reachable this way as compromised: the
+deployed instance exposed a working Gmail account (host, user and sender were
+readable anonymously) until autopilot was turned off. Rotate the mailbox's app
+password and re-enter it in **Settings** once authentication is in place.
+
 ## 3. Deploy
 
 Railway:
