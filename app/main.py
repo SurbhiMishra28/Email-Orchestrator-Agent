@@ -404,8 +404,11 @@ def _bootstrap_database() -> None:
                 synchronize_session=False,
             )
         )
+        # Commit even when nothing matched: the UPDATE opened a write
+        # transaction, and on SQLite an uncommitted write lock blocks the nested
+        # session that provisions the local user below ("database is locked").
+        db.commit()
         if interrupted:
-            db.commit()
             logger.warning("Recovered %s interrupted send(s)", interrupted)
 
         # Provision defaults for every tenant, including ones created before

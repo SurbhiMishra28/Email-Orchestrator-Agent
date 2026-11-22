@@ -155,3 +155,46 @@ def test_sqlite_parent_directory_is_created(tmp_path):
 
     assert resolved == f"sqlite:///{target.as_posix()}"
     assert target.parent.is_dir()
+
+
+def test_bootstrap_releases_write_lock_before_nested_session(tmp_path):
+    """Provisioning must not hit "database is locked" on a fresh SQLite file.
+
+    On SQLite an uncommitted write lock blocks the nested session used by
+    ``get_or_create_local_user``. That surfaced as "database is locked", left a
+    freshly deployed instance without its tenant, and only happened when the
+    interrupted-send repair matched nothing -- so it looked intermittent.
+    """
+    import os
+    import subprocess
+    import sys
+
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    script = (
+        "from app.db import init_db\n"
+        "from app.main import _bootstrap_database\n"
+        "init_db()\n"
+        "_bootstrap_database()\n"
+        "_bootstrap_database()\n"
+        "print('ok')\n"
+    )
+    env = {
+        **os.environ,
+        "DATABASE_URL": f"sqlite:///{(tmp_path / 'app.db').as_posix()}",
+        "SINGLE_USER_MODE": "true",
+        "ENABLE_BACKGROUND_JOBS": "false",
+        "MAIL_SUPPRESS_SEND": "true",
+    }
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=project_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "ok" in completed.stdout
+    assert "database is locked" not in completed.stderr
