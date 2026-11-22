@@ -53,12 +53,23 @@ def normalize_template_categories(db, tenant_id: int) -> int:
     return changed
 
 
-def provision_tenant_defaults(db, tenant_id: int) -> None:
+def provision_tenant_defaults(db, tenant_id: int, inherit_environment: bool = None) -> None:
     """Create the per-tenant rows a new account needs.
 
     Idempotent: safe to call on every startup so tenants created before
     settings/SMTP/templates became per-tenant are filled in.
+
+    ``inherit_environment`` controls whether the process environment (the
+    deployment's ``.env``) is copied into this tenant's rows. That is right for
+    the single-user local tool, where the one implicit tenant *is* the mailbox
+    owner, and wrong for every other tenant: on a public deployment the
+    environment holds the operator's own SMTP password, so copying it would let
+    anyone who registers send mail as that account. It defaults to
+    ``SINGLE_USER_MODE``, which is itself forced off on a hosted platform.
     """
+    if inherit_environment is None:
+        inherit_environment = app_settings.SINGLE_USER_MODE
+
     if not db.query(Settings).filter(Settings.tenant_id == tenant_id).first():
         db.add(
             Settings(
@@ -66,6 +77,10 @@ def provision_tenant_defaults(db, tenant_id: int) -> None:
                 goal=app_settings.DEFAULT_GOAL,
                 business_name=app_settings.DEFAULT_BUSINESS_NAME,
                 business_offer=app_settings.DEFAULT_BUSINESS_OFFER,
+                # A brand-new tenant never starts sending unattended, no matter
+                # what the deployment's own environment asks for.
+                AUTOPILOT=app_settings.DEFAULT_AUTOPILOT and inherit_environment,
+                AUTO_APPROVE=app_settings.DEFAULT_AUTO_APPROVE and inherit_environment,
             )
         )
 
@@ -74,16 +89,17 @@ def provision_tenant_defaults(db, tenant_id: int) -> None:
         smtp_row = SMTPConfig(tenant_id=tenant_id)
         db.add(smtp_row)
 
-    if not smtp_row.host and app_settings.DEFAULT_SMTP_HOST:
-        smtp_row.host = app_settings.DEFAULT_SMTP_HOST
-    if app_settings.DEFAULT_SMTP_PORT:
-        smtp_row.port = app_settings.DEFAULT_SMTP_PORT
-    if not smtp_row.user and app_settings.DEFAULT_SMTP_USER:
-        smtp_row.user = app_settings.DEFAULT_SMTP_USER
-    if not smtp_row.password and app_settings.DEFAULT_SMTP_PASSWORD:
-        smtp_row.password = app_settings.DEFAULT_SMTP_PASSWORD
-    if not smtp_row.sender and app_settings.DEFAULT_SMTP_SENDER:
-        smtp_row.sender = app_settings.DEFAULT_SMTP_SENDER
+    if inherit_environment:
+        if not smtp_row.host and app_settings.DEFAULT_SMTP_HOST:
+            smtp_row.host = app_settings.DEFAULT_SMTP_HOST
+        if app_settings.DEFAULT_SMTP_PORT:
+            smtp_row.port = app_settings.DEFAULT_SMTP_PORT
+        if not smtp_row.user and app_settings.DEFAULT_SMTP_USER:
+            smtp_row.user = app_settings.DEFAULT_SMTP_USER
+        if not smtp_row.password and app_settings.DEFAULT_SMTP_PASSWORD:
+            smtp_row.password = app_settings.DEFAULT_SMTP_PASSWORD
+        if not smtp_row.sender and app_settings.DEFAULT_SMTP_SENDER:
+            smtp_row.sender = app_settings.DEFAULT_SMTP_SENDER
 
     smtp_row.configured = bool(smtp_row.host and (smtp_row.sender or smtp_row.user))
     smtp_row.authentication_configured = bool(smtp_row.user and smtp_row.password)

@@ -551,11 +551,17 @@ class SMTPConfig(Base):
     tenant_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("tenants.id"), nullable=True, index=True
     )
-    host: Mapped[Optional[str]] = mapped_column(String(255), default=app_settings.DEFAULT_SMTP_HOST)
-    port: Mapped[int] = mapped_column(Integer, default=app_settings.DEFAULT_SMTP_PORT)
-    user: Mapped[Optional[str]] = mapped_column(String(255), default=app_settings.DEFAULT_SMTP_USER)
-    password: Mapped[Optional[str]] = mapped_column(String(255), default=app_settings.DEFAULT_SMTP_PASSWORD)
-    sender: Mapped[Optional[str]] = mapped_column(String(255), default=app_settings.DEFAULT_SMTP_SENDER)
+    # Deliberately blank rather than pre-filled from the environment. The
+    # deployment's .env holds the operator's real mailbox, and this table is
+    # created for every tenant, including ones registered by strangers. Copying
+    # the environment here would hand them the operator's sending account.
+    # ``provision_tenant_defaults(..., inherit_environment=True)`` is the one
+    # place allowed to copy it, and only for the local single-user tenant.
+    host: Mapped[Optional[str]] = mapped_column(String(255), default="")
+    port: Mapped[int] = mapped_column(Integer, default=587)
+    user: Mapped[Optional[str]] = mapped_column(String(255), default="")
+    password: Mapped[Optional[str]] = mapped_column(String(255), default="")
+    sender: Mapped[Optional[str]] = mapped_column(String(255), default="")
     configured: Mapped[bool] = mapped_column(Boolean, default=False)
     authentication_configured: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
