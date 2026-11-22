@@ -61,18 +61,52 @@ HOSTED_PLATFORM = bool(
     or os.getenv("RENDER_EXTERNAL_URL")
 )
 
-logger.info("Database backend: %s", _describe_database_url(DATABASE_URL))
-if HOSTED_PLATFORM and any(
-    host in DATABASE_URL for host in ("@localhost", "@127.0.0.1", "@::1")
-):
-    # A local database cannot exist inside a hosted instance, and the failure
-    # surfaces only as "connection refused" from deep inside the driver.
+_LOOPBACK_MARKERS = ("@localhost", "@127.0.0.1", "@::1", "@mysql://localhost")
+# Render mounts a disk at /var/data; Railway and Fly do not, so they fall back
+# to the working directory (ephemeral, but the process stays usable).
+_PERSISTENT_DIRS = ("/var/data",)
+
+
+def _loopback_fallback_url() -> str:
+    """Pick a writable file location for a hosted instance with no database."""
+    for candidate in _PERSISTENT_DIRS:
+        if os.path.isdir(candidate) and os.access(candidate, os.W_OK):
+            path = os.path.join(candidate, "email_orchestrator.db")
+            return "sqlite:///" + path.replace(os.sep, "/")
+    return "sqlite:///./email_orchestrator.db"
+
+
+def _resolve_database_url(url: str) -> str:
+    """Return a URL this process can actually connect to.
+
+    A hosted instance has no local MySQL server, so a ``DATABASE_URL`` copied
+    from a developer's ``.env`` (``@localhost``) can never work there. Refusing
+    to start only produces a crashed deploy whose log ends in
+    ``Connection refused``; instead keep the service up on a local SQLite file
+    and log an error that names the offending host, so the operator can see
+    exactly which value to replace.
+    """
+    if not HOSTED_PLATFORM:
+        return url
+    if url.startswith("sqlite"):
+        return url
+    if not any(marker in url for marker in _LOOPBACK_MARKERS):
+        return url
+
+    fallback = _loopback_fallback_url()
     logger.error(
-        "DATABASE_URL points at a loopback host (%s), which cannot be reached "
-        "from this instance. Use the internal hostname of a managed MySQL "
-        "database instead.",
-        _describe_database_url(DATABASE_URL),
+        "DATABASE_URL points at a loopback host (%s), which does not exist in "
+        "this instance. Falling back to %s so the service stays available. Set "
+        "DATABASE_URL to a reachable MySQL host to use a real database.",
+        _describe_database_url(url),
+        _describe_database_url(fallback),
     )
+    return fallback
+
+
+DATABASE_URL = _resolve_database_url(DATABASE_URL)
+
+logger.info("Database backend: %s", _describe_database_url(DATABASE_URL))
 if DATABASE_URL.startswith("sqlite") and HOSTED_PLATFORM:
     # Appearing to work while writing to an ephemeral disk is the worst failure
     # mode: everything looks fine until the first restart. Say so on every boot.

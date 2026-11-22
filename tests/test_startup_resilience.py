@@ -77,6 +77,47 @@ def test_database_url_description_hides_password():
     assert described == "mysql+pymysql://root:***@db.internal:3306/email_orchestrator"
 
 
+def test_local_database_url_is_left_alone(monkeypatch):
+    from app import db
+
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("RENDER_EXTERNAL_URL", raising=False)
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("FLY_APP_NAME", raising=False)
+    monkeypatch.setattr(db, "HOSTED_PLATFORM", False)
+
+    url = "mysql+pymysql://root:@localhost:3307/email_orchestrator"
+
+    assert db._resolve_database_url(url) == url
+
+
+def test_loopback_url_on_a_hosted_platform_falls_back_to_a_file(monkeypatch, tmp_path):
+    """A copied local .env must not crash a hosted deploy.
+
+    The instance has no local MySQL server, so ``@localhost`` can only fail.
+    Serving from a local file keeps the deployment diagnostic instead of dead.
+    """
+    from app import db
+
+    monkeypatch.setattr(db, "HOSTED_PLATFORM", True)
+    monkeypatch.setattr(db, "_PERSISTENT_DIRS", (str(tmp_path),))
+
+    resolved = db._resolve_database_url(
+        "mysql+pymysql://root:@localhost:3307/email_orchestrator"
+    )
+
+    assert resolved == f"sqlite:///{tmp_path.as_posix()}/email_orchestrator.db"
+
+
+def test_reachable_mysql_url_on_a_hosted_platform_is_kept(monkeypatch):
+    from app import db
+
+    monkeypatch.setattr(db, "HOSTED_PLATFORM", True)
+    url = "mysql+pymysql://user:pw@db.internal:3306/email_orchestrator"
+
+    assert db._resolve_database_url(url) == url
+
+
 def test_platform_public_url_reads_render_origin(monkeypatch):
     from app import config
 
