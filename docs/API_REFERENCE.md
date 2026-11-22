@@ -2,7 +2,65 @@
 
 ## Authentication
 
-All API endpoints currently operate without authentication. In production, implement appropriate authentication middleware.
+Every `/api` route is tenant-scoped. Send `Authorization: Bearer <token>` from
+`POST /api/auth/login`, `POST /api/auth/register`, `POST /api/auth/demo` or
+`POST /api/auth/refresh-token`.
+
+With `SINGLE_USER_MODE=true` (the local single-user tool) no token is required and
+one implicit local tenant is used. That mode is forced off on hosted platforms, so
+a deployment always requires a token.
+
+### Demo Session
+
+**POST** `/api/auth/demo`
+
+Signs the caller into the shared demo workspace. Takes no request body and no
+credentials: the workspace is created on first use, so a visitor can evaluate the
+product before registering.
+
+**Response**:
+```json
+{
+  "access_token": "eyJhbGciOi...",
+  "token_type": "bearer",
+  "user": {
+    "id": 41,
+    "email": "demo@mailmatrix.app",
+    "name": "Demo Operator",
+    "role": "admin",
+    "tenant": {
+      "id": 12,
+      "name": "MailMatrix Demo",
+      "plan": "free",
+      "daily_email_limit": 50
+    },
+    "demo": true
+  }
+}
+```
+
+**Status Codes**:
+- 200 OK - Session issued; the token is valid for 7 days
+- 503 Service Unavailable - The demo workspace could not be prepared
+
+The demo tenant is read-only for anything that leaves the machine. These routes
+return **403** for a demo token, with `detail` explaining the restriction:
+
+| Route | Why it is refused |
+|---|---|
+| `POST /api/drafts/{draft_id}/send` | Demo must never deliver mail |
+| `POST /api/queue/run`, `/run-all`, `/run-async` | Queue paths would send |
+| `POST /api/scheduling/run-now`, `/api/scheduling/autopilot` (enable) | Autopilot would send |
+| `POST /api/run` | Full autopilot pass would send |
+| `POST /api/smtp/config`, `POST /api/smtp/test` | No credential storage, no relay probe |
+| `POST /api/inbox/sync` | No mailbox access from the shared tenant |
+
+Everything else — browsing contacts, drafts, campaigns, analytics, editing seeded
+rows — works normally.
+
+**Current user** — `GET /api/auth/me` returns the same `user` object shown above and
+includes `"demo": true` for demo sessions (`false` for a normal account). The UI uses
+that flag to show the demo banner instead of operator controls.
 
 ## Base URL
 
@@ -35,7 +93,12 @@ Returns the health status of the application and its dependencies.
 ```
 
 **Status Codes**:
-- 200 OK - Application is healthy
+- 200 OK - Application and database are healthy
+- 503 Service Unavailable - Database unreachable; the body is the same shape with `"status": "degraded"` and `checks.database.healthy: false`
+
+The app still starts when the database is missing at boot — `/health` is the probe
+that fails, so a platform health check reports the broken deploy instead of passing a
+process that cannot serve requests.
 
 ---
 

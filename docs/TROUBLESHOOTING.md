@@ -218,6 +218,11 @@ curl http://127.0.0.1:8000/health
 # Should return: {"status":"healthy",...}
 ```
 
+A response of `{"status":"degraded"}` with HTTP **503** means the process is up but
+the database is not reachable — `checks.database.healthy` is `false`. The app keeps
+serving in that state so you can fix `DATABASE_URL` without a redeploy; the probe
+fails on purpose so a platform health check reports the broken deploy.
+
 ### 4. Check Environment Variables
 ```bash
 python -c "from app.config import settings; print(settings.DATABASE_URL)"

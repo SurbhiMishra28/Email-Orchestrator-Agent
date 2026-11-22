@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Demo workspace** - `POST /api/auth/demo` signs a visitor into a shared, seeded `demo` tenant with no credentials. The sign-in screen exposes it as the primary "Explore the demo workspace" button, so the product can be evaluated before registering. Seeded data only: 18 contacts on reserved `.example.com` addresses, folders, lists, templates, campaigns, drafts in mixed states, classified replies, engagement events, inbox messages, verifications, an A/B test and usage rows. `app/services/demo.py` seeds idempotently at startup and on first login
+- **Read-only demo guards** - `app.deps.ensure_sending_allowed()` returns 403 for the demo tenant on every relay path: draft send, queue run / run-all / run-async, scheduling run-now and autopilot enable, `POST /api/run`, SMTP config save and test, and inbox sync. The demo can never send mail or store credentials
+- **`demo` flag on `/api/auth/me`** - Identifies demo sessions so the UI shows the demo banner instead of operator controls
+- **Inverted dark theme** - The dashboard and sign-in screen were rebuilt on a near-black sage palette (`#060b09` floor, `#7fb39d` accent) with glass panels, an animated aurora backdrop and a cinematic splash. The `ink` ramp is inverted (low numbers are the page floor, high numbers are the brightest text) so existing utility classes keep their meaning
+- **Demo workspace tests** - `tests/test_demo_workspace.py` covers demo identity, the `/me` flag, seeded content minimums, seed idempotency, nine parametrized relay refusals (403) and `is_demo_tenant` discrimination
 - **PersonalizedEmailAgent** - New agent for contact-specific email personalization with AI enhancement
 - **SenderAgent** - Low-level SMTP sending agent with validation and error handling
 - **CalendarAgent** - Meeting scheduling integration (Google Calendar, Microsoft, Calendly, manual)
@@ -26,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`MAIL_SUPPRESS_SEND`** - dry-run mode that records a send without opening an SMTP connection; the test suite enables it so it can never mail the real account in `.env`
 
 ### Changed
+- **`/health` returns 503 when the database is unreachable** - The payload reports `"status": "degraded"` and `checks.database.healthy: false`, so a platform probe fails the deploy instead of reporting a process that cannot serve requests as up. The app still starts and serves when the database is missing at boot; only the probe fails
+- **Dashboard theme** - Replaced the light sky-blue palette with the dark sage theme; `red`/`amber`/`blue` utilities map to `danger`/`warn`/`info` scales and all white surfaces use the inverted `ink` ramp
 - Updated agent documentation to reflect complete implementation
 - Added comprehensive docstrings to all agent classes
 - `/api/run` and `/api/scheduling/run-now` return immediately with a `job_id`; sending continues server-side

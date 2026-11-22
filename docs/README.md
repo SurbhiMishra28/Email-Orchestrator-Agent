@@ -64,9 +64,13 @@ Navigation is grouped, and the rail is responsive:
 - **Mobile (`< 768px`)**: the rail becomes an off-canvas drawer opened by the
   hamburger in the top bar, with a scrim, Escape-to-close, and body scroll lock.
 
-The theme uses a sky-blue accent (`brand-500` = `#0ea5e9`) over a neutral ink
-palette. All accent colours flow from the `brand` scale in `tailwind.config.js`, so
-retheming is a single-file change.
+The theme is a dark cinematic sage: a near-black `ink` ramp (`ink-50` is the page
+floor `#060b09`, `ink-900` the brightest text `#f1f7f4`) with a pale sage `brand`
+scale (`brand-500` = `#7fb39d`) and `card` = `#0f1815`. The `ink` ramp is inverted on
+purpose, so existing `text-ink-*` / `bg-ink-*` utilities keep their meaning; primary
+buttons pair `bg-brand-500` with `text-ink-50`. All accent colours flow from
+`tailwind.config.js`, so retheming is a single-file change, and `index.css` carries
+the component classes (`.auth-*`, `.btn-demo`, `.splash`, `.surface`, `.data-table`).
 
 | Group | Views |
 |---|---|
@@ -79,6 +83,20 @@ retheming is a single-file change.
 Deep links work: `/contacts`, `/agents`, `/campaigns`, `/experiments` and the rest
 open the matching view, and the back button moves between views.
 
+## Demo workspace
+
+The sign-in screen's primary action is **Explore the demo workspace**. It calls
+`POST /api/auth/demo`, which takes no credentials and signs the visitor into a shared
+tenant (`Tenant.subdomain == "demo"`) seeded with contacts, folders, lists, templates,
+campaigns, drafts, replies, engagement events, inbox messages, verifications and an
+A/B test on the first use (`app/services/demo.py`, idempotent).
+
+The demo can browse and edit its own data but can never send: every relay path —
+draft send, queue runs, scheduling, `POST /api/run`, SMTP config/test and inbox sync —
+returns 403 through `app.deps.ensure_sending_allowed()`. The tenant's settings keep
+`AUTOPILOT` and `AUTO_APPROVE` off and its SMTP config blank. Because it is one
+shared tenant, any visitor can edit or delete the seeded rows.
+
 ## API endpoints
 
 All routes below are tenant-scoped. With `SINGLE_USER_MODE=true` no token is
@@ -88,7 +106,7 @@ required; otherwise send `Authorization: Bearer <token>`.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/health` | Liveness plus database check |
+| GET | `/health` | Liveness plus database check (503 `degraded` when the database is unreachable) |
 | GET | `/api/state` | Aggregated dashboard payload (contacts, drafts, events, logs, analytics, usage) |
 | GET | `/api/usage` | Today and month counters per tenant |
 | WS | `/ws/live-logs` | Live agent activity stream |
@@ -99,6 +117,7 @@ required; otherwise send `Authorization: Bearer <token>`.
 |---|---|---|
 | POST | `/api/auth/register` | Create tenant and owner |
 | POST | `/api/auth/login` | Obtain access token |
+| POST | `/api/auth/demo` | One-click session on the shared, seeded, send-disabled demo workspace |
 | POST | `/api/auth/refresh-token` | Refresh an access token |
 | GET | `/api/auth/me` | Current user and tenant |
 | GET / POST | `/api/auth/api-keys` | List / create API keys |

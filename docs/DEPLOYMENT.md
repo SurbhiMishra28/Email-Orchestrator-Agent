@@ -173,6 +173,12 @@ Then open the dashboard, register an account, and confirm the Overview loads.
 Only after that should you set `MAIL_SUPPRESS_SEND=false` and add real SMTP
 credentials.
 
+Before registering, use **Explore the demo workspace** on the sign-in screen: it
+should land on a populated Overview built from reserved `.example.com` addresses.
+Confirm the demo cannot send by trying to send a seeded draft — the API returns 403
+and the UI shows the refusal. The demo tenant is shared, so anything a visitor edits
+there is visible to the next one; it holds no credentials and no real addresses.
+
 ## Serverless alternative
 
 If you must run on a serverless host (Vercel, Lambda), set
