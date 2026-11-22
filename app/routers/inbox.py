@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.db import InboxMessage, SessionLocal
-from app.deps import current_tenant_id
+from app.deps import current_tenant_id, ensure_sending_allowed
 from app.services.inbox import InboxError, InboxNotConfigured, is_configured, sync_inbox
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,9 @@ def list_inbox(limit: int = 50, tenant_id: int = Depends(current_tenant_id)):
 @router.post("/sync")
 def sync(limit: int = 25, tenant_id: int = Depends(current_tenant_id)):
     """Fetch the newest messages from IMAP and store ones not seen before."""
+    # The demo workspace holds no mailbox credentials, and opening an IMAP
+    # connection is an outbound network call a shared account must not make.
+    ensure_sending_allowed(tenant_id)
     if not is_configured():
         raise HTTPException(
             status_code=400,

@@ -497,6 +497,15 @@ async def lifespan(app: FastAPI):
         except Exception as exc:  # provisioning must never block serving
             logger.error("Startup provisioning failed: %s", exc)
 
+        # Prepare the shared demo workspace so the sign-in button is instant on
+        # the first visitor instead of paying for the seed inside a request.
+        try:
+            from app.services.demo import seed_demo_workspace
+
+            seed_demo_workspace()
+        except Exception as exc:  # the demo must never stop the app from serving
+            logger.warning("Demo workspace could not be prepared: %s", exc)
+
     # Scheduled work: inbox polling, follow-up drafting and opt-in autopilot.
     # On a serverless host (ENABLE_BACKGROUND_JOBS=false) the process is frozen
     # between requests, so an interval scheduler would never fire and would
@@ -1041,6 +1050,9 @@ async def run_orchestrator(
     allows one send per 60 seconds, so a real list would hold the request open
     for a long time. ``result.queued`` says the sending continues server-side.
     """
+    from app.deps import ensure_sending_allowed
+
+    ensure_sending_allowed(tenant_id)
     requested_goal = (payload.goal if payload and payload.goal else goal) or None
     db = SessionLocal()
     try:

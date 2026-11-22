@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.db import Log, SMTPConfig, SessionLocal
-from app.deps import current_tenant_id
+from app.deps import current_tenant_id, ensure_sending_allowed
 from app.models.schemas import SMTPConfigBase, SMTPConfigOut
 from app.services.mailer import test_connection
 
@@ -62,6 +62,12 @@ def save_smtp_config(
     config: SMTPConfigBase,
     tenant_id: int = Depends(current_tenant_id),
 ):
+    """Save the tenant's SMTP settings.
+
+    The shared demo workspace is refused: storing the operator's relay here would
+    be the first step to sending from a workspace every visitor can sign into.
+    """
+    ensure_sending_allowed(tenant_id)
     db = SessionLocal()
     try:
         if config.port is not None and not 1 <= config.port <= 65535:
@@ -102,7 +108,12 @@ def test_smtp_config(
     config: SMTPConfigBase,
     tenant_id: int = Depends(current_tenant_id),
 ):
-    """Test SMTP connectivity, falling back to saved credentials for blanks."""
+    """Test SMTP connectivity, falling back to saved credentials for blanks.
+
+    Refused for the demo workspace: this opens a connection to a host the caller
+    supplies, which must never be reachable through a shared account.
+    """
+    ensure_sending_allowed(tenant_id)
     db = SessionLocal()
     try:
         saved = db.query(SMTPConfig).filter(SMTPConfig.tenant_id == tenant_id).first()

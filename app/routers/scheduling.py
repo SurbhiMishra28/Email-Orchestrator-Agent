@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from app.config import settings as app_settings
 from app.db import Draft, Log, SessionLocal
-from app.deps import current_tenant_id
+from app.deps import current_tenant_id, ensure_sending_allowed
 from app.routers.settings import get_or_create_settings
 
 logger = logging.getLogger(__name__)
@@ -86,6 +86,8 @@ def set_autopilot(
     so enabling autopilot without an explicit ``auto_approve`` turns it on too;
     disabling autopilot leaves ``AUTO_APPROVE`` as the user had it.
     """
+    if payload.enabled:
+        ensure_sending_allowed(tenant_id)
     db = SessionLocal()
     try:
         settings_row = get_or_create_settings(db, tenant_id)
@@ -177,6 +179,7 @@ async def run_scheduling_now(tenant_id: int = Depends(current_tenant_id)):
     background worker so this request returns promptly and the user does not
     have to press Run again.
     """
+    ensure_sending_allowed(tenant_id)
     from app.main import _autopilot_pass
     from app.services.send_worker import get_worker
 

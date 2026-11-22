@@ -62,6 +62,13 @@ class APIKeyResponse(BaseModel):
         from_attributes = True
 
 
+class DemoSession(BaseModel):
+    """Response for the one-click demo sign-in."""
+    access_token: str
+    token_type: str = "bearer"
+    user: dict
+
+
 # ============ Registration Endpoint ============
 
 @router.post("/register", response_model=TokenResponse)
@@ -179,6 +186,54 @@ async def login(login_data: UserLogin):
         db.close()
 
 
+# ============ Demo Workspace ============
+
+@router.post("/demo", response_model=DemoSession)
+async def demo_login():
+    """Sign in to the shared read-only demo workspace.
+
+    The account is not a secret -- the button on the sign-in screen creates it on
+    first use -- so this endpoint deliberately takes no credentials. It exists so
+    a visitor can evaluate the product without handing over an email address,
+    and so "the login does not work" is never caused by a forgotten password.
+
+    The workspace cannot send mail and cannot store SMTP credentials; both are
+    enforced server-side (``app.deps.ensure_sending_allowed``).
+    """
+    from app.services.demo import seed_demo_workspace
+
+    try:
+        user, tenant = seed_demo_workspace()
+    except Exception:
+        logger.exception("Could not prepare the demo workspace")
+        raise HTTPException(
+            status_code=503,
+            detail="The demo workspace is unavailable right now. Please register instead.",
+        )
+
+    access_token = create_access_token(
+        data={"sub": user.id, "tenant_id": tenant.id, "demo": True},
+        expires_delta=timedelta(days=7),
+    )
+
+    return {
+        "access_token": access_token,
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "role": user.role,
+            "tenant": {
+                "id": tenant.id,
+                "name": tenant.name,
+                "plan": tenant.plan,
+                "daily_email_limit": tenant.daily_email_limit,
+            },
+            "demo": True,
+        },
+    }
+
+
 # ============ Current User Endpoint ============
 
 @router.get("/me")
@@ -192,12 +247,14 @@ async def get_current_user_info(user: UserPayload = Depends(get_current_user)):
         if user_row is None:
             raise HTTPException(status_code=404, detail="User not found")
         tenant = db.query(Tenant).filter(Tenant.id == user_row.tenant_id).first()
-        
+        is_demo = bool(tenant and tenant.subdomain == "demo")
+
         return {
             "id": user_row.id,
             "email": user_row.email,
             "name": user_row.name,
             "role": user_row.role,
+            "demo": is_demo,
             "tenant": {
                 "id": tenant.id,
                 "name": tenant.name,
