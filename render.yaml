@@ -1,33 +1,50 @@
 services:
   - type: web
     name: email-orchestrator
-    # Native Python runtime. The build step also runs Node to compile the
-    # dashboard, because app/main.py serves frontend/dist from the same process.
+    # Native Python runtime. Node and npm are present in Render's build
+    # environment, so the same job compiles the dashboard that app/main.py
+    # mounts from frontend/dist.
     runtime: python
     plan: starter
+    # APScheduler drives inbox polling and autopilot, and the send worker holds
+    # a thread between requests for the 60-second pacing rule. That only works
+    # in a single long-lived instance, never with autoscaling.
+    numInstances: 1
     buildCommand: pip install -r requirements.txt && npm ci --prefix frontend && npm run build --prefix frontend
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
-    # /health checks the database too, so a passing probe means the app can
-    # actually serve requests rather than just that the port is open.
+    # /health returns 503 when the database is unreachable, so a broken
+    # DATABASE_URL fails the deploy instead of serving 500s.
     healthCheckPath: /health
-    autoDeploy: true
+    autoDeployTrigger: commit
+    # Render offers managed Postgres, not MySQL, and this schema is written for
+    # MySQL/MariaDB. A disk keeps the SQLite database across restarts and
+    # redeploys so the service works with no external database at all. To use a
+    # real MySQL server instead, delete `disk` and set DATABASE_URL to its
+    # connection string (see docs/DEPLOYMENT.md).
+    disk:
+      name: app-data
+      mountPath: /var/data
+      sizeGB: 5
     envVars:
       - key: PYTHON_VERSION
         value: "3.13.7"
-      - key: NODE_VERSION
-        value: "22"
-      # Set these in the Render dashboard. They are listed here as a checklist
-      # so a missing value fails loudly instead of silently running insecurely.
       - key: DATABASE_URL
-        sync: false
+        # Four slashes: absolute path inside the mounted disk.
+        value: sqlite:////var/data/email_orchestrator.db
       - key: JWT_SECRET_KEY
         generateValue: true
       - key: SINGLE_USER_MODE
         value: "false"
       - key: PUBLIC_BASE_URL
-        sync: false
+        fromService:
+          name: email-orchestrator
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
       - key: CORS_ORIGINS
-        sync: false
+        fromService:
+          name: email-orchestrator
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT

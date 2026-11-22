@@ -19,18 +19,41 @@ The send worker also keeps a thread between requests so it can honour the
 process between requests loses both, which is why the configs above run a
 persistent service with at least one instance always on.
 
-## 1. Provision MySQL
+## 1. Provision the database
 
-Railway and Render both offer managed MySQL. Create the database first and copy
-its connection string; it becomes `DATABASE_URL` in the form
+The schema is written for MySQL/MariaDB. Any managed MySQL server works; point
+`DATABASE_URL` at it in the form
 
 ```
 mysql+pymysql://USER:PASSWORD@HOST:PORT/DATABASE
 ```
 
+`mysql://` and `mariadb://` URLs are rewritten to `mysql+pymysql://`
+automatically, so a connection string copied from a provider's dashboard works
+unchanged. Hosted MySQL options that hand out a URL like this include Aiven,
+PlanetScale, Clever Cloud and a MySQL instance on any VPS.
+
+**Render does not offer managed MySQL** (only Postgres), so its Blueprint
+attaches a persistent disk and points `DATABASE_URL` at a SQLite file on that
+disk:
+
+```yaml
+disk:
+  name: app-data
+  mountPath: /var/data
+  sizeGB: 5
+envVars:
+  - key: DATABASE_URL
+    value: sqlite:////var/data/email_orchestrator.db
+```
+
+That works out of the box and survives restarts and redeploys, but it is a
+single-writer database on one instance. For production traffic, delete the
+`disk` block from `render.yaml` and set `DATABASE_URL` to a real MySQL server;
+the app prefers MySQL whenever `DATABASE_URL` says so.
+
 The app creates its own tables on startup (`init_db()`), so no migration step is
-needed. A plain VPS runs MariaDB/MySQL locally instead, as described in
-[SAAS_GUIDE.md](SAAS_GUIDE.md).
+needed.
 
 ## 2. Set environment variables
 
@@ -38,7 +61,7 @@ These are required for a public deployment. Do **not** reuse the local `.env`.
 
 | Variable | Value |
 |----------|-------|
-| `DATABASE_URL` | Managed (or local) MySQL connection string |
+| `DATABASE_URL` | MySQL connection string, or the SQLite path on a persistent disk |
 | `JWT_SECRET_KEY` | `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `SINGLE_USER_MODE` | `false` — otherwise every visitor shares one workspace |
 | `PUBLIC_BASE_URL` | Your deployed https URL (used for tracking pixel/click links) |
@@ -62,9 +85,17 @@ Railway:
 npm i -g @railway/cli
 railway login
 railway init
+railway add --plugin mysql   # provides DATABASE_URL for the service
+railway variables --set SINGLE_USER_MODE=false --set JWT_SECRET_KEY=...
 railway up
 railway domain
 ```
+
+Railway has no persistent disk by default, so the SQLite fallback writes to an
+ephemeral filesystem and is wiped on every deploy. Always add a MySQL plugin or
+set `DATABASE_URL` to an external MySQL server before pointing real traffic at
+it; the app logs an explicit warning when it starts on SQLite on a hosted
+platform.
 
 `railway.toml` uses the Nixpacks builder with an explicit build command:
 
@@ -81,10 +112,28 @@ Render:
 ```
 
 `render.yaml` declares `runtime: python` with the same build/start commands, so
-the dashboard is compiled before uvicorn starts. It pins `PYTHON_VERSION` and
-`NODE_VERSION`; if your Render workspace does not ship Node in the native Python
-image, build the dashboard once locally, commit `frontend/dist`, and drop the
-`npm` steps from `buildCommand`.
+the dashboard is compiled before uvicorn starts. `node` and `npm` are part of
+Render's native build environment, so the `npm` steps in `buildCommand` work
+without extra setup. `PUBLIC_BASE_URL` and `CORS_ORIGINS` default to
+`RENDER_EXTERNAL_URL`, which Render sets on the service itself, so tracking
+links point at the deployed host with no manual edit.
+
+### Why the first Render deploy failed
+
+The previous deploy started with `DATABASE_URL` inherited from the local `.env`,
+which addresses `localhost`. No MySQL server runs inside the instance, so
+startup raised `Can't connect to MySQL server on 'localhost' (111)` and the
+process exited. Two changes make that impossible now:
+
+- `render.yaml` sets `DATABASE_URL` explicitly to the SQLite file on the mounted
+  disk instead of relying on whatever the dashboard inherited.
+- `app/main.py` no longer aborts when the database is unreachable. It logs the
+  failure, skips schema work and background jobs, keeps serving, and `/health`
+  answers `503` with `"database": {"healthy": false}` so the platform probe
+  reports the real problem rather than a silent crash.
+
+If you set a MySQL `DATABASE_URL` by hand, use the provider's internal hostname
+(not `localhost`) and make sure it needs no SSH tunnel.
 
 VPS or bare metal: follow [SAAS_GUIDE.md](SAAS_GUIDE.md) — MariaDB, a systemd
 unit running uvicorn, and nginx as the reverse proxy. Run `npm run build --prefix
@@ -96,6 +145,10 @@ frontend` on the server before starting the unit so `frontend/dist` exists.
 curl https://YOUR-URL/health          # {"status":"healthy",...}
 curl -I https://YOUR-URL/             # 200 and the MailMatrix shell
 ```
+
+`/health` returns `200` only when the database answers `SELECT 1`; a `503` means
+`DATABASE_URL` is wrong, which the logs restate with the host it tried to reach
+(password redacted).
 
 Then open the dashboard, register an account, and confirm the Overview loads.
 Only after that should you set `MAIL_SUPPRESS_SEND=false` and add real SMTP

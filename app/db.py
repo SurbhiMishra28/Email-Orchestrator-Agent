@@ -24,6 +24,65 @@ logger = logging.getLogger(__name__)
 # DATABASE_URL is loaded from the project .env by app.config; default to SQLite.
 DATABASE_URL = os.getenv("DATABASE_URL") or "sqlite:///./email_orchestrator.db"
 
+# Managed providers hand out ``mysql://`` URLs (Render, Railway, PlanetScale)
+# and ``postgres://`` ones, but SQLAlchemy needs the driver named explicitly or
+# it imports MySQLdb/psycopg2, which are not installed. Normalise the scheme so
+# a copied connection string works without hand-editing.
+_DIALECT_ALIASES = {
+    "mysql://": "mysql+pymysql://",
+    "mysql2://": "mysql+pymysql://",
+    "mariadb://": "mysql+pymysql://",
+}
+for _alias, _driver_url in _DIALECT_ALIASES.items():
+    if DATABASE_URL.startswith(_alias):
+        DATABASE_URL = _driver_url + DATABASE_URL[len(_alias):]
+        logger.info("Rewrote DATABASE_URL scheme %s to %s", _alias, _driver_url)
+        break
+
+
+def _describe_database_url(url: str) -> str:
+    """Return ``url`` with any password replaced, for logging."""
+    scheme, sep, rest = url.partition("://")
+    if not sep:
+        return "sqlite (unparsed URL)"
+    credentials, at, location = rest.rpartition("@")
+    if not at:
+        return f"{scheme}://{rest}"
+    user, colon, _password = credentials.partition(":")
+    if colon:
+        credentials = f"{user}:***"
+    return f"{scheme}://{credentials}@{location}"
+
+
+HOSTED_PLATFORM = bool(
+    os.getenv("RENDER")
+    or os.getenv("RAILWAY_ENVIRONMENT")
+    or os.getenv("FLY_APP_NAME")
+    or os.getenv("RENDER_EXTERNAL_URL")
+)
+
+logger.info("Database backend: %s", _describe_database_url(DATABASE_URL))
+if HOSTED_PLATFORM and any(
+    host in DATABASE_URL for host in ("@localhost", "@127.0.0.1", "@::1")
+):
+    # A local database cannot exist inside a hosted instance, and the failure
+    # surfaces only as "connection refused" from deep inside the driver.
+    logger.error(
+        "DATABASE_URL points at a loopback host (%s), which cannot be reached "
+        "from this instance. Use the internal hostname of a managed MySQL "
+        "database instead.",
+        _describe_database_url(DATABASE_URL),
+    )
+if DATABASE_URL.startswith("sqlite") and HOSTED_PLATFORM:
+    # Appearing to work while writing to an ephemeral disk is the worst failure
+    # mode: everything looks fine until the first restart. Say so on every boot.
+    logger.warning(
+        "Using SQLite on a hosted platform (%s). Data survives a restart only "
+        "while the file lives on a persistent disk; point DATABASE_URL at a "
+        "MySQL/MariaDB server for a durable database.",
+        _describe_database_url(DATABASE_URL),
+    )
+
 connect_args = (
     {"check_same_thread": False, "timeout": 30}
     if DATABASE_URL.startswith("sqlite")
@@ -35,6 +94,42 @@ engine = create_engine(
     pool_pre_ping=True,
     connect_args=connect_args,
 )
+
+
+if DATABASE_URL.startswith("sqlite"):
+
+    def _prepare_sqlite_file(target_url: str) -> None:
+        """Create the parent directory of a SQLite file and enable WAL.
+
+        A hosted deployment can point the database at a mounted disk, and the
+        mount exists only after boot; SQLite cannot create a file in a missing
+        directory and fails with an opaque "unable to open database file".
+        WAL keeps the scheduler thread and request threads from serialising on
+        one writer lock, which SQLite's default rollback journal does.
+        """
+        path = target_url.split("sqlite:///", 1)[-1].split("?", 1)[0]
+        if path in {"", ":memory:"}:
+            return
+        parent = os.path.dirname(os.path.abspath(path))
+        try:
+            os.makedirs(parent, exist_ok=True)
+        except OSError as exc:
+            logger.error("Could not create SQLite directory %s: %s", parent, exc)
+
+    _prepare_sqlite_file(DATABASE_URL)
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_pragmas(dbapi_connection, _record):  # pragma: no cover - driver hook
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout=30000")
+            cursor.execute("PRAGMA foreign_keys=ON")
+        finally:
+            cursor.close()
+
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

@@ -388,14 +388,8 @@ def get_state_from_db(tenant_id: int) -> Dict[str, Any]:
         db.close()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan events."""
-    # Startup
-    logger.info("Starting Email Orchestrator...")
-    init_db()
-    
-    # Initialize default data
+def _bootstrap_database() -> None:
+    """Repair interrupted sends and provision per-tenant defaults at startup."""
     db = SessionLocal()
     try:
         # A send interrupted by a restart must not stay stuck in "sending".
@@ -473,13 +467,39 @@ async def lifespan(app: FastAPI):
             db.commit()
     finally:
         db.close()
-    
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan events."""
+    # Startup
+    logger.info("Starting Email Orchestrator...")
+    # A missing database is a configuration problem, not a code bug: report it
+    # through /health and log loudly, but keep serving so the deployment stays
+    # up and the fix is a settings change rather than a redeploy.
+    database_ready = True
+    try:
+        init_db()
+    except SQLAlchemyError as exc:
+        database_ready = False
+        logger.error(
+            "Database unavailable at startup (%s). The app will keep running "
+            "and /health will report degraded. Check DATABASE_URL.",
+            exc,
+        )
+
+    if database_ready:
+        try:
+            _bootstrap_database()
+        except Exception as exc:  # provisioning must never block serving
+            logger.error("Startup provisioning failed: %s", exc)
+
     # Scheduled work: inbox polling, follow-up drafting and opt-in autopilot.
     # On a serverless host (ENABLE_BACKGROUND_JOBS=false) the process is frozen
     # between requests, so an interval scheduler would never fire and would
     # only add startup cost. The same work stays reachable on demand through
     # /api/scheduling/run-now and /api/inbox/sync.
-    if app_settings.ENABLE_BACKGROUND_JOBS:
+    if app_settings.ENABLE_BACKGROUND_JOBS and database_ready:
         scheduler.add_job(
             _poll_inbox_job,
             "interval",
@@ -502,8 +522,9 @@ async def lifespan(app: FastAPI):
             scheduler.start()
     else:
         logger.info(
-            "Background jobs disabled (ENABLE_BACKGROUND_JOBS=false); "
-            "drive them from an external scheduler instead."
+            "Background jobs not started (ENABLE_BACKGROUND_JOBS=%s, database_ready=%s)",
+            app_settings.ENABLE_BACKGROUND_JOBS,
+            database_ready,
         )
     
     yield
@@ -931,7 +952,12 @@ app.add_middleware(
 @app.get("/health")
 @app.get("/health/")
 def health_check():
-    """Health check endpoint."""
+    """Health check endpoint.
+
+    Returns 503 when the database is unreachable so a platform probe fails the
+    deploy instead of reporting a process that cannot serve any request as up.
+    """
+    from fastapi.responses import JSONResponse
     from sqlalchemy import text
     from sqlalchemy.exc import SQLAlchemyError
     db = SessionLocal()
@@ -943,13 +969,14 @@ def health_check():
     finally:
         db.close()
 
-    return {
+    payload = {
         "status": "healthy" if db_healthy else "degraded",
         "checks": {
             "database": {"healthy": db_healthy, "error": None if db_healthy else "Connection failed"}
         },
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
+    return payload if db_healthy else JSONResponse(status_code=503, content=payload)
 
 
 @app.get("/api/state")

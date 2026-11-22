@@ -8,6 +8,35 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
 
+def _platform_public_url() -> str:
+    """Return the public origin a hosting platform assigned, if any.
+
+    Render, Railway and Fly each expose the deployed URL under a different
+    variable. Reading them here means tracking links and CORS work on a fresh
+    deploy without anyone copying a URL into the environment by hand, which is
+    the mistake that silently produces click links pointing at localhost.
+    """
+    render_url = os.getenv("RENDER_EXTERNAL_URL", "").strip()
+    if render_url:
+        return render_url.rstrip("/")
+
+    domains = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
+    if domains:
+        domain = domains.split(",")[0].strip()
+        if domain and not domain.startswith("http"):
+            domain = f"https://{domain}"
+        return domain.rstrip("/")
+
+    fly_host = os.getenv("FLY_APP_NAME", "").strip()
+    if fly_host:
+        return f"https://{fly_host}.fly.dev"
+
+    return ""
+
+
+_PLATFORM_PUBLIC_URL = _platform_public_url()
+
+
 class Settings:
     """Application settings loaded from environment variables with defaults."""
     
@@ -78,8 +107,11 @@ class Settings:
 
     # Absolute origin used to build open-pixel and click-tracking URLs. It must
     # be reachable by recipients, so a public deployment sets it explicitly;
-    # the default keeps local development working.
-    PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000")
+    # the platform's own URL is used when one is present, and the default keeps
+    # local development working.
+    PUBLIC_BASE_URL: str = (
+        os.getenv("PUBLIC_BASE_URL") or _PLATFORM_PUBLIC_URL or "http://localhost:8000"
+    )
 
     # How many queue passes one process may run at once. Sending is still
     # serialized per tenant by the pacing rule in ``services/limits.py``; this
@@ -97,10 +129,13 @@ class Settings:
     )
     
     # CORS - loopback origins by default; wildcard + credentials is invalid.
+    # The platform-assigned origin is appended so a fresh deploy can call its
+    # own API from the browser without extra configuration.
     CORS_ORIGINS: str = os.getenv(
         "CORS_ORIGINS",
         "http://127.0.0.1:8000,http://localhost:8000,"
-        "http://127.0.0.1:5173,http://localhost:5173",
+        "http://127.0.0.1:5173,http://localhost:5173"
+        + (f",{_PLATFORM_PUBLIC_URL}" if _PLATFORM_PUBLIC_URL else ""),
     )
     
     # NVIDIA API
