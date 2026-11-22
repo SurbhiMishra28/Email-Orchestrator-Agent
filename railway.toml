@@ -1,17 +1,20 @@
 [build]
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+# Native build, no image. Nixpacks installs Python and Node, then this command
+# installs the backend requirements and compiles the dashboard into
+# frontend/dist, which app/main.py mounts at /.
+builder = "NIXPACKS"
+buildCommand = "python -m pip install -r requirements.txt && npm ci --prefix frontend && npm run build --prefix frontend"
 
 [deploy]
 # The dashboard is served by the same process, so /health proves both the
-# container and its database connection are up.
+# service and its database connection are up.
+startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
 
-[service]
 # APScheduler drives inbox polling and autopilot, and the send worker keeps a
 # thread between requests to honour the 60-second pacing rule. None of that
-# survives a process that restarts on every request, so this must be a
-# long-lived container service rather than a serverless function.
+# survives a process that is frozen between requests, so this must be a
+# long-lived service rather than a serverless function.

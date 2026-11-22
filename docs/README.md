@@ -20,7 +20,7 @@ the SPA at `/`, the API under `/api`, and the OpenAPI docs at `/docs`.
 | [API_REFERENCE.md](API_REFERENCE.md) | Detailed request/response examples |
 | [AGENTS.md](AGENTS.md) | Agent classes, methods and the live activity stream |
 | [SAAS_GUIDE.md](SAAS_GUIDE.md) | Multi-tenant deployment (MariaDB, systemd, nginx) |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Container deploys: Railway, Render, Fly.io, and serverless cron |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Native deploys: Railway, Render, VPS, and serverless cron |
 | [SETUP_GUIDE.md](SETUP_GUIDE.md) | Installation and configuration |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Common failures and fixes |
 | [SECURITY.md](SECURITY.md) | Auth model, secrets, tracking tokens |

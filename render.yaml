@@ -1,14 +1,21 @@
 services:
   - type: web
     name: email-orchestrator
-    runtime: docker
-    dockerfilePath: ./Dockerfile
+    # Native Python runtime. The build step also runs Node to compile the
+    # dashboard, because app/main.py serves frontend/dist from the same process.
+    runtime: python
     plan: starter
+    buildCommand: pip install -r requirements.txt && npm ci --prefix frontend && npm run build --prefix frontend
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     # /health checks the database too, so a passing probe means the app can
     # actually serve requests rather than just that the port is open.
     healthCheckPath: /health
     autoDeploy: true
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.7"
+      - key: NODE_VERSION
+        value: "22"
       # Set these in the Render dashboard. They are listed here as a checklist
       # so a missing value fails loudly instead of silently running insecurely.
       - key: DATABASE_URL
