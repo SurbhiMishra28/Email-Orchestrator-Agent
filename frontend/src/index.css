@@ -312,88 +312,6 @@
     @apply font-medium text-brand-700 underline-offset-2 hover:underline;
   }
 
-  /* ----------------------------------------------------------------- auth */
-  /* Full-bleed cinematic backdrop: the same near-black sage room as the app,
-     with slow-drifting light so the page feels alive without motion sickness. */
-  .auth-shell {
-    @apply relative flex min-h-screen overflow-hidden bg-ink-50 text-ink-900;
-  }
-
-  .auth-aurora {
-    @apply pointer-events-none absolute inset-0 overflow-hidden;
-  }
-
-  .auth-aurora span {
-    @apply absolute rounded-full blur-3xl;
-  }
-
-  .auth-aurora span:nth-child(1) {
-    top: -14%;
-    left: -8%;
-    height: 44vw;
-    width: 44vw;
-    background: radial-gradient(circle, rgba(77, 125, 106, 0.34), transparent 68%);
-    animation: drift 26s ease-in-out infinite;
-  }
-
-  .auth-aurora span:nth-child(2) {
-    top: 8%;
-    right: -12%;
-    height: 38vw;
-    width: 38vw;
-    background: radial-gradient(circle, rgba(43, 68, 58, 0.42), transparent 70%);
-    animation: drift 34s ease-in-out infinite reverse;
-  }
-
-  .auth-aurora span:nth-child(3) {
-    bottom: -22%;
-    left: 26%;
-    height: 50vw;
-    width: 50vw;
-    background: radial-gradient(circle, rgba(127, 179, 157, 0.14), transparent 66%);
-    animation: drift 42s ease-in-out infinite;
-  }
-
-  /* Film grain: keeps the large dark gradients from banding on wide screens. */
-  .auth-grain {
-    @apply pointer-events-none absolute inset-0 opacity-[0.16];
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
-  }
-
-  .auth-panel {
-    @apply relative z-10 flex w-full flex-col justify-center px-5 py-12 sm:px-10 lg:w-[52%] lg:px-16;
-  }
-
-  .auth-card {
-    @apply w-full max-w-[400px] rounded-[18px] border border-ink-200 bg-ink-100/95 p-6 shadow-pop backdrop-blur-2xl sm:p-8;
-  }
-
-  .auth-stage {
-    @apply relative z-10 hidden flex-1 flex-col justify-between overflow-hidden border-l border-ink-200/70 p-12 lg:flex;
-  }
-
-  .auth-eyebrow {
-    @apply inline-flex items-center gap-2 rounded-full border border-brand-300/40 bg-brand-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-700;
-  }
-
-  .auth-feature {
-    @apply rounded-xl border border-ink-200/80 bg-ink-100/50 p-3 backdrop-blur-sm;
-  }
-
-  .auth-divider {
-    @apply my-5 flex items-center gap-3 text-[11px] uppercase tracking-[0.16em] text-ink-400;
-  }
-
-  .auth-divider::before,
-  .auth-divider::after {
-    content: "";
-    @apply h-px flex-1 bg-ink-200;
-  }
-
-  .btn-demo {
-    @apply btn w-full border-brand-300/50 bg-brand-500/10 text-brand-700 hover:border-brand-400/70 hover:bg-brand-500/20 hover:text-brand-800;
-  }
-
   /* ---------------------------------------------------------------- splash */
   /* Brevo-style opening: the wordmark fills the screen, then the app fades in. */
   .splash {
@@ -457,8 +375,7 @@
     .splash-word,
     .splash-tag,
     .splash-bar span,
-    .shell-in,
-    .auth-aurora span {
+    .shell-in {
       animation-duration: 1ms;
       animation-delay: 0ms;
     }

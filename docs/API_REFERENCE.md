@@ -43,8 +43,24 @@ product before registering.
 - 200 OK - Session issued; the token is valid for 7 days
 - 503 Service Unavailable - The demo workspace could not be prepared
 
-The demo tenant is read-only for anything that leaves the machine. These routes
-return **403** for a demo token, with `detail` explaining the restriction:
+The UI has no sign-in form: it calls this endpoint itself whenever there is no
+usable stored session, so a visitor reaches the dashboard directly.
+
+**Sending in the demo**
+
+`DEMO_ALLOW_SENDING` defaults to `true`, so a demo token can save SMTP settings and
+send — through its own relay only. The demo tenant never inherits the deployment's
+`SMTP_*` values, and its seeded recipients are reserved `.example.com` addresses
+that the placeholder guard refuses until a visitor edits a contact.
+
+One route stays refused even with sending enabled:
+
+| Route | Why it is refused |
+|---|---|
+| `POST /api/inbox/sync` | `IMAP_*` is deployment-wide, so a sync would copy the operator's private mail into a shared tenant |
+
+With `DEMO_ALLOW_SENDING=false` the original read-only behaviour returns and every
+relay path answers **403** with a `detail` explaining the restriction:
 
 | Route | Why it is refused |
 |---|---|
@@ -56,11 +72,11 @@ return **403** for a demo token, with `detail` explaining the restriction:
 | `POST /api/inbox/sync` | No mailbox access from the shared tenant |
 
 Everything else — browsing contacts, drafts, campaigns, analytics, editing seeded
-rows — works normally.
+rows — works normally in both modes.
 
 **Current user** — `GET /api/auth/me` returns the same `user` object shown above and
 includes `"demo": true` for demo sessions (`false` for a normal account). The UI uses
-that flag to show the demo banner instead of operator controls.
+that flag to show the demo banner.
 
 ## Base URL
 

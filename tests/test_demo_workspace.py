@@ -1,12 +1,18 @@
-"""The shared demo workspace must be usable but unable to send or store secrets.
+"""The shared demo workspace must be usable, and safe on its own terms.
 
-The demo account is handed out by the sign-in screen, so its safety cannot rest
-on a visitor's goodwill. These tests cover the two invariants that matter: the
-workspace looks alive, and every path that could reach a mail relay refuses.
+The demo account is handed out by the app itself, so its safety cannot rest on a
+visitor's goodwill. These tests cover the invariants that matter:
+
+* the workspace looks alive and is reachable without credentials,
+* sending is available (``DEMO_ALLOW_SENDING``), but on terms that cannot hurt the
+  operator: the demo never inherits the deployment's SMTP credentials and never
+  reads the deployment's mailbox,
+* setting ``DEMO_ALLOW_SENDING=false`` puts every relay path back behind 403.
 """
 import pytest
 
-from app.db import SessionLocal, Tenant
+from app.config import settings as app_settings
+from app.db import Draft, SMTPConfig, SessionLocal, Tenant
 from app.services.demo import (
     DEMO_EMAIL,
     DEMO_SUBDOMAIN,
@@ -55,8 +61,6 @@ def test_demo_workspace_has_seeded_content(demo_client):
     assert state["drafts"]
     assert state["analytics"]["sent"] > 0
     assert state["analytics"]["replied"] > 0
-    # An unconfigured inbox/relay is what stops the workspace from sending.
-    assert state["smtp"]["configured"] is False
 
     for path, minimum in (
         ("/api/lists", 2),
@@ -84,12 +88,111 @@ def test_demo_seed_is_idempotent(client):
     assert len(before["drafts"]) == len(after["drafts"])
 
 
+def test_demo_never_inherits_the_operator_smtp(client):
+    """The demo is public, so the deployment's own relay must not reach it."""
+    seed_demo_workspace()
+    db = SessionLocal()
+    try:
+        tenant_id = db.query(Tenant.id).filter(Tenant.subdomain == DEMO_SUBDOMAIN).one()[0]
+        smtp = db.query(SMTPConfig).filter(SMTPConfig.tenant_id == tenant_id).one()
+        assert not smtp.host
+        assert not smtp.user
+        assert not smtp.password
+        assert smtp.configured is False
+    finally:
+        db.close()
+
+
+def test_demo_can_open_a_smtp_config(demo_client):
+    """Sending is on, so the settings form must be usable."""
+    session, _user = demo_client
+    assert app_settings.DEMO_ALLOW_SENDING is True
+    response = session.get("/api/smtp/status")
+    assert response.status_code == 200
+    # Nothing is configured for the operator's account, so a visitor brings their
+    # own relay or nothing sends at all.
+    assert response.json()["configured"] is False
+
+
+@pytest.mark.parametrize(
+    "path,payload",
+    [
+        ("/api/inbox/sync", None),
+    ],
+)
+def test_demo_cannot_read_the_operator_mailbox(demo_client, path, payload):
+    """IMAP credentials are deployment-wide, so the demo is always refused."""
+    session, _user = demo_client
+    response = session.post(path, json=payload) if payload is not None else session.post(path)
+    assert response.status_code == 403, f"{path} -> {response.status_code} {response.text}"
+
+
+def test_demo_login_is_public(client):
+    """No token is required: the app opens the demo workspace on first load."""
+    anonymous = client.__class__(client.app)
+    response = anonymous.post("/api/auth/demo")
+    assert response.status_code == 200
+    assert response.json()["access_token"]
+
+
+def test_demo_can_send_with_its_own_relay(demo_client):
+    """Sending is enabled: a visitor who configures a relay can complete a send.
+
+    ``MAIL_SUPPRESS_SEND`` is on for the suite, so no message leaves the machine;
+    this only proves the demo guard is not what stops the send.
+    """
+    session, _user = demo_client
+    db = SessionLocal()
+    try:
+        tenant_id = db.query(Tenant.id).filter(Tenant.subdomain == DEMO_SUBDOMAIN).one()[0]
+        draft = (
+            db.query(Draft)
+            .filter(Draft.tenant_id == tenant_id, Draft.status.in_(["draft", "failed"]))
+            .first()
+        )
+        assert draft is not None
+        draft_id = draft.id
+    finally:
+        db.close()
+
+    saved = session.post(
+        "/api/smtp/config",
+        json={
+            "host": "smtp.example.com",
+            "port": 587,
+            "user": "demo@example.com",
+            "password": "demo-password",
+            "sender": "demo@example.com",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["configured"] is True
+
+    try:
+        response = session.post(f"/api/drafts/{draft_id}/send")
+        assert response.status_code != 403, response.text
+        assert response.status_code == 200, response.text
+    finally:
+        # Leave the shared workspace as the seeder created it.
+        db = SessionLocal()
+        try:
+            smtp = db.query(SMTPConfig).filter(SMTPConfig.tenant_id == tenant_id).one()
+            smtp.host = ""
+            smtp.user = ""
+            smtp.password = ""
+            smtp.sender = ""
+            smtp.configured = False
+            smtp.authentication_configured = False
+            db.commit()
+        finally:
+            db.close()
+
+
 @pytest.mark.parametrize(
     "path,payload",
     [
         ("/api/smtp/config", {"host": "smtp.example.com", "port": 587, "user": "u", "password": "p", "sender": "u@example.com"}),
         ("/api/smtp/test", {"host": "smtp.example.com", "port": 587}),
-        ("/api/inbox/sync", None),
         ("/api/queue/run", None),
         ("/api/queue/run-all", {}),
         ("/api/queue/run-async", {}),
@@ -98,13 +201,16 @@ def test_demo_seed_is_idempotent(client):
         ("/api/run", {}),
     ],
 )
-def test_demo_cannot_reach_a_mail_relay(demo_client, path, payload):
+def test_read_only_mode_refuses_every_relay_path(monkeypatch, demo_client, path, payload):
+    """``DEMO_ALLOW_SENDING=false`` restores the original read-only workspace."""
+    monkeypatch.setattr(app_settings, "DEMO_ALLOW_SENDING", False)
     session, _user = demo_client
     response = session.post(path, json=payload) if payload is not None else session.post(path)
     assert response.status_code == 403, f"{path} -> {response.status_code} {response.text}"
 
 
-def test_demo_cannot_send_a_draft(demo_client):
+def test_read_only_mode_refuses_a_draft_send(monkeypatch, demo_client):
+    monkeypatch.setattr(app_settings, "DEMO_ALLOW_SENDING", False)
     session, _user = demo_client
     drafts = session.get("/api/state").json()["drafts"]
     assert drafts
@@ -112,12 +218,11 @@ def test_demo_cannot_send_a_draft(demo_client):
     assert response.status_code == 403
 
 
-def test_demo_login_is_public(client):
-    """No token is required: that is the whole point of the demo button."""
-    anonymous = client.__class__(client.app)
-    response = anonymous.post("/api/auth/demo")
+def test_read_only_mode_does_not_affect_normal_tenants(monkeypatch, client):
+    """The switch is about the shared workspace, not about everyone."""
+    monkeypatch.setattr(app_settings, "DEMO_ALLOW_SENDING", False)
+    response = client.get("/api/smtp/status")
     assert response.status_code == 200
-    assert response.json()["access_token"]
 
 
 def test_is_demo_tenant_distinguishes_tenants(client):

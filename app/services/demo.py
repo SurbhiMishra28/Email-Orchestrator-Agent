@@ -209,7 +209,9 @@ def _seed_settings(db, tenant: Tenant) -> None:
     )
     row.daily_cap = 50
     row.domain_cap = 3
-    # Autopilot stays off in the demo: nothing in this workspace may send.
+    # Autopilot stays off. Enabling it is a per-tenant action the demo can take,
+    # but a shared workspace should never start sending on a timer: the visitor
+    # who turned it on is gone, and the next visitor inherits a running queue.
     row.AUTOPILOT = False
     row.AUTO_APPROVE = False
     row.footer_text = "You are receiving this because we met at a conference."
@@ -223,15 +225,18 @@ def _seed_settings(db, tenant: Tenant) -> None:
     if smtp is None:
         smtp = SMTPConfig(tenant_id=tenant.id)
         db.add(smtp)
-    # Deliberately unconfigured. A visitor can open Settings and see the form,
-    # but saving credentials must stay refused, so the demo can never relay mail.
-    smtp.host = ""
-    smtp.port = 587
-    smtp.user = ""
-    smtp.password = ""
-    smtp.sender = ""
-    smtp.configured = False
-    smtp.authentication_configured = False
+        # Blank on creation, never inherited from the environment: the demo is
+        # public, so the deployment's own mailbox must not be reachable from it.
+        # A visitor who wants to try a real send configures their own relay.
+        smtp.host = ""
+        smtp.port = 587
+        smtp.user = ""
+        smtp.password = ""
+        smtp.sender = ""
+        smtp.configured = False
+        smtp.authentication_configured = False
+    # An existing row is left alone: re-seeding at startup must not wipe the
+    # relay a visitor saved while trying the sending flow.
 
 
 def _seed_templates(db, tenant: Tenant) -> list:

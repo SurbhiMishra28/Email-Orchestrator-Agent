@@ -70,6 +70,15 @@ def provision_tenant_defaults(db, tenant_id: int, inherit_environment: bool = No
     if inherit_environment is None:
         inherit_environment = app_settings.SINGLE_USER_MODE
 
+    # The shared demo workspace never inherits the environment, even in local
+    # single-user mode. Its credentials are public by definition: the sign-in
+    # button hands the account to anyone, so copying the operator's mailbox in
+    # would publish that mailbox. A visitor configures their own relay instead.
+    from app.services.demo import is_demo_tenant
+
+    if inherit_environment and is_demo_tenant(db, tenant_id):
+        inherit_environment = False
+
     if not db.query(Settings).filter(Settings.tenant_id == tenant_id).first():
         db.add(
             Settings(

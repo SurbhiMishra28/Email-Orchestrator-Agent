@@ -87,9 +87,9 @@ settings, re-enable autopilot, and send mail as the configured mailbox.
 
 `app/config.py` therefore ignores the setting whenever the instance has a
 platform URL (`RENDER_EXTERNAL_URL`, `RAILWAY_PUBLIC_DOMAIN`, `FLY_APP_NAME`).
-Requests then need a bearer token and the dashboard shows its sign-in screen, so
-a `.env` copied from a laptop cannot publish an open instance. Register the first
-account on the deployed URL to create the owner.
+Requests then need a bearer token, so a `.env` copied from a laptop cannot publish
+an open instance. The dashboard opens the shared demo workspace on its own, and
+`POST /api/auth/register` creates the owner account.
 
 Treat any SMTP credentials that were reachable this way as compromised: the
 deployed instance exposed a working Gmail account (host, user and sender were
@@ -169,15 +169,17 @@ curl -I https://YOUR-URL/             # 200 and the MailMatrix shell
 `DATABASE_URL` is wrong, which the logs restate with the host it tried to reach
 (password redacted).
 
-Then open the dashboard, register an account, and confirm the Overview loads.
-Only after that should you set `MAIL_SUPPRESS_SEND=false` and add real SMTP
-credentials.
+Then open the deployment. There is no sign-in form: the app opens the shared demo
+workspace by itself and the Overview should be populated. Confirm the demo holds no
+relay of yours — **Settings** shows blank SMTP fields, because the demo tenant never
+inherits `SMTP_*` from the environment — and that **Inbox → Sync** returns 403, since
+`IMAP_*` is your own mailbox. Create a real workspace through
+`POST /api/auth/register` before setting `MAIL_SUPPRESS_SEND=false` and adding live
+SMTP credentials.
 
-Before registering, use **Explore the demo workspace** on the sign-in screen: it
-should land on a populated Overview built from reserved `.example.com` addresses.
-Confirm the demo cannot send by trying to send a seeded draft — the API returns 403
-and the UI shows the refusal. The demo tenant is shared, so anything a visitor edits
-there is visible to the next one; it holds no credentials and no real addresses.
+The demo tenant is shared, so anything a visitor edits there is visible to the next
+one; it holds no credentials and no real addresses. Set `DEMO_ALLOW_SENDING=false`
+to make it read-only instead of send-capable.
 
 ## Serverless alternative
 

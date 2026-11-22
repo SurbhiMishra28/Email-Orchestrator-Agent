@@ -106,6 +106,22 @@ class Settings:
         os.getenv("MAIL_SUPPRESS_SEND", "false").lower() == "true"
     )
 
+    # Whether the shared demo workspace may save SMTP settings and send mail.
+    #
+    # The demo tenant is handed out by the sign-in button, so anything it can do
+    # is public. Sending is enabled by default because a demo that cannot send
+    # cannot show the product's core loop; the safety comes from *whose* relay
+    # it uses: the demo never inherits the deployment's SMTP credentials, so a
+    # visitor must configure their own. Set DEMO_ALLOW_SENDING=false to put the
+    # workspace back in read-only mode.
+    #
+    # IMAP is excluded from this switch. Mailbox credentials are deployment-wide
+    # (IMAP_* in the environment, not per tenant), so letting the demo sync would
+    # copy the operator's private mail into a shared tenant.
+    DEMO_ALLOW_SENDING: bool = (
+        os.getenv("DEMO_ALLOW_SENDING", "true").lower() == "true"
+    )
+
     # Absolute origin used to build open-pixel and click-tracking URLs. It must
     # be reachable by recipients, so a public deployment sets it explicitly;
     # the platform's own URL is used when one is present, and the default keeps

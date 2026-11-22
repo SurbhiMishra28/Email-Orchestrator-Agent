@@ -552,6 +552,7 @@ async def _poll_inbox_job():
     from fastapi.concurrency import run_in_threadpool
 
     from app.db import Tenant
+    from app.services.demo import is_demo_tenant
     from app.services.inbox import is_configured, sync_inbox
 
     if not is_configured():
@@ -559,7 +560,14 @@ async def _poll_inbox_job():
 
     db = SessionLocal()
     try:
-        tenant_ids = [row[0] for row in db.query(Tenant.id).all()]
+        # The shared demo workspace is skipped: IMAP is one process-wide mailbox,
+        # so polling on its behalf would copy the operator's own mail into a
+        # tenant every visitor can open.
+        tenant_ids = [
+            row[0]
+            for row in db.query(Tenant.id).all()
+            if not is_demo_tenant(db, row[0])
+        ]
     finally:
         db.close()
 
@@ -622,12 +630,25 @@ async def _run_autopilot_for_tenant(
     ``send=False`` stops after drafting so a caller can hand the (slow, paced)
     sending to a background worker and still answer the HTTP request promptly.
     """
+    from app.services.demo import is_demo_tenant
     from app.services.outreach import create_intro_drafts
     from app.services.send_worker import drain_queue
 
     intro = await create_intro_drafts(tenant_id=tenant_id)
 
-    if is_configured():
+    # Never pull the deployment's mailbox into the shared demo workspace: IMAP is
+    # one process-wide account, so its mail is the operator's own. The rest of
+    # the pass (drafting, follow-ups, sending through the visitor's relay) runs
+    # normally.
+    demo = False
+    if tenant_id is not None:
+        db = SessionLocal()
+        try:
+            demo = is_demo_tenant(db, tenant_id)
+        finally:
+            db.close()
+
+    if is_configured() and not demo:
         try:
             await run_in_threadpool(sync_inbox, 100, tenant_id)
         except Exception as exc:
