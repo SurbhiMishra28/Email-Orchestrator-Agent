@@ -1,6 +1,12 @@
 services:
   - type: web
-    name: email-orchestrator
+    # This name must match the service in the Render dashboard. Reusing an
+    # existing service's name makes a Blueprint sync apply this configuration to
+    # it instead of creating a second, duplicate service. It matters here: a
+    # service created by hand keeps its own build command, and without the npm
+    # step below the API runs but `frontend/dist` is never built, so `/` returns
+    # {"message":"Frontend not built..."}.
+    name: email-orchestrator-agent
     # Native Python runtime. Node and npm are present in Render's build
     # environment, so the same job compiles the dashboard that app/main.py
     # mounts from frontend/dist.

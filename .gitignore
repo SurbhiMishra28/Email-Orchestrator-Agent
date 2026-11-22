@@ -17,8 +17,15 @@ venv/
 
 # Node
 node_modules/
-frontend/dist/
-dist/
+# frontend/dist is committed on purpose: a hosting service created before the
+# Blueprint existed keeps its own build command, and if that command does not run
+# `npm run build`, the API starts but app/main.py finds no SPA to mount. Shipping
+# the build output makes the dashboard work on any host. Rebuild it with
+# `npm run build --prefix frontend` whenever frontend source changes.
+!frontend/dist/
+# Anchored so it only ignores a root-level dist, not frontend/dist above.
+/dist/
+
 
 # Editor / OS
 .vscode/
