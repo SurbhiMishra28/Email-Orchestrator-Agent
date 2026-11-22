@@ -126,13 +126,13 @@ const btnPrimary = "btn-primary";
 
 const STAT_COLORS = {
 
-  blue: "text-blue-600",
+  blue: "text-info-600",
 
   green: "text-brand-600",
 
-  red: "text-red-600",
+  red: "text-danger-600",
 
-  yellow: "text-amber-600",
+  yellow: "text-warn-600",
 
   gray: "text-ink-600",
 
@@ -140,13 +140,13 @@ const STAT_COLORS = {
 
 const STAT_ICON_TONES = {
 
-  blue: "bg-blue-50 text-blue-600 border-blue-100",
+  blue: "bg-info-50 text-info-600 border-info-100",
 
   green: "bg-brand-50 text-brand-600 border-brand-100",
 
-  red: "bg-red-50 text-red-600 border-red-100",
+  red: "bg-danger-50 text-danger-600 border-danger-100",
 
-  yellow: "bg-amber-50 text-amber-600 border-amber-100",
+  yellow: "bg-warn-50 text-warn-600 border-warn-100",
 
   gray: "bg-ink-100 text-ink-500 border-ink-200",
 
@@ -186,9 +186,9 @@ const STATUS_STYLES = {
 
   sending: "badge-sending",
 
-  scheduled: "badge border-blue-200 bg-blue-50 text-blue-700",
+  scheduled: "badge border-info-200 bg-info-50 text-info-700",
 
-  paused: "badge border-amber-200 bg-amber-50 text-amber-700",
+  paused: "badge border-warn-200 bg-warn-50 text-warn-700",
 
   cancelled: "badge border-ink-200 bg-ink-100 text-ink-500",
 
@@ -330,7 +330,7 @@ function LiveAgentActivity(){
 
   const running=new Set(visible.filter(e=>e.scope==="agent"&&e.status==="started").map(e=>e.agent));
 
-  const colour=(status)=>status==="completed"?"text-brand-600":status==="failed"?"text-red-600":"text-blue-600";
+  const colour=(status)=>status==="completed"?"text-brand-600":status==="failed"?"text-danger-600":"text-info-600";
 
   return (
 
@@ -344,7 +344,7 @@ function LiveAgentActivity(){
 
           <span className="text-ink-600">{connected?"Streaming":"Disconnected"}</span>
 
-          {running.size>0&&<span className="font-medium text-blue-600">{running.size} running</span>}
+          {running.size>0&&<span className="font-medium text-info-600">{running.size} running</span>}
 
         </div>
 
@@ -422,11 +422,11 @@ function AnalyticsChart({series}){
 
                 <div className="w-1/2 rounded-t bg-brand-500/80" style={{height:`${Math.max(sent?4:0,(sent/max)*100)}%`}}/>
 
-                <div className="w-1/2 rounded-t bg-blue-500/70" style={{height:`${Math.max(replied?4:0,(replied/max)*100)}%`}}/>
+                <div className="w-1/2 rounded-t bg-info-500/70" style={{height:`${Math.max(replied?4:0,(replied/max)*100)}%`}}/>
 
               </div>
 
-              <span className="whitespace-nowrap text-[9px] text-ink-400">{label(day.date)}</span>
+              <span className="whitespace-nowrap text-[10px] tabular-nums text-ink-400">{label(day.date)}</span>
 
             </div>
 
@@ -440,7 +440,7 @@ function AnalyticsChart({series}){
 
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-brand-500/80"/>Sent</span>
 
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-blue-500/70"/>Replied</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-info-500/70"/>Replied</span>
 
       </div>
 
@@ -466,9 +466,9 @@ function MetricSection({tone,icon:Icon,title,headline,headlineHint,rows,footer})
 
   const tones={
     green:"bg-brand-50 text-brand-600 border-brand-100",
-    blue:"bg-blue-50 text-blue-600 border-blue-100",
-    yellow:"bg-amber-50 text-amber-600 border-amber-100",
-    red:"bg-red-50 text-red-600 border-red-100",
+    blue:"bg-info-50 text-info-600 border-info-100",
+    yellow:"bg-warn-50 text-warn-600 border-warn-100",
+    red:"bg-danger-50 text-danger-600 border-danger-100",
   };
 
   return (
@@ -550,7 +550,7 @@ function ErrorDisplay({err,onRetry}){
 
     <div className="flex h-full flex-col items-center justify-center p-8 text-center">
 
-      <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full border border-red-100 bg-red-50 text-red-600"><AlertCircle className="h-5 w-5"/></div>
+      <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full border border-danger-100 bg-danger-50 text-danger-600"><AlertCircle className="h-5 w-5"/></div>
 
       <h3 className="text-[15px] font-semibold text-ink-900">Something went wrong</h3>
 
@@ -573,6 +573,8 @@ function AuthScreen({onAuthenticated}){
   const [form,setForm]=useState({email:"",password:"",name:"",tenant_name:""});
 
   const [busy,setBusy]=useState(false);
+
+  const [demoBusy,setDemoBusy]=useState(false);
 
   const [err,setErr]=useState(null);
 
@@ -614,33 +616,93 @@ function AuthScreen({onAuthenticated}){
 
   };
 
+  // One click into a seeded workspace: no credentials to type and no account to
+  // create, which is the point when the visitor is still evaluating the product.
+  const startDemo=async()=>{
+
+    setDemoBusy(true);
+
+    setErr(null);
+
+    try{
+
+      const result=await api("/api/auth/demo",{method:"POST"});
+
+      storeToken(result.access_token);
+
+      onAuthenticated({...result.user,demo:true});
+
+    }catch(e){
+
+      storeToken("");
+
+      setErr(e?.message||"Could not open the demo workspace");
+
+    }finally{
+
+      setDemoBusy(false);
+
+    }
+
+  };
+
+  const feats=[
+    ["Lists & segments","Folders, per-list senders and unsubscribe state"],
+    ["Campaigns","Draft, schedule, pause and track delivery"],
+    ["A/B experiments","Stable variants with weighted assignment"],
+  ];
+
   return (
 
-    <div className="flex min-h-screen bg-white text-ink-900">
+    <div className="auth-shell">
 
-      <div className="flex flex-1 items-center justify-center px-4 py-12">
+      <div className="auth-aurora" aria-hidden="true"><span/><span/><span/></div>
 
-        <div className="w-full max-w-[382px]">
+      <div className="auth-grain" aria-hidden="true"/>
 
-          <div className="mb-8 flex items-center gap-2.5">
+      <div className="auth-panel">
 
-            <div className="brand-mark">
+        <div className="auth-card">
 
-              <Mail className="h-[18px] w-[18px]"/>
+          <div className="mb-7 flex items-center gap-2.5">
 
-            </div>
+            <div className="brand-mark"><Mail className="h-[18px] w-[18px]"/></div>
 
             <span className="text-[16px] font-bold tracking-tight">{BRAND_NAME}</span>
 
+            <span className="ml-auto rounded-full border border-ink-200 bg-ink-200/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-400">Beta</span>
+
           </div>
 
-          <h1 className="text-[24px] font-semibold leading-tight tracking-tight">{mode==="login"?"Sign in to your account":"Create your workspace"}</h1>
+          <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-ink-900">
 
-          <p className="mt-1.5 mb-7 text-[13px] text-ink-500">
+            {mode==="login"?"Welcome back":"Create your workspace"}
 
-            {mode==="login"?"Welcome back. Enter your details to continue.":"Start sending in minutes. No credit card required."}
+          </h1>
+
+          <p className="mt-1.5 mb-6 text-[13px] leading-5 text-ink-500">
+
+            {mode==="login"?"Sign in to your outbound workspace, or explore the demo first.":"Start sending in minutes. No credit card required."}
 
           </p>
+
+          {mode==="login"&&(
+
+            <>
+
+              <button type="button" onClick={startDemo} disabled={demoBusy||busy} className="btn-demo">
+
+                {demoBusy?<Loader2 className="h-4 w-4 animate-spin"/>:<Sparkles className="h-4 w-4"/>}
+
+                {demoBusy?"Preparing demo workspace…":"Explore the demo workspace"}
+
+              </button>
+
+              <div className="auth-divider">or sign in</div>
+
+            </>
+
+          )}
 
           <form onSubmit={submit} className="space-y-3.5">
 
@@ -686,7 +748,7 @@ function AuthScreen({onAuthenticated}){
 
             {err&&<div className="notice-error">{err}</div>}
 
-            <button type="submit" disabled={busy} className={btnPrimary+" w-full"}>
+            <button type="submit" disabled={busy||demoBusy} className={btnPrimary+" w-full"}>
 
               {busy&&<Loader2 className="h-4 w-4 animate-spin"/>}
 
@@ -718,45 +780,53 @@ function AuthScreen({onAuthenticated}){
 
         </div>
 
+        <p className="mt-6 text-center text-[11px] text-ink-400">
+
+          The demo workspace is shared and read-only. It sends no email.
+
+        </p>
+
       </div>
 
-      <aside className="relative hidden w-[46%] max-w-[680px] flex-col justify-between overflow-hidden bg-brand-700 p-12 text-white lg:flex">
+      <aside className="auth-stage">
 
-        <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-brand-600/60 blur-2xl"/>
+        <div className="pointer-events-none absolute -right-32 -top-40 h-[30rem] w-[30rem] rounded-full bg-brand-500/10 blur-3xl"/>
 
-        <div className="pointer-events-none absolute -bottom-32 -left-20 h-80 w-80 rounded-full bg-brand-800/70 blur-2xl"/>
+        <div className="pointer-events-none absolute -bottom-48 -left-24 h-[34rem] w-[34rem] rounded-full bg-brand-500/[0.06] blur-3xl"/>
 
-        <div className="relative">
+        <div className="relative max-w-md">
 
-          <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/80">
+          <div className="auth-eyebrow"><Sparkles className="h-3.5 w-3.5"/>Outreach, orchestrated</div>
 
-            <Sparkles className="h-3.5 w-3.5"/>Outreach, orchestrated
+          <h2 className="mt-7 text-[32px] font-semibold leading-[1.18] tracking-tight text-ink-900">
 
-          </div>
-
-          <h2 className="mt-8 max-w-md text-[30px] font-semibold leading-[1.2] tracking-tight">
-
-            One workspace for lists, campaigns and follow-ups.
+            One quiet workspace for the whole outbound loop.
 
           </h2>
 
-          <p className="mt-4 max-w-sm text-[14px] leading-6 text-white/70">
+          <p className="mt-4 max-w-sm text-[14px] leading-6 text-ink-500">
 
-            Multi-tenant campaigns, A/B tested copy, engagement tracking and a scheduler that respects your daily limits.
+            MailMatrix drafts, paces and follows up on every conversation, then respects your daily caps so deliverability never becomes a surprise.
 
           </p>
 
         </div>
 
-        <div className="relative grid grid-cols-3 gap-3">
+        <div className="relative grid gap-2.5">
 
-          {[["Lists","Segments & folders"],["Campaigns","Send with tracking"],["A/B tests","Stable variants"]].map(([title,desc])=>(
+          {feats.map(([title,desc])=>(
 
-            <div key={title} className="rounded-xl border border-white/15 bg-white/10 p-3 backdrop-blur-sm">
+            <div key={title} className="auth-feature flex items-start gap-3">
 
-              <div className="text-[13px] font-semibold">{title}</div>
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500"/>
 
-              <div className="mt-0.5 text-[11px] leading-4 text-white/60">{desc}</div>
+              <div>
+
+                <div className="text-[13px] font-semibold text-ink-800">{title}</div>
+
+                <div className="mt-0.5 text-[11.5px] leading-4 text-ink-400">{desc}</div>
+
+              </div>
 
             </div>
 
@@ -1292,7 +1362,7 @@ function TeamView({api,signOut,currentUserId}){
 
                       disabled={busyId===m.id||m.user_id===currentUserId}
 
-                      className="icon-btn hover:text-red-600"
+                      className="icon-btn hover:text-danger-600"
 
                       title={m.user_id===currentUserId?"You cannot remove yourself":"Remove member"}
 
@@ -1587,7 +1657,7 @@ function ExperimentsView({api,signOut}){
 
                           </button>
 
-                          <button onClick={()=>remove(test)} disabled={busy} className="icon-btn hover:text-red-600" title="Delete experiment">
+                          <button onClick={()=>remove(test)} disabled={busy} className="icon-btn hover:text-danger-600" title="Delete experiment">
 
                             <Trash2 className="h-4 w-4"/>
 
@@ -2755,6 +2825,12 @@ export default function App(){
     let active=true;
     (async()=>{
 
+      // No stored token means there is nothing to validate. Retrying once is
+      // only useful when a token existed and turned out to be stale (a restart
+      // with a rotated JWT key, or a single-user deploy that needs no token):
+      // retrying without one just makes the same 401 twice in the console.
+      const hadToken=Boolean(getToken());
+
       try{
 
         const me=await api("/api/auth/me");
@@ -2763,11 +2839,9 @@ export default function App(){
 
       }catch(err){
 
-        // A stale/invalid token must not block single-user deployments, where
-        // the same endpoint succeeds once the bad token is dropped.
         storeToken("");
 
-        if(err?.status===401){
+        if(hadToken&&err?.status===401){
 
           try{
 
@@ -3561,9 +3635,9 @@ export default function App(){
 
       deliverable: "border-brand-200 bg-brand-50 text-brand-700",
 
-      undeliverable: "border-red-200 bg-red-50 text-red-700",
+      undeliverable: "border-danger-200 bg-danger-50 text-danger-700",
 
-      risky: "border-amber-200 bg-amber-50 text-amber-700",
+      risky: "border-warn-200 bg-warn-50 text-warn-700",
 
       inconclusive: "border-ink-200 bg-ink-100 text-ink-600",
 
@@ -4363,6 +4437,13 @@ export default function App(){
           <button onClick={()=>setNavOpen(false)} className="icon-btn md:hidden" title="Close menu" aria-label="Close menu"><X className="h-4 w-4"/></button>
         </div>
 
+        {user?.demo&&(
+          <div className="mx-2.5 mt-2.5 rounded-[10px] border border-brand-300/40 bg-brand-500/10 px-3 py-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-brand-700">Demo workspace</div>
+            <p className="mt-1 text-[11px] leading-4 text-ink-400">Shared and read-only. Sending and SMTP are disabled.</p>
+          </div>
+        )}
+
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-2.5 py-3">
 
           {navGroups.map(group=>(
@@ -4389,13 +4470,13 @@ export default function App(){
 
           <div className="flex items-center justify-between rounded-[10px] border border-ink-200 bg-ink-50 px-2.5 py-2">
             <div className="flex items-center gap-2">
-              <span className={"h-2 w-2 rounded-full "+(systemLive?"bg-brand-500":"bg-amber-500")}/>
+              <span className={"h-2 w-2 rounded-full "+(systemLive?"bg-brand-500":"bg-warn-500")}/>
               <span className="text-[12px] font-medium text-ink-700">{systemLive?"All systems live":"Degraded"}</span>
             </div>
             <span className="text-[11px] tabular-nums text-ink-400">{new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</span>
           </div>
 
-          {status&&<div className="mt-2 px-1 text-[11px] text-blue-600">{status}</div>}
+          {status&&<div className="mt-2 px-1 text-[11px] text-info-600">{status}</div>}
 
           <div className="mt-2.5 flex items-center gap-2 rounded-[10px] px-1 py-1">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[11px] font-bold uppercase text-brand-700">
@@ -4576,7 +4657,7 @@ export default function App(){
 
                       <div className="h-1.5 overflow-hidden rounded-full bg-ink-100">
 
-                        <div className={"h-full rounded-full "+(usage.daily_remaining===0?"bg-red-500":"bg-brand-500")} style={{width:`${Math.min(100,Math.round(((usage.today?.emails_sent||0)/usage.daily_email_limit)*100))}%`}}/>
+                        <div className={"h-full rounded-full "+(usage.daily_remaining===0?"bg-danger-500":"bg-brand-500")} style={{width:`${Math.min(100,Math.round(((usage.today?.emails_sent||0)/usage.daily_email_limit)*100))}%`}}/>
 
                       </div>
 
@@ -4670,7 +4751,7 @@ export default function App(){
 
                         <button onClick={()=>duplicateTemplate(template.id)} className="icon-btn" title="Duplicate template"><Copy className="h-4 w-4"/></button>
 
-                        <button onClick={()=>deleteTemplate(template.id)} className="icon-btn hover:bg-red-50 hover:text-red-600" title="Delete template"><Trash2 className="h-4 w-4"/></button>
+                        <button onClick={()=>deleteTemplate(template.id)} className="icon-btn hover:bg-danger-50 hover:text-danger-600" title="Delete template"><Trash2 className="h-4 w-4"/></button>
 
                       </div>
 
@@ -4779,7 +4860,7 @@ export default function App(){
         )}
 
         {view==="contacts"&&(
-          <div className="flex h-full min-h-0 flex-col bg-white">
+          <div className="flex h-full min-h-0 flex-col bg-ink-100">
             <div className="page-head page-head-flush">
               <div>
                 <div className="breadcrumb mb-1">Audience</div>
@@ -4791,7 +4872,7 @@ export default function App(){
                 {(state.contacts?.length || 0) > 0 && (
                   <button
                     onClick={deleteAllContacts}
-                    className="btn-ghost text-red-600 hover:bg-red-50 hover:text-red-700"
+                    className="btn-ghost text-danger-600 hover:bg-danger-50 hover:text-danger-700"
                     title="Delete every contact in this workspace"
                   >
                     <Trash2 className="h-3.5 w-3.5"/>Delete all
@@ -4892,7 +4973,7 @@ export default function App(){
                       <MoreHorizontal className="h-4 w-4"/>
                     </button>
                     {openListMenu === list.id && (
-                      <div className="absolute left-0 top-full z-30 mt-1 w-56 rounded-xl border border-ink-200 bg-white py-1 shadow-pop">
+                      <div className="absolute left-0 top-full z-30 mt-1 w-56 rounded-xl border border-ink-200 bg-ink-100 py-1 shadow-pop">
                         {[
                           { label: "List settings", icon: SlidersHorizontal, onClick: () => { setShowListSettings(list); setListSettingsForm({ description: list.description || "", from_name: list.from_name || "", from_email: list.from_email || "", reply_to: list.reply_to || "", header: list.header || "", footer: list.footer || "" }); setListError(null); } },
                           { label: "Duplicate", icon: Copy, onClick: () => duplicateList(list.id) },
@@ -4904,7 +4985,7 @@ export default function App(){
                           <button
                             key={item.label}
                             onClick={() => { setOpenListMenu(null); item.onClick(); }}
-                            className={"flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-ink-50 " + (item.danger ? "text-red-600" : "text-ink-700")}
+                            className={"flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-ink-50 " + (item.danger ? "text-danger-600" : "text-ink-700")}
                           >
                             <item.icon className="h-4 w-4 opacity-70"/>{item.label}
                           </button>
@@ -4913,12 +4994,12 @@ export default function App(){
                     )}
                   </span>
                 ))}
-                {listError && <span className="text-[12px] text-red-600">{listError}</span>}
+                {listError && <span className="text-[12px] text-danger-600">{listError}</span>}
               </div>
 
               {/* List context bar: counts and bulk actions for the open list */}
               {selectedList !== "all" && selectedList !== "eligible" && (
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-200 bg-white px-5 py-2 text-[12px] text-ink-600">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-200 bg-ink-100 px-5 py-2 text-[12px] text-ink-600">
                   <div className="flex flex-wrap items-center gap-4">
                     <span><strong className="tabular-nums text-ink-900">{filteredContactsCount}</strong> subscribed</span>
                     <span><strong className="tabular-nums text-ink-900">{lists.find(l => String(l.id) === selectedList)?.total_blacklisted ?? 0}</strong> blocklisted</span>
@@ -5002,7 +5083,7 @@ export default function App(){
                     )}
                     <button
                       onClick={deleteSelectedContacts}
-                      className="btn-sm inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white font-medium text-red-600 hover:bg-red-50 hover:text-red-700"
+                      className="btn-sm inline-flex items-center gap-1.5 rounded-lg border border-danger-200 bg-ink-100 font-medium text-danger-600 hover:bg-danger-50 hover:text-danger-700"
                       title="Delete the selected contacts"
                     >
                       <Trash2 className="h-3.5 w-3.5"/>Delete
@@ -5035,13 +5116,13 @@ export default function App(){
                               "flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border transition-colors " +
                               (selectedContacts.size > 0
                                 ? "border-brand-600 bg-brand-600 text-white"
-                                : "border-ink-300 bg-white")
+                                : "border-ink-300 bg-ink-100")
                             }
                           >
                             {selectedContacts.size > 0 && selectedContacts.size >= filteredContacts.length
                               ? <Check className="h-3 w-3"/>
                               : selectedContacts.size > 0
-                                ? <span className="h-0.5 w-2 rounded-full bg-white"/>
+                                ? <span className="h-0.5 w-2 rounded-full bg-ink-100"/>
                                 : null}
                           </span>
                           Contact
@@ -5066,7 +5147,7 @@ export default function App(){
                                 "flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border transition-colors " +
                                 (isSelected
                                   ? "border-brand-600 bg-brand-600 text-white"
-                                  : "border-ink-300 bg-white hover:border-brand-400")
+                                  : "border-ink-300 bg-ink-100 hover:border-brand-400")
                               }
                               title={isSelected ? "Deselect contact" : "Select contact"}
                               aria-label={isSelected ? `Deselect ${contact.email}` : `Select ${contact.email}`}
@@ -5090,7 +5171,7 @@ export default function App(){
                           </button>
                         </td>
                         <td className="text-center">
-                          <span className={"badge " + (contact.email_blacklisted ? "border-red-200 bg-red-50 text-red-700" : "border-ink-200 bg-ink-100 text-ink-500")}>
+                          <span className={"badge " + (contact.email_blacklisted ? "border-danger-200 bg-danger-50 text-danger-700" : "border-ink-200 bg-ink-100 text-ink-500")}>
                             {contact.email_blacklisted ? "Yes" : "No"}
                           </span>
                         </td>
@@ -5111,7 +5192,7 @@ export default function App(){
                             </button>
                             <button
                               onClick={()=>deleteContact(contact.id)}
-                              className="icon-btn hover:bg-red-50 hover:text-red-600"
+                              className="icon-btn hover:bg-danger-50 hover:text-danger-600"
                               title="Delete contact"
                               aria-label={`Delete ${contact.email}`}
                             >
@@ -5164,7 +5245,7 @@ export default function App(){
           </div>
         ) }{view==="campaigns"&&(
 
-          <div className="flex h-full min-h-0 flex-col bg-white">
+          <div className="flex h-full min-h-0 flex-col bg-ink-100">
 
             <div className="page-head page-head-flush">
 
@@ -5224,12 +5305,12 @@ export default function App(){
                       "flex items-center gap-2 rounded-[9px] border px-3 py-1.5 text-[12.5px] font-medium transition-colors " +
                       (campaignChannel === option.id
                         ? "border-brand-600 bg-brand-50 text-brand-700"
-                        : "border-ink-200 bg-white text-ink-600 hover:bg-white/70") +
+                        : "border-ink-200 bg-ink-100 text-ink-600 hover:bg-ink-200/60") +
                       (option.ready ? "" : " cursor-not-allowed opacity-50")
                     }
                   >
                     <option.icon className="h-3.5 w-3.5"/>{option.label}
-                    {!option.ready && <span className="text-[9.5px] uppercase tracking-wide text-ink-400">soon</span>}
+                    {!option.ready && <span className="text-[10px] uppercase tracking-wide text-ink-400">soon</span>}
                   </button>
                 ))}
                 <span className="ml-1 text-[11.5px] text-ink-400">AI email generation coming soon</span>
@@ -5315,7 +5396,7 @@ export default function App(){
                             <MoreHorizontal className="h-4 w-4"/>
                           </button>
                           {openCampaignMenu === campaign.id && (
-                            <div className="absolute right-0 top-full z-30 mt-1 w-52 rounded-xl border border-ink-200 bg-white py-1 shadow-pop">
+                            <div className="absolute right-0 top-full z-30 mt-1 w-52 rounded-xl border border-ink-200 bg-ink-100 py-1 shadow-pop">
                               {[
                                 { label: "Campaign stats", icon: BarChart3, onClick: () => openCampaignDetail(campaign) },
                                 { label: "Duplicate", icon: Copy, onClick: () => duplicateCampaign(campaign.id) },
@@ -5326,7 +5407,7 @@ export default function App(){
                                 <button
                                   key={item.label}
                                   onClick={() => { setOpenCampaignMenu(null); item.onClick(); }}
-                                  className={"flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-ink-50 " + (item.danger ? "text-red-600" : "text-ink-700")}
+                                  className={"flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-ink-50 " + (item.danger ? "text-danger-600" : "text-ink-700")}
                                 >
                                   <item.icon className="h-3.5 w-3.5 opacity-70"/>{item.label}
                                 </button>
@@ -5735,13 +5816,13 @@ export default function App(){
 
                           <td className="text-center">
 
-                            {v.catch_all ? <span className="font-medium text-amber-600">Yes</span> : <span className="text-ink-500">No</span>}
+                            {v.catch_all ? <span className="font-medium text-warn-600">Yes</span> : <span className="text-ink-500">No</span>}
 
                           </td>
 
                           <td className="text-center">
 
-                            {v.disposable ? <span className="font-medium text-red-600">Yes</span> : <span className="text-ink-500">No</span>}
+                            {v.disposable ? <span className="font-medium text-danger-600">Yes</span> : <span className="text-ink-500">No</span>}
 
                           </td>
 
@@ -5775,7 +5856,7 @@ export default function App(){
 
                                 onClick={() => handleDeleteVerification(v.id)}
 
-                                className="icon-btn hover:bg-red-50 hover:text-red-600"
+                                className="icon-btn hover:bg-danger-50 hover:text-danger-600"
 
                                 title="Delete"
 
@@ -5903,7 +5984,7 @@ export default function App(){
 
                   <span>Status</span>
 
-                  <span className={"badge "+(settingsForm.tracking_enabled?"border-brand-200 bg-brand-50 text-brand-700":"border-ink-200 bg-white text-ink-500")}>{settingsForm.tracking_enabled?"On":"Off"}</span>
+                  <span className={"badge "+(settingsForm.tracking_enabled?"border-brand-200 bg-brand-50 text-brand-700":"border-ink-200 bg-ink-100 text-ink-500")}>{settingsForm.tracking_enabled?"On":"Off"}</span>
 
                 </div>
 
@@ -5973,7 +6054,7 @@ export default function App(){
 
                 {smtpCheck&&smtpCheck.message&&(
 
-                  <p className={"text-[12px] "+(smtpCheck.ok?"text-brand-700":"text-red-600")}>{smtpCheck.message}</p>
+                  <p className={"text-[12px] "+(smtpCheck.ok?"text-brand-700":"text-danger-600")}>{smtpCheck.message}</p>
 
                 )}
 
@@ -6095,7 +6176,7 @@ export default function App(){
 
                     </p>
 
-                    {draft.error_message&&<p className="mt-1 text-[12px] text-amber-700">{draft.error_message}</p>}
+                    {draft.error_message&&<p className="mt-1 text-[12px] text-warn-700">{draft.error_message}</p>}
 
                   </div>
 
@@ -6205,19 +6286,19 @@ export default function App(){
 
                   </div>
 
-                  <div className="rounded-lg border border-red-100 bg-red-50 p-3">
+                  <div className="rounded-lg border border-danger-100 bg-danger-50 p-3">
 
-                    <div className="text-[20px] font-semibold tabular-nums text-red-700">{verifyProgress.undeliverable}</div>
+                    <div className="text-[20px] font-semibold tabular-nums text-danger-700">{verifyProgress.undeliverable}</div>
 
-                    <div className="text-[11px] text-red-600">Undeliverable</div>
+                    <div className="text-[11px] text-danger-600">Undeliverable</div>
 
                   </div>
 
-                  <div className="rounded-lg border border-amber-100 bg-amber-50 p-3">
+                  <div className="rounded-lg border border-warn-100 bg-warn-50 p-3">
 
-                    <div className="text-[20px] font-semibold tabular-nums text-amber-700">{verifyProgress.risky}</div>
+                    <div className="text-[20px] font-semibold tabular-nums text-warn-700">{verifyProgress.risky}</div>
 
-                    <div className="text-[11px] text-amber-600">Risky</div>
+                    <div className="text-[11px] text-warn-600">Risky</div>
 
                   </div>
 
@@ -6567,7 +6648,7 @@ export default function App(){
 
                 <div className="flex items-start gap-3">
 
-                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${confirmState.tone==="danger"?"bg-red-50 text-red-600":"bg-brand-50 text-brand-700"}`}><AlertTriangle className="h-4 w-4"/></span>
+                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${confirmState.tone==="danger"?"bg-danger-50 text-danger-600":"bg-brand-50 text-brand-700"}`}><AlertTriangle className="h-4 w-4"/></span>
 
                   <p className="text-[13px] leading-relaxed text-ink-600">{confirmState.message}</p>
 
@@ -6585,7 +6666,7 @@ export default function App(){
                     setConfirmState(null);
                     await action?.();
                   }}
-                  className={`btn border-transparent text-white ${confirmState.tone==="danger"?"bg-red-600 hover:bg-red-700 active:bg-red-800":"bg-brand-600 hover:bg-brand-700 active:bg-brand-800"}`}
+                  className={`btn border-transparent text-white ${confirmState.tone==="danger"?"bg-danger-600 hover:bg-danger-700 active:bg-danger-800":"bg-brand-600 hover:bg-brand-700 active:bg-brand-800"}`}
                   autoFocus
                 >
                   {confirmState.confirmLabel||"Delete"}

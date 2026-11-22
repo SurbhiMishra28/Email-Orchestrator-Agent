@@ -14,11 +14,17 @@
     font-size: 14px;
     line-height: 1.5;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    /* A single very dark sage wash reading as a lit room rather than flat black. */
+    background-image:
+      radial-gradient(120% 80% at 12% -10%, rgba(77, 125, 106, 0.20), transparent 60%),
+      radial-gradient(100% 70% at 92% 4%, rgba(43, 68, 58, 0.28), transparent 62%),
+      radial-gradient(90% 90% at 50% 118%, rgba(20, 46, 38, 0.5), transparent 70%);
+    background-attachment: fixed;
   }
 
   ::selection {
-    background: #0284c7;
-    color: #fff;
+    background: #7fb39d;
+    color: #060b09;
   }
 
   h1,
@@ -28,7 +34,7 @@
   }
 
   :focus-visible {
-    outline: 2px solid #0ea5e9;
+    outline: 2px solid #9ccdb6;
     outline-offset: 2px;
   }
 
@@ -42,15 +48,40 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #d7dbe2;
+    background: #223029;
     border: 2px solid transparent;
     background-clip: content-box;
     border-radius: 8px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #b9bfc9;
+    background: #2f4038;
     background-clip: content-box;
+  }
+
+  /* Dark form controls: the native pickers and autofill chrome default to
+     light, which punches white holes into the dark surfaces. */
+  input,
+  select,
+  textarea {
+    color-scheme: dark;
+  }
+
+  /* Tailwind's preflight sets a grey default border colour; on a dark theme that
+     renders as a bright outline on every element that sets a width but no
+     colour (checkbox, icon buttons, dividers). */
+  *,
+  ::before,
+  ::after {
+    border-color: #1e2c26;
+  }
+
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: #f1f7f4;
+    -webkit-box-shadow: 0 0 0 1000px #0f1815 inset;
+    caret-color: #f1f7f4;
   }
 }
 
@@ -61,7 +92,7 @@
   }
 
   .app-rail {
-    @apply flex w-[264px] shrink-0 flex-col border-r border-ink-200 bg-white;
+    @apply flex w-[264px] shrink-0 flex-col border-r border-ink-200 bg-ink-100/95 backdrop-blur-xl;
   }
 
   /* Below md the rail becomes an off-canvas drawer opened by the hamburger. */
@@ -73,7 +104,7 @@
 
   @media (max-width: 767px) {
     .app-rail {
-      @apply fixed inset-y-0 left-0 z-50 w-[272px] max-w-[84vw] -translate-x-full shadow-pop transition-transform duration-200 ease-out;
+      @apply fixed inset-y-0 left-0 z-50 w-[272px] max-w-[84vw] -translate-x-full bg-ink-100 shadow-pop transition-transform duration-200 ease-out;
     }
 
     .app-rail-open {
@@ -82,7 +113,7 @@
   }
 
   .app-nav-scrim {
-    @apply fixed inset-0 z-40 bg-ink-900/45 backdrop-blur-[1px];
+    @apply fixed inset-0 z-40 bg-ink-50/70 backdrop-blur-[2px];
   }
 
   .app-main {
@@ -90,7 +121,7 @@
   }
 
   .app-topbar {
-    @apply flex h-16 shrink-0 items-center justify-between gap-4 border-b border-ink-200 bg-white/90 px-6 backdrop-blur max-md:px-4;
+    @apply flex h-16 shrink-0 items-center justify-between gap-4 border-b border-ink-200 bg-ink-50/70 px-6 backdrop-blur-xl max-md:px-4;
   }
 
   .app-body {
@@ -111,7 +142,7 @@
   }
 
   .page-head-flush {
-    @apply bg-white px-5 py-4 max-md:px-4;
+    @apply bg-ink-50 px-5 py-4 max-md:px-4;
   }
 
   .page-title {
@@ -127,7 +158,7 @@
   }
 
   .brand-mark {
-    @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-brand-600 text-white shadow-sm;
+    @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] border border-brand-300/70 bg-brand-500/15 text-brand-700 shadow-glow;
   }
 
   .rail-item {
@@ -135,15 +166,15 @@
   }
 
   .rail-link {
-    @apply rail-item text-ink-600 hover:bg-ink-50 hover:text-ink-900;
+    @apply rail-item text-ink-600 hover:bg-ink-200/60 hover:text-ink-900;
   }
 
   .rail-link-active {
-    @apply rail-item bg-brand-50 font-semibold text-brand-700;
+    @apply rail-item border border-brand-300/50 bg-brand-500/10 font-semibold text-brand-700;
   }
 
   .rail-label {
-    @apply px-3 pb-1 pt-4 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-ink-400;
+    @apply px-3 pb-1 pt-4 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-ink-400;
   }
 
   .section-title {
@@ -152,7 +183,7 @@
 
   /* ------------------------------------------------------------- surfaces */
   .surface {
-    @apply rounded-card border border-ink-200 bg-white shadow-card;
+    @apply rounded-card border border-ink-200 bg-ink-100/95 shadow-card backdrop-blur-sm;
   }
 
   .surface-head {
@@ -168,15 +199,15 @@
   }
 
   .toolbar {
-    @apply flex flex-wrap items-center justify-between gap-3 border-b border-ink-200 bg-white px-5 py-3 max-md:px-4;
+    @apply flex flex-wrap items-center justify-between gap-3 border-b border-ink-200 bg-ink-100/70 px-5 py-3 max-md:px-4;
   }
 
   .stat-tile {
-    @apply flex items-start justify-between gap-3 rounded-card border border-ink-200 bg-white p-4 shadow-card transition-shadow hover:shadow-pop;
+    @apply flex items-start justify-between gap-3 rounded-card border border-ink-200 bg-ink-100/95 p-4 shadow-card transition-all hover:border-brand-300/50 hover:shadow-pop;
   }
 
   .stat-label {
-    @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-500;
+    @apply text-[11px] font-semibold uppercase tracking-[0.09em] text-ink-400;
   }
 
   .stat-value {
@@ -184,28 +215,29 @@
   }
 
   .stat-icon {
-    @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-ink-200 bg-ink-50 text-ink-500;
+    @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-ink-200 bg-ink-200/60 text-ink-500;
   }
 
   /* -------------------------------------------------------------- controls */
   .btn {
-    @apply inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-[9px] border border-transparent px-3.5 text-[13px] font-semibold leading-[34px] transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-[10px] border border-transparent px-3.5 text-[13px] font-semibold leading-[34px] transition-colors disabled:cursor-not-allowed disabled:opacity-40;
   }
 
+  /* Sage fill with near-black text: white on a pale accent would be unreadable. */
   .btn-primary {
-    @apply btn bg-brand-600 text-white shadow-sm hover:bg-brand-700 active:bg-brand-800;
+    @apply btn bg-brand-500 text-ink-50 shadow-sm hover:bg-brand-600 hover:text-ink-50 active:bg-brand-400;
   }
 
   .btn-ghost {
-    @apply btn border-ink-200 bg-white text-ink-700 hover:border-ink-300 hover:bg-ink-50;
+    @apply btn border-ink-200 bg-ink-100/70 text-ink-700 hover:border-ink-300 hover:bg-ink-200/70 hover:text-ink-900;
   }
 
   .btn-subtle {
-    @apply btn bg-ink-100 text-ink-700 hover:bg-ink-200;
+    @apply btn bg-ink-200/60 text-ink-700 hover:bg-ink-300/60;
   }
 
   .btn-danger {
-    @apply btn border-red-200 bg-white text-red-600 hover:bg-red-50;
+    @apply btn border-danger-200 bg-danger-50 text-danger-600 hover:border-danger-500/60 hover:bg-danger-100 hover:text-danger-700;
   }
 
   .btn-sm {
@@ -213,7 +245,7 @@
   }
 
   .icon-btn {
-    @apply inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-ink-500 transition-colors hover:bg-ink-100 hover:text-ink-900 disabled:opacity-40;
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-ink-500 transition-colors hover:bg-ink-200/70 hover:text-ink-900 disabled:opacity-40;
   }
 
   .field-label {
@@ -221,7 +253,7 @@
   }
 
   .input {
-    @apply w-full rounded-[9px] border border-ink-200 bg-white px-3 py-2 text-[13px] text-ink-900 placeholder-ink-400 transition-shadow focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:bg-ink-50;
+    @apply w-full rounded-[10px] border border-ink-200 bg-ink-50/60 px-3 py-2 text-[13px] text-ink-900 placeholder-ink-400 transition-shadow focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/25 disabled:bg-ink-100 disabled:text-ink-400;
   }
 
   .select {
@@ -229,27 +261,27 @@
   }
 
   .checkbox {
-    @apply h-4 w-4 rounded border-ink-300 text-brand-600 focus:ring-brand-500/30;
+    @apply h-4 w-4 rounded border-ink-300 bg-ink-50 text-brand-500 focus:ring-brand-500/30;
   }
 
   .seg {
-    @apply inline-flex items-center gap-1 rounded-[10px] border border-ink-200 bg-white p-1;
+    @apply inline-flex items-center gap-1 rounded-[10px] border border-ink-200 bg-ink-100/70 p-1;
   }
 
   .seg-item {
-    @apply rounded-md px-3 py-1.5 text-[13px] font-medium text-ink-600 transition-colors hover:bg-ink-50 hover:text-ink-900;
+    @apply rounded-md px-3 py-1.5 text-[13px] font-medium text-ink-500 transition-colors hover:bg-ink-200/60 hover:text-ink-900;
   }
 
   .seg-item-active {
-    @apply rounded-md bg-brand-600 px-3 py-1.5 text-[13px] font-semibold text-white hover:bg-brand-600 hover:text-white;
+    @apply rounded-md bg-brand-500 px-3 py-1.5 text-[13px] font-semibold text-ink-50 hover:bg-brand-500 hover:text-ink-50;
   }
 
   .chip {
-    @apply inline-flex items-center gap-1 rounded-full border border-ink-200 bg-white px-2.5 py-0.5 text-[11px] font-medium text-ink-600;
+    @apply inline-flex items-center gap-1 rounded-full border border-ink-200 bg-ink-100/70 px-2.5 py-0.5 text-[11px] font-medium text-ink-500;
   }
 
   .tag {
-    @apply inline-flex items-center gap-1 rounded-md bg-ink-100 px-2 py-0.5 text-[11px] font-medium text-ink-600;
+    @apply inline-flex items-center gap-1 rounded-md bg-ink-200/70 px-2 py-0.5 text-[11px] font-medium text-ink-600;
   }
 
   .badge {
@@ -257,38 +289,122 @@
   }
 
   .badge-sent {
-    @apply badge border-brand-200 bg-brand-50 text-brand-700;
+    @apply badge border-brand-300/60 bg-brand-500/10 text-brand-700;
   }
 
   .badge-draft {
-    @apply badge border-ink-200 bg-ink-100 text-ink-600;
+    @apply badge border-ink-200 bg-ink-200/60 text-ink-500;
   }
 
   .badge-sending {
-    @apply badge border-blue-200 bg-blue-50 text-blue-700;
+    @apply badge border-info-200 bg-info-50 text-info-700;
   }
 
   .badge-failed {
-    @apply badge border-red-200 bg-red-50 text-red-700;
+    @apply badge border-danger-200 bg-danger-50 text-danger-600;
   }
 
   .badge-blocked {
-    @apply badge border-amber-200 bg-amber-50 text-amber-700;
+    @apply badge border-warn-200 bg-warn-50 text-warn-600;
   }
 
   .link {
     @apply font-medium text-brand-700 underline-offset-2 hover:underline;
   }
 
+  /* ----------------------------------------------------------------- auth */
+  /* Full-bleed cinematic backdrop: the same near-black sage room as the app,
+     with slow-drifting light so the page feels alive without motion sickness. */
+  .auth-shell {
+    @apply relative flex min-h-screen overflow-hidden bg-ink-50 text-ink-900;
+  }
+
+  .auth-aurora {
+    @apply pointer-events-none absolute inset-0 overflow-hidden;
+  }
+
+  .auth-aurora span {
+    @apply absolute rounded-full blur-3xl;
+  }
+
+  .auth-aurora span:nth-child(1) {
+    top: -14%;
+    left: -8%;
+    height: 44vw;
+    width: 44vw;
+    background: radial-gradient(circle, rgba(77, 125, 106, 0.34), transparent 68%);
+    animation: drift 26s ease-in-out infinite;
+  }
+
+  .auth-aurora span:nth-child(2) {
+    top: 8%;
+    right: -12%;
+    height: 38vw;
+    width: 38vw;
+    background: radial-gradient(circle, rgba(43, 68, 58, 0.42), transparent 70%);
+    animation: drift 34s ease-in-out infinite reverse;
+  }
+
+  .auth-aurora span:nth-child(3) {
+    bottom: -22%;
+    left: 26%;
+    height: 50vw;
+    width: 50vw;
+    background: radial-gradient(circle, rgba(127, 179, 157, 0.14), transparent 66%);
+    animation: drift 42s ease-in-out infinite;
+  }
+
+  /* Film grain: keeps the large dark gradients from banding on wide screens. */
+  .auth-grain {
+    @apply pointer-events-none absolute inset-0 opacity-[0.16];
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  }
+
+  .auth-panel {
+    @apply relative z-10 flex w-full flex-col justify-center px-5 py-12 sm:px-10 lg:w-[52%] lg:px-16;
+  }
+
+  .auth-card {
+    @apply w-full max-w-[400px] rounded-[18px] border border-ink-200 bg-ink-100/95 p-6 shadow-pop backdrop-blur-2xl sm:p-8;
+  }
+
+  .auth-stage {
+    @apply relative z-10 hidden flex-1 flex-col justify-between overflow-hidden border-l border-ink-200/70 p-12 lg:flex;
+  }
+
+  .auth-eyebrow {
+    @apply inline-flex items-center gap-2 rounded-full border border-brand-300/40 bg-brand-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-700;
+  }
+
+  .auth-feature {
+    @apply rounded-xl border border-ink-200/80 bg-ink-100/50 p-3 backdrop-blur-sm;
+  }
+
+  .auth-divider {
+    @apply my-5 flex items-center gap-3 text-[11px] uppercase tracking-[0.16em] text-ink-400;
+  }
+
+  .auth-divider::before,
+  .auth-divider::after {
+    content: "";
+    @apply h-px flex-1 bg-ink-200;
+  }
+
+  .btn-demo {
+    @apply btn w-full border-brand-300/50 bg-brand-500/10 text-brand-700 hover:border-brand-400/70 hover:bg-brand-500/20 hover:text-brand-800;
+  }
+
   /* ---------------------------------------------------------------- splash */
   /* Brevo-style opening: the wordmark fills the screen, then the app fades in. */
   .splash {
-    @apply fixed inset-0 z-[100] flex flex-col items-center justify-center bg-white;
+    @apply fixed inset-0 z-[100] flex flex-col items-center justify-center bg-ink-50;
+    background-image:
+      radial-gradient(90% 70% at 50% 40%, rgba(77, 125, 106, 0.22), transparent 65%);
     animation: splash-out 320ms ease-in 900ms both;
   }
 
   .splash-word {
-    @apply select-none text-center font-bold leading-none tracking-[-0.045em] text-brand-600;
+    @apply select-none text-center font-bold leading-none tracking-[-0.045em] text-ink-900;
     font-size: clamp(46px, 13vw, 148px);
     animation: splash-rise 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
@@ -299,7 +415,7 @@
   }
 
   .splash-bar {
-    @apply mt-9 h-[3px] w-[132px] overflow-hidden rounded-full bg-ink-100;
+    @apply mt-9 h-[3px] w-[132px] overflow-hidden rounded-full bg-ink-200;
   }
 
   .splash-bar span {
@@ -341,7 +457,8 @@
     .splash-word,
     .splash-tag,
     .splash-bar span,
-    .shell-in {
+    .shell-in,
+    .auth-aurora span {
       animation-duration: 1ms;
       animation-delay: 0ms;
     }
@@ -353,11 +470,11 @@
   }
 
   .data-table thead th {
-    @apply sticky top-0 z-10 border-b border-ink-200 bg-ink-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-500;
+    @apply sticky top-0 z-10 border-b border-ink-200 bg-ink-100 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-400;
   }
 
   .data-table tbody td {
-    @apply border-b border-ink-100 px-4 py-3 align-middle text-ink-700;
+    @apply border-b border-ink-200/70 px-4 py-3 align-middle text-ink-600;
   }
 
   .data-table tbody tr:last-child td {
@@ -365,7 +482,7 @@
   }
 
   .data-table tbody tr:hover {
-    @apply bg-ink-50/70;
+    @apply bg-ink-200/40;
   }
 
   .table-empty {
@@ -374,11 +491,11 @@
 
   /* --------------------------------------------------------------- modals */
   .modal-backdrop {
-    @apply fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-900/45 p-4 py-10 backdrop-blur-[2px];
+    @apply fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-50/80 p-4 py-10 backdrop-blur-sm;
   }
 
   .modal {
-    @apply w-full max-w-lg animate-fade-in overflow-hidden rounded-card bg-white shadow-pop;
+    @apply w-full max-w-lg animate-fade-in overflow-hidden rounded-card border border-ink-200 bg-ink-100 shadow-pop;
   }
 
   .modal-head {
@@ -402,19 +519,19 @@
   }
 
   .notice-error {
-    @apply notice border-red-200 bg-red-50 text-red-700;
+    @apply notice border-danger-200 bg-danger-50 text-danger-600;
   }
 
   .notice-warn {
-    @apply notice border-amber-200 bg-amber-50 text-amber-800;
+    @apply notice border-warn-200 bg-warn-50 text-warn-700;
   }
 
   .notice-ok {
-    @apply notice border-brand-200 bg-brand-50 text-brand-700;
+    @apply notice border-brand-300/60 bg-brand-500/10 text-brand-700;
   }
 
   .notice-info {
-    @apply notice border-blue-200 bg-blue-50 text-blue-700;
+    @apply notice border-info-200 bg-info-50 text-info-700;
   }
 
   .empty-state {
