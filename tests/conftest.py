@@ -34,6 +34,15 @@ def _test_url(url: str) -> str:
 TEST_DATABASE_URL = _test_url(_REAL_URL)
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
+# The suite deliberately mails reserved example.com addresses, so the
+# "refuse placeholder recipients" guard must be off while it runs.
+os.environ["BLOCK_PLACEHOLDER_RECIPIENTS"] = "false"
+
+# .env points at the developer's real Gmail account, and a new tenant is
+# provisioned with those credentials. Without this the suite would send real
+# email (and collect real bounces) from that account.
+os.environ["MAIL_SUPPRESS_SEND"] = "true"
+
 
 def _ensure_test_database() -> None:
     """Create the throwaway database if the server does not have it yet."""

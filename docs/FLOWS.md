@@ -35,7 +35,9 @@ flowchart TD
     A["POST /api/contacts/import<br/>{csv: string}"] --> B[Parse header row]
     B --> C{Valid email?}
     C -- no --> D[Append to errors]
-    C -- yes --> E{Contact exists in tenant?}
+    C -- yes --> C2{Mailable address?}
+    C2 -- no --> D
+    C2 -- yes --> E{Contact exists in tenant?}
     E -- no --> F[Create contact<br/>imported += 1]
     E -- yes --> G[Refresh name/company/role/<br/>phone/linkedin/notes<br/>updated += 1]
     F --> H[Collect eligible emails]
@@ -53,6 +55,11 @@ exclusive buckets, so a re-import of the same file returns `imported: 0`.
 Eligibility is opt-in: a contact is only mailable when `eligible_to_email` is true,
 which requires `email_permission=true` in the CSV (or the toggle in the UI).
 
+The second gate (`C2`) is `services/recipients.blocked_reason`: reserved domains
+(`example.com`, `*.test`, `localhost`), disposable inboxes and mail-system
+mailboxes are rejected with a reason in `errors`, so a placeholder row can never
+become an autopilot target. `BLOCK_PLACEHOLDER_RECIPIENTS=false` disables it.
+
 ## 3. Draft and send pipeline
 
 ```mermaid
@@ -65,8 +72,10 @@ flowchart TD
     F -- manual --> G["POST /api/drafts/{id}/send"]
     F -- queue --> H["POST /api/queue/run"]
     H --> I[QueueManager.process_queue]
-    I --> J{Limits check}
-    G --> J
+    I --> I2{Blacklisted or<br/>placeholder recipient?}
+    G --> I2
+    I2 -- yes --> I3[status=failed<br/>no SMTP call]
+    I2 -- no --> J{Limits check}
     J --> K[Warm-up cap]
     J --> L[DAILY_CAP]
     J --> M[Plan limit]
@@ -85,6 +94,11 @@ flowchart TD
 The effective cap is `min(warm-up, DAILY_CAP, plan_limit, domain cap)` — see
 `app/services/limits.py`. A draft never flips to `sent` unless SMTP actually
 accepted the message.
+
+Both send paths also refuse a recipient that cannot receive mail (see
+`services/recipients.blocked_reason`) and a contact blacklisted by a bounce. Such
+a draft becomes `failed` with the reason in `error_message`, so it is not retried
+on the next pass.
 
 ## 4. Reply detection and auto-response
 
@@ -122,6 +136,26 @@ for any contact that has replied.
 Nothing in this path waits for a human. `AutoResponder.RESPONSE_TEMPLATES` only
 covers `positive_response`, `question` and `schedule_call`, so a negative, spam or
 acknowledgement reply is classified and stored but never answered.
+
+### Delivery failures
+
+```mermaid
+flowchart TD
+    A[InboxMessage] --> B{mailer-daemon / postmaster sender<br/>+ DSN marker?}
+    B -- no --> C[Normal reply path]
+    B -- yes --> D[Extract failed address from the DSN]
+    D --> E[Contact: email_blacklisted=true, eligible_to_email=false]
+    E --> F[Outstanding drafts -> failed]
+    F --> G[Campaign.bounced += 1]
+    G --> H[Log warning; never auto-reply]
+```
+
+A bounce is the only hard evidence that a mailbox is dead, because the relay
+accepts the message before it knows. Once blacklisted, the contact is excluded
+from intro drafting, queue selection and every direct send, and existing drafts
+are failed rather than retried. Detection requires a daemon sender *and* a DSN
+marker, so a prospect writing "your message wasn't delivered" is not mistaken for
+a bounce.
 
 ## 5. Follow-up scheduling
 

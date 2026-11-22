@@ -165,6 +165,13 @@ async def get_current_user(
         user = db.query(User).filter(User.id == token_data).first()
         if user is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        # A token stays valid after the account is deactivated unless it is
+        # re-checked here; login() alone would only stop new tokens.
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account is deactivated",
+            )
         return UserPayload(
             id=user.id,
             email=user.email,
@@ -199,6 +206,11 @@ async def get_current_user_or_api_key(
             user = db.query(User).filter(User.id == int(user_id)).first()
             if user is None:
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+            if not user.is_active:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Account is deactivated",
+                )
             return UserPayload(
                 id=user.id,
                 email=user.email,
@@ -223,6 +235,11 @@ async def get_current_user_or_api_key(
             user = db.query(User).filter(User.id == key_record.user_id).first()
             if user is None:
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+            if not user.is_active:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Account is deactivated",
+                )
             
             return UserPayload(
                 id=user.id,

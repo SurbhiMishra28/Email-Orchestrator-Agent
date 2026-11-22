@@ -245,6 +245,8 @@ See `.env.example` for the full list. The values that most affect behaviour:
 | `IMAP_*` | Read-only inbox sync |
 | `AUTOPILOT` + `AUTO_APPROVE` | Both must be true for unattended sending |
 | `FOLLOWUPS_ENABLED` | Turns automatic follow-up drafting on or off |
+| `BLOCK_PLACEHOLDER_RECIPIENTS` | Default `true`. Refuses reserved/disposable addresses and mail-system mailboxes on every send path. Only turn it off to reproduce placeholder data |
+| `MAIL_SUPPRESS_SEND` | Default `false`. Dry-run: records sends without opening SMTP. The test suite sets it |
 | `TRACKING_ENABLED` (per tenant, via Settings) | Off by default; gates pixels and link rewriting |
 
 ## Tests
@@ -255,7 +257,9 @@ python -m pytest -q
 ```
 
 The suite runs against a throwaway schema derived from `DATABASE_URL` and drops it
-on completion, so live data is never modified. Frontend checks are `npm run build`
-and `npm run lint`.
+on completion, so live data is never modified. It also sets `MAIL_SUPPRESS_SEND=true`
+and `BLOCK_PLACEHOLDER_RECIPIENTS=false`: tests use `example.com` recipients, and
+without suppression the SMTP credentials in `.env` would make the suite send real
+mail from the configured account. Frontend checks are `npm run build` and `npm run lint`.
 
 See [FEATURES.md](FEATURES.md) for which test covers which feature.

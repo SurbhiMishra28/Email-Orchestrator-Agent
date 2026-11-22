@@ -25,15 +25,6 @@ Best,
 {YourPosition}
 Skora Infotech Pvt Ltd
 
---------------------------------------------------------------------------------
-[ f ] [ twitter ] [ instagram ] [ in ]
-Refer friends | Download the Skora App
-Unsubscribe | Terms | Privacy
-View in a browser
-
-This email was sent from Skora Infotech
-https://skorainfotech.com/
-
 ================================================================================
 TEMPLATE 2: REPLY TO INTERESTED LEAD
 ================================================================================
@@ -54,15 +45,6 @@ Best regards,
 {YourPosition}
 Skora Infotech Pvt Ltd
 
---------------------------------------------------------------------------------
-[ f ] [ twitter ] [ instagram ] [ in ]
-Refer friends | Download the Skora App
-Unsubscribe | Terms | Privacy
-View in a browser
-
-This email was sent from Skora Infotech
-https://skorainfotech.com/
-
 ================================================================================
 TEMPLATE 3: FOLLOW-UP EMAIL
 ================================================================================
@@ -81,12 +63,3 @@ Best,
 {YourName}
 {YourPosition}
 Skora Infotech Pvt Ltd
-
---------------------------------------------------------------------------------
-[ f ] [ twitter ] [ instagram ] [ in ]
-Refer friends | Download the Skora App
-Unsubscribe | Terms | Privacy
-View in a browser
-
-This email was sent from Skora Infotech
-https://skorainfotech.com/

@@ -61,6 +61,21 @@ class Settings:
     # Follow-up drafting (never sends on its own)
     FOLLOWUPS_ENABLED: bool = os.getenv("FOLLOWUPS_ENABLED", "true").lower() == "true"
 
+    # Refuse to send to addresses that cannot be real mailboxes (reserved
+    # domains such as example.com, disposable inboxes, mail system mailboxes).
+    # Enabled by default because the pipeline sends unattended; tests turn it
+    # off because they intentionally use example.com recipients.
+    BLOCK_PLACEHOLDER_RECIPIENTS: bool = (
+        os.getenv("BLOCK_PLACEHOLDER_RECIPIENTS", "true").lower() == "true"
+    )
+
+    # Dry-run mode: every send is recorded as successful without opening an SMTP
+    # connection. Used by the test suite (which would otherwise mail the real
+    # account configured in .env) and by staging deployments.
+    MAIL_SUPPRESS_SEND: bool = (
+        os.getenv("MAIL_SUPPRESS_SEND", "false").lower() == "true"
+    )
+
     # Absolute origin used to build open-pixel and click-tracking URLs. It must
     # be reachable by recipients, so a public deployment sets it explicitly;
     # the default keeps local development working.
@@ -70,6 +85,16 @@ class Settings:
     # serialized per tenant by the pacing rule in ``services/limits.py``; this
     # bounds how much work a burst of async submissions can start.
     SEND_CONCURRENCY: int = int(os.getenv("SEND_CONCURRENCY", "2"))
+
+    # APScheduler jobs (inbox polling + autopilot) need a process that stays
+    # alive between requests. Serverless hosts cannot provide that: each
+    # invocation starts and is frozen, so a scheduler registered at startup
+    # never fires and the send worker loses its thread between requests. Set
+    # this to false on such hosts and drive the same work from an external
+    # cron hitting POST /api/scheduling/run-now, or from a long-lived host.
+    ENABLE_BACKGROUND_JOBS: bool = (
+        os.getenv("ENABLE_BACKGROUND_JOBS", "true").lower() == "true"
+    )
     
     # CORS - loopback origins by default; wildcard + credentials is invalid.
     CORS_ORIGINS: str = os.getenv(

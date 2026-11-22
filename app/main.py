@@ -99,25 +99,6 @@ def _iso(value):
     return value.isoformat() if value else None
 
 
-def _build_usage(db, tenant_id: int) -> Dict[str, Any]:
-    """Metered usage for today and this month, plus the plan allowance."""
-    from app.services.usage import period_totals
-
-    totals = period_totals(db, tenant_id)
-    sent_today = totals["today"].get("emails_sent", 0)
-    limit = (
-        db.query(Tenant.daily_email_limit)
-        .filter(Tenant.id == tenant_id)
-        .scalar()
-    )
-    return {
-        "today": totals["today"],
-        "month": totals["month"],
-        "daily_email_limit": limit,
-        "daily_remaining": max(0, (limit or 0) - sent_today) if limit else None,
-    }
-
-
 def _build_analytics(db, tenant_id: int) -> Dict[str, Any]:
     """Aggregate the caller's sending activity for the dashboard.
 
@@ -494,26 +475,36 @@ async def lifespan(app: FastAPI):
         db.close()
     
     # Scheduled work: inbox polling, follow-up drafting and opt-in autopilot.
-    scheduler.add_job(
-        _poll_inbox_job,
-        "interval",
-        minutes=max(1, app_settings.IMAP_POLL_MINUTES),
-        id="inbox_poll",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
-    scheduler.add_job(
-        _autopilot_job,
-        "interval",
-        minutes=5,
-        id="autopilot",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
-    if not scheduler.running:
-        scheduler.start()
+    # On a serverless host (ENABLE_BACKGROUND_JOBS=false) the process is frozen
+    # between requests, so an interval scheduler would never fire and would
+    # only add startup cost. The same work stays reachable on demand through
+    # /api/scheduling/run-now and /api/inbox/sync.
+    if app_settings.ENABLE_BACKGROUND_JOBS:
+        scheduler.add_job(
+            _poll_inbox_job,
+            "interval",
+            minutes=max(1, app_settings.IMAP_POLL_MINUTES),
+            id="inbox_poll",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        scheduler.add_job(
+            _autopilot_job,
+            "interval",
+            minutes=5,
+            id="autopilot",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        if not scheduler.running:
+            scheduler.start()
+    else:
+        logger.info(
+            "Background jobs disabled (ENABLE_BACKGROUND_JOBS=false); "
+            "drive them from an external scheduler instead."
+        )
     
     yield
     
@@ -650,6 +641,72 @@ async def _autopilot_pass(tenant_id: Optional[int], send: bool = True) -> Dict[s
     ) or {}
 
 
+def _record_bounce(db, msg: "InboxMessage", sender_email: str) -> int:
+    """Blacklist every address a delivery-failure report says is dead.
+
+    A hard bounce is the only reliable signal that a mailbox does not exist, so
+    the contact is marked ineligible and blacklisted and its outstanding drafts
+    are failed rather than retried. Returns how many contacts were blacklisted.
+    """
+    from app.db import Campaign
+    from app.services.bounces import failed_recipients
+
+    addresses = failed_recipients(msg.subject or "", msg.snippet or "", sender_email)
+    blacklisted = 0
+    for address in addresses:
+        contact_query = db.query(Contact).filter(
+            func.lower(Contact.email) == address
+        )
+        if msg.tenant_id is not None:
+            contact_query = contact_query.filter(Contact.tenant_id == msg.tenant_id)
+        contact = contact_query.first()
+        if not contact:
+            continue
+
+        contact.email_blacklisted = True
+        contact.eligible_to_email = False
+        blacklisted += 1
+
+        drafts = (
+            db.query(Draft)
+            .filter(
+                Draft.contact_id == contact.id,
+                Draft.status.in_(["draft", "blocked", "sending"]),
+            )
+            .all()
+        )
+        for draft in drafts:
+            draft.status = "failed"
+            draft.error_message = f"Recipient bounced: {address}"
+
+        campaign_ids = {
+            draft.campaign_id for draft in drafts if draft.campaign_id is not None
+        }
+        for campaign_id in campaign_ids:
+            campaign = (
+                db.query(Campaign)
+                .filter(Campaign.id == campaign_id)
+                .first()
+            )
+            if campaign is not None:
+                campaign.bounced = (campaign.bounced or 0) + 1
+
+        db.add(
+            Log(
+                message=(
+                    f"Blacklisted {address} after a delivery failure "
+                    f"({len(drafts)} draft(s) failed)"
+                ),
+                level="warning",
+                tenant_id=contact.tenant_id,
+            )
+        )
+
+    if blacklisted:
+        db.commit()
+    return blacklisted
+
+
 async def _process_incoming_replies(tenant_id: Optional[int] = None) -> int:
     """Classify every unprocessed inbox message and auto-answer it.
 
@@ -658,6 +715,7 @@ async def _process_incoming_replies(tenant_id: Optional[int] = None) -> int:
     many automatic replies were queued.
     """
     from app.agents import ReplyAnalyzerAgent, AutoResponder
+    from app.services.bounces import looks_like_bounce
     from app.services.usage import REPLIES_RECEIVED, record_usage
     
     db = SessionLocal()
@@ -687,7 +745,31 @@ async def _process_incoming_replies(tenant_id: Optional[int] = None) -> int:
                 msg.processed_at = datetime.now(timezone.utc)
                 db.commit()
                 continue
-            
+
+            # A delivery failure must be handled before contact matching: the
+            # report comes from a mail system, and the contact it matters for
+            # is the address named inside it. Never auto-reply to a bounce.
+            if looks_like_bounce(msg.subject or "", msg.snippet or "", msg.sender or ""):
+                blacklisted = _record_bounce(db, msg, sender_email)
+                msg.processed = True
+                msg.processed_at = datetime.now(timezone.utc)
+                db.commit()
+                if blacklisted:
+                    logger.warning(
+                        "Inbox message %s was a bounce; blacklisted %s recipient(s)",
+                        msg_uid,
+                        blacklisted,
+                    )
+                continue
+
+            # Nobody reads an unmonitored mailbox, so answering one wastes a
+            # send and can start a loop between two autoresponders.
+            if is_unattended_sender(sender_email):
+                msg.processed = True
+                msg.processed_at = datetime.now(timezone.utc)
+                db.commit()
+                continue
+
             # Find matching contact within the same tenant as the message
             contact_query = db.query(Contact).filter(
                 func.lower(Contact.email) == sender_email
@@ -703,10 +785,16 @@ async def _process_incoming_replies(tenant_id: Optional[int] = None) -> int:
                 db.commit()
                 continue
             
-            # Check if we already processed this message by UID
-            existing_processed = db.query(ReplyProcessed).filter(
+            # Check if we already processed this message by UID. UIDs are only
+            # unique inside one mailbox, so the lookup must be tenant-scoped.
+            processed_query = db.query(ReplyProcessed).filter(
                 ReplyProcessed.message_uid == msg_uid
-            ).first()
+            )
+            if msg.tenant_id is not None:
+                processed_query = processed_query.filter(
+                    ReplyProcessed.tenant_id == msg.tenant_id
+                )
+            existing_processed = processed_query.first()
             if existing_processed:
                 msg.processed = True
                 msg.processed_at = datetime.now(timezone.utc)
@@ -792,6 +880,25 @@ def extract_email_from_sender(sender: str) -> str:
     from email.utils import parseaddr
 
     return parseaddr(sender or "")[1].strip().lower()
+
+
+def is_unattended_sender(email: str) -> bool:
+    """True for a mailbox no human reads (daemons, no-reply, abuse desks).
+
+    Replying to one of these is always wasted: nobody sees the answer, and an
+    autoresponder at the far end can bounce the reply back into a loop.
+    """
+    from app.services.recipients import SYSTEM_LOCAL_PARTS
+
+    local = (email or "").split("@", 1)[0].strip().lower()
+    if not local:
+        return False
+    return local in SYSTEM_LOCAL_PARTS or local in {
+        "mailer-daemon",
+        "mail-daemon",
+        "mailerdaemon",
+        "abuse",
+    }
 
 
 app = FastAPI(

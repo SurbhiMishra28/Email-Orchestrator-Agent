@@ -19,6 +19,7 @@ from app.services.mailer import (
     send_email,
 )
 from app.services.provisioning import INTRO_CATEGORIES
+from app.services.recipients import blocked_reason
 
 logger = logging.getLogger(__name__)
 
@@ -243,6 +244,19 @@ def send_draft(draft_id: int, tenant_id: int = Depends(current_tenant_id)):
         smtp_config = (
             db.query(SMTPConfig).filter(SMTPConfig.tenant_id == tenant_id).first()
         )
+
+        # Refuse an address that cannot receive mail before touching SMTP: the
+        # relay would accept it and the draft would be marked sent for mail
+        # that never arrives.
+        problem = blocked_reason(
+            contact.email, getattr(smtp_config, "sender", None)
+        )
+        if problem:
+            contact.eligible_to_email = False
+            contact.email_blacklisted = True
+            _mark_blocked(db, db_draft, problem, tenant_id)
+            raise HTTPException(status_code=422, detail=problem)
+
         if not is_configured(smtp_config):
             reason = (
                 "SMTP is not configured. Add and test SMTP settings before sending."

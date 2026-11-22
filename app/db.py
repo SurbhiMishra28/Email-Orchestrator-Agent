@@ -487,7 +487,7 @@ class InboxMessage(Base):
     tenant_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("tenants.id"), nullable=True, index=True
     )
-    uid: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    uid: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
     sender: Mapped[Optional[str]] = mapped_column(String(320))
     subject: Mapped[Optional[str]] = mapped_column(String(500))
     snippet: Mapped[Optional[str]] = mapped_column(Text)
@@ -498,6 +498,13 @@ class InboxMessage(Base):
     processed: Mapped[bool] = mapped_column(Boolean, default=False)
     processed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
 
+    # IMAP UIDs are only unique inside one mailbox, so two tenants' INBOXes both
+    # start at UID 1. Uniqueness has to be per tenant or one tenant's mail is
+    # mistaken for another's and dropped during sync.
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "uid", name="uq_inbox_messages_tenant_uid"),
+    )
+
 
 class ReplyProcessed(Base):
     """Track which replies have been auto-processed to prevent duplicates."""
@@ -507,9 +514,15 @@ class ReplyProcessed(Base):
     tenant_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("tenants.id"), nullable=True, index=True
     )
-    message_uid: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    message_uid: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
     contact_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     processed_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc), index=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "message_uid", name="uq_replies_processed_tenant_uid"
+        ),
+    )
 
 
 class VerificationJob(Base):
@@ -672,9 +685,12 @@ def _ensure_columns():
                     text(
                         "CREATE TABLE replies_processed ("
                         "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                        "message_uid VARCHAR(100) NOT NULL UNIQUE, "
+                        "tenant_id INTEGER NULL, "
+                        "message_uid VARCHAR(100) NOT NULL, "
                         "contact_id INTEGER NULL, "
-                        "processed_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                        "processed_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                        "CONSTRAINT uq_replies_processed_tenant_uid "
+                        "UNIQUE (tenant_id, message_uid)"
                         ")"
                     )
                 )
@@ -796,8 +812,77 @@ def _ensure_columns():
                     )
                 logger.info("Added missing drafts.campaign_id column")
 
+        # Mailbox UIDs are unique per mailbox, not globally. Older databases
+        # carry a single-column UNIQUE index, which makes one tenant's reply look
+        # like another tenant's already-processed message.
+        _ensure_uid_uniqueness(inspector, table_names)
+
     except Exception as exc:  # never block startup on a best-effort upgrade
         logger.warning("Schema column check failed: %s", exc)
+
+
+_UID_SCOPED_TABLES = (
+    ("inbox_messages", "uid", "ix_inbox_messages_uid"),
+    ("replies_processed", "message_uid", "ix_replies_processed_message_uid"),
+)
+
+
+def _ensure_uid_uniqueness(inspector, table_names):
+    """Replace a global UNIQUE(uid) index with UNIQUE(tenant_id, uid).
+
+    SQLite cannot add a table constraint after the fact, so there only the legacy
+    index is dropped and a fresh database gets the composite constraint from the
+    model definition.
+    """
+    dialect = engine.dialect.name
+    for table, column, old_index in _UID_SCOPED_TABLES:
+        if table not in table_names:
+            continue
+        existing = inspector.get_indexes(table)
+        names = {index.get("name") for index in existing}
+        target = f"uq_{table}_tenant_uid"
+        plain_index = f"ix_{table}_{column}"
+
+        old = next((index for index in existing if index.get("name") == old_index), None)
+        legacy_unique = bool(
+            old and old.get("unique") and old.get("column_names") == [column]
+        )
+        # A composite constraint shows up as a unique index on both columns.
+        scoped_unique = any(
+            index.get("unique") and index.get("column_names") == ["tenant_id", column]
+            for index in existing
+        )
+
+        if not legacy_unique and scoped_unique and plain_index in names:
+            continue  # already migrated
+
+        with engine.begin() as connection:
+            if legacy_unique:
+                if dialect == "sqlite":
+                    connection.execute(text(f"DROP INDEX {old_index}"))
+                else:
+                    connection.execute(text(f"ALTER TABLE {table} DROP INDEX {old_index}"))
+
+            if dialect != "sqlite" and not scoped_unique:
+                try:
+                    connection.execute(
+                        text(
+                            f"ALTER TABLE {table} ADD CONSTRAINT {target} "
+                            f"UNIQUE (tenant_id, {column})"
+                        )
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Could not scope %s.%s uniqueness: %s", table, column, exc
+                    )
+
+            if plain_index not in names:
+                # Lookups by uid alone no longer hit an index once the unique one
+                # is gone, and IMAP sync filters on the uid by itself.
+                connection.execute(
+                    text(f"CREATE INDEX {plain_index} ON {table} ({column})")
+                )
+        logger.info("Scoped %s.%s uniqueness to the tenant", table, column)
 
 
 @contextmanager

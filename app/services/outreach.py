@@ -17,6 +17,7 @@ from typing import List, Optional
 from app.agents import EmailAgent, QueueManager
 from app.db import Contact, Draft, Log, SessionLocal, Settings, Template
 from app.services.provisioning import INTRO_CATEGORIES
+from app.services.recipients import blocked_reason
 
 logger = logging.getLogger(__name__)
 
@@ -83,12 +84,21 @@ async def create_intro_drafts(
             db.commit()
             return {"created": 0, "skipped": 0, "reason": "no intro template"}
 
-        contact_query = db.query(Contact).filter(Contact.eligible_to_email == True)
+        contact_query = db.query(Contact).filter(
+            Contact.eligible_to_email == True,
+            Contact.email_blacklisted.isnot(True),
+        )
         if tenant_id is not None:
             contact_query = contact_query.filter(Contact.tenant_id == tenant_id)
         if contact_ids is not None:
             contact_query = contact_query.filter(Contact.id.in_(contact_ids))
-        contacts = contact_query.all()
+        # Drafting for an address that cannot receive mail only produces a
+        # draft that the queue will refuse, so exclude it here as well.
+        contacts = [
+            contact
+            for contact in contact_query.all()
+            if not blocked_reason(contact.email)
+        ]
 
         skipped = 0
         for contact in contacts:

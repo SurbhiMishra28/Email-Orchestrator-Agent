@@ -19,7 +19,6 @@ venv/
 node_modules/
 frontend/dist/
 dist/
-.turbo/
 
 # Editor / OS
 .vscode/

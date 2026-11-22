@@ -1,15 +1,25 @@
 """Agents API router - exposes subagents via REST API (tenant-scoped)."""
+import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from pydantic import BaseModel
+from sqlalchemy import func
 
 logger = logging.getLogger(__name__)
 
 from app.config import settings as app_settings
 from app.db import SessionLocal, Contact, Template, Draft, SMTPConfig, Settings, Log
 from app.deps import current_tenant_id
+from app.services.limits import check_tenant_send_allowed
+from app.services.mailer import (
+    MailDeliveryError,
+    MailNotConfigured,
+    send_email,
+)
+from app.services.usage import EMAILS_SENT, record_usage
+from app.services.recipients import blocked_reason
 from app.agents import (
     PersonalizedEmailAgent,
     SenderAgent,
@@ -128,42 +138,109 @@ async def send_email_endpoint(
     request: SendEmailRequest,
     tenant_id: int = Depends(current_tenant_id),
 ):
-    """Send an email directly using the SenderAgent.
-    
-    This endpoint bypasses draft creation and sends immediately.
-    Useful for alerts, notifications, and one-off emails.
+    """Send one email now, through the same limits as the queue.
+
+    The recipient must already be a contact of the caller's tenant: that is what
+    makes the daily cap, domain cap and pacing counter apply to this send, and
+    what lets the message appear in drafts and analytics.
     """
     db = SessionLocal()
     try:
         smtp_config = _tenant_smtp(db, tenant_id)
-        
+
         agent = SenderAgent(smtp_config=smtp_config)
-        
+
         # Check if configured
         if not agent.is_configured():
             raise HTTPException(
                 status_code=503,
                 detail="SMTP is not configured. Please configure SMTP settings first."
             )
-        
-        # Send email
-        success, message, msg_id = agent.send(
-            to_email=request.to_email,
+
+        recipient = (request.to_email or "").strip().lower()
+        contact = (
+            db.query(Contact)
+            .filter(
+                Contact.tenant_id == tenant_id,
+                func.lower(Contact.email) == recipient,
+            )
+            .first()
+        )
+        if not contact:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"{request.to_email} is not a contact of this workspace. "
+                    "Add it as a contact first so the send is metered and tracked."
+                ),
+            )
+        if not contact.eligible_to_email:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Contact {request.to_email} is not eligible for email",
+            )
+        if contact.email_blacklisted:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Contact {request.to_email} is blacklisted after a bounce",
+            )
+
+        problem = blocked_reason(recipient, getattr(smtp_config, "sender", None))
+        if problem:
+            raise HTTPException(status_code=422, detail=problem)
+
+        allowed, reason = check_tenant_send_allowed(db, tenant_id, recipient)
+        if not allowed:
+            raise HTTPException(status_code=429, detail=reason)
+
+        draft = Draft(
+            contact_id=contact.id,
+            tenant_id=tenant_id,
             subject=request.subject,
             body=request.body,
-            from_name=request.from_name,
-            from_email=request.from_email
+            status="sending",
+            variables={"message_kind": "direct_send"},
+            attempt_count=1,
         )
-        
-        if success:
-            return {
-                "success": True,
-                "message": "Email sent successfully",
-                "message_id": msg_id,
-                "recipient": request.to_email
-            }
-        else:
-            raise HTTPException(status_code=400, detail=f"Send failed: {message}")
+        db.add(draft)
+        db.commit()
+        db.refresh(draft)
+
+        try:
+            msg_id = await asyncio.to_thread(
+                send_email,
+                smtp_config,
+                recipient,
+                request.subject,
+                request.body,
+                request.from_name,
+                request.from_email,
+                None,
+            )
+        except MailNotConfigured as exc:
+            draft.status = "failed"
+            draft.error_message = str(exc)
+            db.commit()
+            raise HTTPException(status_code=503, detail=f"SMTP not configured: {exc}")
+        except MailDeliveryError as exc:
+            draft.status = "failed"
+            draft.error_message = str(exc)
+            db.commit()
+            raise HTTPException(status_code=400, detail=f"Send failed: {exc}")
+
+        draft.status = "sent"
+        draft.sent_at = datetime.now(timezone.utc)
+        draft.error_message = None
+        record_usage(db, tenant_id, EMAILS_SENT)
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "Email sent successfully",
+            "message_id": msg_id,
+            "recipient": request.to_email,
+            "draft_id": draft.id,
+        }
     finally:
         db.close()
 

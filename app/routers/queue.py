@@ -11,6 +11,7 @@ from app.agents import QueueManager, expand_template_with_ai
 from app.config import settings as app_settings
 from app.db import Contact, Draft, Log, SessionLocal, Settings, Template
 from app.deps import current_tenant_id
+from app.services.recipients import blocked_reason
 from app.services.usage import EMAILS_DRAFTED, record_usage
 
 logger = logging.getLogger(__name__)
@@ -194,7 +195,15 @@ async def run_orchestration_all(
         # background worker instead of silently waiting for another click.
         from app.services.send_worker import drain_queue, get_worker
 
-        result = await drain_queue(tenant_id=tenant_id, max_seconds=SYNC_DRAIN_SECONDS)
+        if app_settings.ENABLE_BACKGROUND_JOBS:
+            result = await drain_queue(
+                tenant_id=tenant_id, max_seconds=SYNC_DRAIN_SECONDS
+            )
+        else:
+            # No background worker exists on this host (serverless), so a
+            # handoff would drop the remaining sends. Finish them inline and
+            # let the function timeout be the only bound.
+            result = await drain_queue(tenant_id=tenant_id)
 
         # Only this batch matters here: a draft left over from an older run must
         # not be reported as "queued" by a selection-scoped send.
@@ -209,11 +218,14 @@ async def run_orchestration_all(
             .count()
         )
         job_id = None
-        if remaining:
+        if remaining and app_settings.ENABLE_BACKGROUND_JOBS:
             job_id = get_worker().submit(tenant_id).id
             result["queued"] = True
             result["job_id"] = job_id
             result["remaining"] = remaining
+        elif remaining:
+            result["remaining"] = remaining
+            result["paused"] = True
 
         if campaign is not None:
             # The campaign row is the listing's source of truth: mark it sent
@@ -420,7 +432,12 @@ def _select_contacts(
     contact_ids: Optional[List[int]],
     list_id: Optional[int],
 ) -> List[Contact]:
-    """Eligible contacts for a run, always tenant-scoped."""
+    """Eligible contacts for a run, always tenant-scoped.
+
+    Addresses that can never receive mail are excluded up front so a run never
+    drafts for a placeholder row; the queue enforces the same rule again at
+    send time.
+    """
     if list_id is not None:
         # Segment sends: the list must belong to this tenant, and the join is
         # what keeps a foreign contact id from slipping through.
@@ -450,7 +467,7 @@ def _select_contacts(
         )
         if contact_ids:
             contact_query = contact_query.filter(Contact.id.in_(contact_ids))
-        return contact_query.all()
+        return [c for c in contact_query.all() if not blocked_reason(c.email)]
 
     if contact_ids:
         contacts = (
@@ -467,17 +484,21 @@ def _select_contacts(
         missing = [cid for cid in contact_ids if cid not in found_ids]
         if missing:
             logger.warning(f"Some contact IDs not found or not eligible: {missing}")
-        return contacts
+        return [c for c in contacts if not blocked_reason(c.email)]
 
-    return (
-        db.query(Contact)
-        .filter(
-            Contact.tenant_id == tenant_id,
-            Contact.eligible_to_email == True,
-            Contact.email_blacklisted.isnot(True),
+    return [
+        contact
+        for contact in (
+            db.query(Contact)
+            .filter(
+                Contact.tenant_id == tenant_id,
+                Contact.eligible_to_email == True,
+                Contact.email_blacklisted.isnot(True),
+            )
+            .all()
         )
-        .all()
-    )
+        if not blocked_reason(contact.email)
+    ]
 
 
 async def _create_drafts(

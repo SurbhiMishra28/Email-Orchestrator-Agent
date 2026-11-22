@@ -1,19 +1,10 @@
 {
   "name": "email-orchestrator",
   "private": true,
-  "packageManager": "npm@11.6.0",
-  "workspaces": [
-    "packages/*",
-    "apps/*"
-  ],
   "scripts": {
-    "build": "turbo run build && npm run build --prefix frontend",
-    "dev": "turbo run dev",
-    "lint": "turbo run lint",
+    "build": "npm run build --prefix frontend",
+    "dev": "npm run dev --prefix frontend",
     "test": "python -m pytest -q",
     "start": "python -m uvicorn app.main:app --host 127.0.0.1 --port 8000"
-  },
-  "devDependencies": {
-    "turbo": "2.11.12"
   }
 }

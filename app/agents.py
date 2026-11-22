@@ -27,6 +27,7 @@ from app.db import SessionLocal, Contact, Draft, Template, Log, ToolUse, Setting
 from app.live_logs import instrument_agent
 from app.services.limits import check_send_allowed
 from app.services.mailer import MailDeliveryError, MailNotConfigured, is_configured, send_email
+from app.services.recipients import blocked_reason
 from app.services.usage import EMAILS_SENT, REPLIES_RECEIVED, record_usage
 
 
@@ -51,6 +52,19 @@ def expand_template_variables(template_str: str, variables: Dict[str, Any]) -> s
         return template.render(**variables)
     except Exception as e:
         return f"{{Error expanding template: {e}}}"
+
+
+def _render_footer(template, variables: Dict[str, Any]) -> str:
+    """Render a template's footer with the same variables as the body.
+
+    Templates store the footer as a Jinja2 string (``{{sender_name}}`` and
+    friends), so it has to be expanded before it is appended. Appending the
+    raw string shipped literal placeholders to recipients.
+    """
+    footer = (getattr(template, "footer_template", "") or "").strip()
+    if footer:
+        return expand_template_variables(footer, variables).strip()
+    return (variables.get("footer_text") or "").strip()
 
 
 def get_llm_client():
@@ -157,8 +171,8 @@ Reply with a single JSON object and nothing else, using the shape
                 if isinstance(data, dict) and data.get("subject") and data.get("body"):
                     # Append footer if not already included and template has footer
                     body = data["body"]
-                    footer = template.footer_template or variables.get("footer_text", "")
-                    if footer and footer.strip() and not body.rstrip().endswith(footer.strip()):
+                    footer = _render_footer(template, variables)
+                    if footer and not body.rstrip().endswith(footer):
                         body = f"{body.rstrip()}\n\n{footer}"
                     return {"subject": data["subject"], "body": body}
                 logger.warning("AI expansion returned an unusable response; using the template engine.")
@@ -169,8 +183,8 @@ Reply with a single JSON object and nothing else, using the shape
         body = expand_template_variables(template.body_template, variables)
 
         # Append footer if template has one
-        footer = template.footer_template or variables.get("footer_text", "")
-        if footer.strip():
+        footer = _render_footer(template, variables)
+        if footer:
             body = f"{body.rstrip()}\n\n{footer}"
 
         return {
@@ -349,6 +363,49 @@ class QueueManager:
                             "draft_id": draft.id,
                             "status": "skipped",
                             "reason": "recipient is not eligible to email",
+                        }
+                    )
+                    continue
+
+                if contact.email_blacklisted:
+                    results["skipped"] += 1
+                    results["details"].append(
+                        {
+                            "draft_id": draft.id,
+                            "status": "skipped",
+                            "reason": "recipient is blacklisted after a bounce",
+                        }
+                    )
+                    continue
+
+                # A placeholder row left in a contact list would bounce, but the
+                # relay accepts it, so "sent" would be recorded for mail that
+                # never arrived. Fail the draft instead: it must not be retried
+                # and the contact must never be mailed again.
+                problem = blocked_reason(
+                    contact.email, getattr(smtp_config, "sender", None)
+                )
+                if problem:
+                    draft.status = "failed"
+                    draft.error_message = problem
+                    contact.eligible_to_email = False
+                    contact.email_blacklisted = True
+                    db.add(
+                        Log(
+                            message=(
+                                f"Refused to email {contact.email}: {problem}"
+                            ),
+                            level="warning",
+                            tenant_id=draft_tenant,
+                        )
+                    )
+                    db.commit()
+                    results["failed"] += 1
+                    results["details"].append(
+                        {
+                            "draft_id": draft.id,
+                            "status": "failed",
+                            "reason": problem,
                         }
                     )
                     continue
@@ -860,7 +917,7 @@ class PersonalizedEmailAgent:
             raise ValueError(f"Contact {self.contact_id} not found")
         
         if not contact.eligible_to_email:
-            raise ValueError(f"Contact {contact_id} is not eligible for email")
+            raise ValueError(f"Contact {self.contact_id} is not eligible for email")
         
         # Get templates from database if not provided
         if subject_template is None or body_template is None:
@@ -1594,6 +1651,11 @@ Best regards,
         contact = self.db.query(Contact).filter(Contact.id == self.contact_id).first()
         if not contact or not contact.eligible_to_email:
             return {"success": False, "message": "Contact is not eligible for email"}
+        if contact.email_blacklisted:
+            return {"success": False, "message": "Contact is blacklisted after a bounce"}
+        problem = blocked_reason(response.get("to_email") or contact.email)
+        if problem:
+            return {"success": False, "message": problem}
 
         try:
             self.db.add(

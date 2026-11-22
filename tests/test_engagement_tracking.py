@@ -184,6 +184,9 @@ def test_mailer_sends_multipart_alternative_only_when_html_is_given(monkeypatch)
             return None
 
     monkeypatch.setattr(mailer, "_open_server", lambda *a, **k: FakeServer())
+    # The suite runs in dry-run mode so it cannot mail the real account; this
+    # test inspects the constructed message, so it opts back in.
+    monkeypatch.setattr(mailer.app_settings, "MAIL_SUPPRESS_SEND", False)
 
     config = SimpleNamespace(
         host="smtp.example.com",

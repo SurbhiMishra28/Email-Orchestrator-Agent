@@ -20,6 +20,7 @@ from app.db import (
 )
 from app.deps import current_tenant_id
 from app.models.schemas import ContactCreate, ContactOut, ContactUpdate, CSVImport
+from app.services.recipients import blocked_reason
 
 router = APIRouter()
 
@@ -78,6 +79,12 @@ def list_contacts(
 def create_contact(contact: ContactCreate, tenant_id: int = Depends(current_tenant_id)):
     db = SessionLocal()
     try:
+        # A contact that can never receive mail must not enter the pipeline,
+        # because autopilot would otherwise draft and "send" to it unattended.
+        problem = blocked_reason(contact.email)
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
+
         # Check if email already exists for this tenant
         existing = (
             db.query(Contact)
@@ -140,6 +147,14 @@ def import_csv(
                     ).normalized
                 except EmailNotValidError as exc:
                     errors.append(f"{email}: {exc}")
+                    continue
+
+                # Import a placeholder and autopilot will mail it. Refuse the
+                # row instead and tell the operator why.
+                problem = blocked_reason(email)
+                if problem:
+                    errors.append(f"{email}: {problem}")
+                    skipped += 1
                     continue
                 
                 permission_raw = (
@@ -362,8 +377,14 @@ def update_contact(
     db = SessionLocal()
     try:
         db_contact = _get_tenant_contact(db, contact_id, tenant_id)
-        
-        for field, value in contact.model_dump(exclude_unset=True).items():
+
+        changes = contact.model_dump(exclude_unset=True)
+        if changes.get("email") and changes["email"] != db_contact.email:
+            problem = blocked_reason(changes["email"])
+            if problem:
+                raise HTTPException(status_code=400, detail=problem)
+
+        for field, value in changes.items():
             setattr(db_contact, field, value)
         
         db.commit()

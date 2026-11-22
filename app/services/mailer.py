@@ -5,6 +5,7 @@ marked "sent" without a configured, reachable SMTP server.
 """
 import smtplib
 import ssl
+import uuid
 from email.message import EmailMessage
 from email.utils import formataddr
 from typing import Optional, Tuple
@@ -87,6 +88,11 @@ def send_email(smtp_config, recipient: str, subject: str, body: str, from_name: 
         )
     if not recipient:
         raise MailDeliveryError("The recipient email address is missing.")
+
+    if app_settings.MAIL_SUPPRESS_SEND:
+        # Dry-run: the message is never handed to a relay. Recorded as delivered
+        # so callers can exercise the full pipeline without mailing anyone.
+        return f"<suppressed-{uuid.uuid4().hex}@localhost>"
 
     # Use override values if provided, otherwise fall back to configured values
     final_sender = from_email or sender

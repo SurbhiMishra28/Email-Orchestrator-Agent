@@ -35,14 +35,7 @@ Skora Infotech works with businesses to grow their online presence through websi
 ---
 Surbhi Mishra | Sales Manager
 Skora Infotech Pvt Ltd
-https://skorainfotech.com
-
-Connect with us: 
-[Website] | [LinkedIn] | [Twitter]
-
-Unsubscribe | Terms | Privacy
-
----""",
+https://skorainfotech.com""",
             "sender_name": "Surbhi Mishra",
             "sender_role": "Sales Manager",
             "company_website": "https://skorainfotech.com",
@@ -68,14 +61,7 @@ Unsubscribe | Terms | Privacy
 ---
 {{sender_name}} | {{sender_role}}
 {{business_name}}
-{{company_website}}
-
-Connect with us: 
-[Website] | [LinkedIn] | [Twitter]
-
-Unsubscribe | Terms | Privacy
-
----"""
+{{company_website}}"""
 
         # Template 1: Personalized/Intro Mail
         personalized_template = Template(

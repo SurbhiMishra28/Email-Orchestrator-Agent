@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Bulk contact deletion** - `DELETE /api/contacts/all?confirm=true` and `DELETE /api/contacts/bulk` remove contacts with their drafts, events, list memberships and verification links
 - **Engagement tracking** (opt-in) - HMAC-signed open/click pixels via `/api/track/open/{token}` and `/api/track/click/{token}`, attribution at `/api/tracking`
 - **A/B testing** - `/api/ab-tests` experiment and variant CRUD with deterministic variant assignment and per-variant results
+- **Recipient deliverability guard** - `services/recipients.py` refuses reserved domains (`example.com`, `*.test`, `localhost`), disposable inboxes and mail-system mailboxes (`mailer-daemon@`, `postmaster@`, `no-reply@`) on every send path: contact creation, edit, CSV import, intro drafting, queue selection and send, and direct agent send
+- **Bounce handling** - `services/bounces.py` recognises delivery-failure notifications in the synced inbox, blacklists the failed address (`email_blacklisted`), marks the contact ineligible, fails its outstanding drafts and increments `Campaign.bounced`; bounces are never auto-answered
+- **`MAIL_SUPPRESS_SEND`** - dry-run mode that records a send without opening an SMTP connection; the test suite enables it so it can never mail the real account in `.env`
 
 ### Changed
 - Updated agent documentation to reflect complete implementation
@@ -28,6 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/api/run` and `/api/scheduling/run-now` return immediately with a `job_id`; sending continues server-side
 - Reply handling no longer gates on human review: every reply is classified and answered in the same pass
 - All destructive UI actions now use an in-app confirmation modal instead of `window.confirm`
+- Replies from unmonitored mailboxes (`no-reply@`, `postmaster@`, daemons) are recorded but never answered
+- Queue passes skip blacklisted contacts instead of retrying them
+
+### Removed
+- The 100 fictional contacts imported from `customers-100.csv`, the empty placeholder list they created, and the 154 delivery-failure inbox rows left by earlier sends to placeholder addresses
 
 ---
 

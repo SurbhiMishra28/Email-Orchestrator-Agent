@@ -113,17 +113,20 @@ def plan_daily_limit(db, tenant_id: Optional[int]) -> Optional[int]:
     return int(limit)
 
 
-def check_send_allowed(
-    db, contact: Contact, now: Optional[datetime] = None
+def check_tenant_send_allowed(
+    db,
+    tenant_id: Optional[int],
+    recipient_email: str = "",
+    now: Optional[datetime] = None,
 ) -> Tuple[bool, str]:
     """Return (allowed, human-readable reason when blocked).
 
-    The tenant is taken from ``contact`` so callers cannot forget to scope it.
-    The effective daily cap is the lower of the tenant's plan allowance, its
-    configured cap, and the current warm-up cap.
+    Takes the tenant directly instead of a ``Contact`` so every send path —
+    including ones that only know a stored address — goes through the same
+    gate. The effective daily cap is the lower of the tenant's plan allowance,
+    its configured cap, and the current warm-up cap.
     """
     now = now or datetime.now(timezone.utc)
-    tenant_id = getattr(contact, "tenant_id", None)
     settings_query = db.query(Settings)
     if tenant_id is not None:
         settings_query = settings_query.filter(Settings.tenant_id == tenant_id)
@@ -147,7 +150,7 @@ def check_send_allowed(
         )
         return False, detail
 
-    domain = (contact.email or "").split("@")[-1].lower()
+    domain = (recipient_email or "").split("@")[-1].lower()
     domain_sent = sent_to_domain_today(db, domain, tenant_id, now)
     if configured_domain and domain_sent >= configured_domain:
         return False, (
@@ -160,3 +163,18 @@ def check_send_allowed(
         return False, f"Pacing: wait {wait}s before the next send."
 
     return True, ""
+
+
+def check_send_allowed(
+    db, contact: Contact, now: Optional[datetime] = None
+) -> Tuple[bool, str]:
+    """Return (allowed, reason) for one more send to ``contact``.
+
+    The tenant is taken from ``contact`` so callers cannot forget to scope it.
+    """
+    return check_tenant_send_allowed(
+        db,
+        getattr(contact, "tenant_id", None),
+        getattr(contact, "email", "") or "",
+        now,
+    )
