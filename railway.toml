@@ -1,0 +1,17 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# The dashboard is served by the same process, so /health proves both the
+# container and its database connection are up.
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+[service]
+# APScheduler drives inbox polling and autopilot, and the send worker keeps a
+# thread between requests to honour the 60-second pacing rule. None of that
+# survives a process that restarts on every request, so this must be a
+# long-lived container service rather than a serverless function.

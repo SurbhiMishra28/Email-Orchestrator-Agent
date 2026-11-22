@@ -1,0 +1,50 @@
+services:
+  - type: web
+    name: email-orchestrator
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    # /health checks the database too, so a passing probe means the app can
+    # actually serve requests rather than just that the port is open.
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # Set these in the Render dashboard. They are listed here as a checklist
+      # so a missing value fails loudly instead of silently running insecurely.
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: SINGLE_USER_MODE
+        value: "false"
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: IMAP_HOST
+        sync: false
+      - key: IMAP_USER
+        sync: false
+      - key: IMAP_PASS
+        sync: false
+      - key: NVIDIA_API_KEY
+        sync: false
+      # Keep autonomous sending off until a human has verified the deployment.
+      - key: MAIL_SUPPRESS_SEND
+        value: "true"
+      - key: AUTOPILOT
+        value: "false"
+      - key: AUTO_APPROVE
+        value: "false"
+      - key: ENABLE_BACKGROUND_JOBS
+        value: "true"
