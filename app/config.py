@@ -149,6 +149,15 @@ class Settings:
     JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 
+    # Resend email API (https://resend.com). When this key is set, send_email()
+    # talks to Resend's REST API over HTTPS instead of SMTP. That matters on
+    # hosts that block SMTP ports -- Render's free tier blocks 25/465/587, so a
+    # Gmail mailbox cannot leave the box there. Resend uses the same message
+    # body and returns the same message-id shape, so callers see no difference;
+    # only the transport changes. Leave blank to send over SMTP.
+    RESEND_API_KEY: Optional[str] = os.getenv("RESEND_API_KEY")
+    RESEND_FROM: str = os.getenv("RESEND_FROM", "")
+
     # This app is a single-user tool: it runs one implicit workspace and serves
     # every request as that workspace, with no sign-in screen. The value is fixed
     # rather than read from the environment so a deploy cannot accidentally

@@ -15,19 +15,40 @@ working mailbox.
 environment, but *only* for the implicit local tenant of this single-user app.
 A second tenant created through the API never inherits the operator's mailbox,
 so the credentials in ``.env`` stay with the workspace that owns them.
+
+Outbound transport
+------------------
+SMTP is the default and works everywhere SMTP is reachable. When
+``RESEND_API_KEY`` is set the app talks to Resend's REST API over HTTPS instead.
+That matters on hosts that block SMTP ports -- Render's free tier blocks 25/465/
+587, so a Gmail mailbox cannot leave the box there. Resend speaks the same
+message body and returns the same message-id shape, so callers see no
+difference; only the transport changes.
 """
+import json
 import smtplib
 import ssl
+import time
 import uuid
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
 from typing import Dict, Optional, Tuple
+
+import httpx
 
 from app.config import settings as app_settings
 
 # A subject is a single header line. Keeping well under the 998 octet limit
 # leaves room for folding and avoids a relay-side truncation.
 SUBJECT_MAX_LENGTH = 250
+
+# Resend's REST endpoint. HTTPS on 443, which every host allows for web
+# traffic, so it bypasses SMTP port blocks entirely.
+RESEND_API_URL = "https://api.resend.com/emails"
+
+# How long to wait for the Resend API before giving up. Kept short: a send
+# that cannot complete in 15s is not going to complete in 15m either.
+RESEND_TIMEOUT_SECONDS = 15
 
 
 class MailNotConfigured(Exception):
@@ -195,21 +216,39 @@ def resolve_smtp_config(db, tenant_id: Optional[int]) -> SMTPConfigView:
 
 
 def _open_server(host: str, port: int, timeout: int = 30) -> smtplib.SMTP:
-    """Open an SMTP connection, using implicit TLS on 465 and STARTTLS elsewhere."""
-    context = ssl.create_default_context()
-    if port == 465:
-        return smtplib.SMTP_SSL(host, port, timeout=timeout, context=context)
+    """Open an SMTP connection, using implicit TLS on 465 and STARTTLS elsewhere.
 
-    server = smtplib.SMTP(host, port, timeout=timeout)
-    try:
-        server.ehlo()
-        if port == 587 or server.has_extn("starttls"):
-            server.starttls(context=context)
-            server.ehlo()
-    except Exception:
-        server.close()
-        raise
-    return server
+    Transient network errors (``Network is unreachable``, ``Connection reset``,
+    ``Temporary failure in name resolution``) are retried a few times with a
+    short backoff, because a relay that answers one moment may be unreachable
+    the next on a flaky link. Each attempt resolves the host fresh so an
+    IPv4/IPv6 flip gets a chance to land on a working address.
+    """
+    context = ssl.create_default_context()
+    last_exc: Optional[OSError] = None
+    for attempt in range(3):
+        try:
+            if port == 465:
+                return smtplib.SMTP_SSL(host, port, timeout=timeout, context=context)
+
+            server = smtplib.SMTP(host, port, timeout=timeout)
+            try:
+                server.ehlo()
+                if port == 587 or server.has_extn("starttls"):
+                    server.starttls(context=context)
+                    server.ehlo()
+            except Exception:
+                server.close()
+                raise
+            return server
+        except (OSError, smtplib.SMTPException) as exc:
+            last_exc = exc
+            if attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            raise
+    # Unreachable: the loop always returns or raises.
+    raise last_exc if last_exc else OSError("Could not open SMTP connection")
 
 
 def _close_server(server: smtplib.SMTP) -> None:
