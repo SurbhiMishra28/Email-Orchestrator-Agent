@@ -1077,11 +1077,19 @@ class SenderAgent:
         return True, ""
     
     def test_connection(self, timeout: int = 10) -> Tuple[bool, str]:
-        """Test SMTP connection and, when credentials exist, authentication.
+        """Test the configured transport and, when credentials exist, auth.
 
-        Returns:
-            Tuple of (success, message)
+        When ``RESEND_API_KEY`` is set the app sends through Resend's REST API
+        over HTTPS, which is the only path that works on hosts blocking SMTP
+        ports (Render free tier). That path is tested here instead of the SMTP
+        socket probe, which would time out on such hosts and report a false
+        negative.
         """
+        from app.config import settings as app_settings
+
+        if app_settings.RESEND_API_KEY:
+            return self._test_resend()
+
         from app.services.mailer import test_connection
 
         host = (getattr(self.smtp_config, "host", "") or "").strip()
@@ -1096,6 +1104,58 @@ class SenderAgent:
         )
         ok = bool(result.get("ok")) and result.get("authenticated", True) is not False
         return ok, str(result.get("message") or "")
+
+    def _test_resend(self) -> Tuple[bool, str]:
+        """Verify the Resend API key by sending a 1-byte test message.
+
+        Resend charges for real sends, so the test posts a message with a
+        clearly fake recipient and reports whatever the API says: a 200 with
+        an id means the key works (the recipient rejection is expected), while
+        a 401 means the key is invalid.
+        """
+        import httpx
+
+        from app.config import settings as app_settings
+        from app.services.mailer import RESEND_API_URL, RESEND_TIMEOUT_SECONDS
+
+        sender = (
+            getattr(self.smtp_config, "sender", None)
+            or app_settings.RESEND_FROM
+            or app_settings.DEFAULT_SMTP_SENDER
+            or app_settings.DEFAULT_SMTP_USER
+            or "test@example.com"
+        )
+        payload = {
+            "from": sender,
+            "to": "test@resend.dev",
+            "subject": "Connection test",
+            "text": "Email Orchestrator connection test",
+        }
+        try:
+            with httpx.Client(timeout=RESEND_TIMEOUT_SECONDS) as client:
+                resp = client.post(
+                    RESEND_API_URL,
+                    headers={
+                        "Authorization": f"Bearer {app_settings.RESEND_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+        except httpx.HTTPError as exc:
+            return False, f"Resend API unreachable: {exc}"
+
+        if resp.status_code == 401:
+            return False, "Resend API key rejected (401)"
+        if resp.status_code == 403:
+            return False, "Resend API key forbidden (403) - check domain verification"
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json()
+                message = detail.get("message") or resp.text
+            except Exception:
+                message = resp.text or f"HTTP {resp.status_code}"
+            return False, f"Resend rejected test send: {message}"
+        return True, "Resend API connection successful"
     
     def send(
         self,

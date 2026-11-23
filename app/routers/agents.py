@@ -247,7 +247,16 @@ async def send_email_endpoint(
 
 @router.get("/test-smtp")
 def test_smtp_connection(tenant_id: int = Depends(current_tenant_id)):
-    """Test the mailbox configured for this tenant."""
+    """Test the mailbox configured for this tenant.
+
+    When ``RESEND_API_KEY`` is set the app sends through Resend's REST API over
+    HTTPS, which is the only path that works on hosts blocking SMTP ports
+    (Render free tier). The endpoint reports that transport rather than the
+    SMTP socket probe, which would time out on such hosts and report a false
+    negative.
+    """
+    from app.config import settings as app_settings
+
     db = SessionLocal()
     try:
         view = resolve_smtp_config(db, tenant_id)
@@ -263,6 +272,7 @@ def test_smtp_connection(tenant_id: int = Depends(current_tenant_id)):
             "port": view.port,
             "authentication_configured": view.authentication_configured,
             "source": view.source,
+            "transport": "resend" if app_settings.RESEND_API_KEY else "smtp",
         }
     finally:
         db.close()
