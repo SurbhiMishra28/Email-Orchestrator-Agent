@@ -247,41 +247,36 @@ async def send_async(self, ...) -> Tuple[bool, str, Optional[str]]
 
 **File**: `app/agents.py` - `CalendarAgent` class
 
-**Purpose**: Meeting scheduling and calendar integration
+**Purpose**: Share a meeting-booking link
 
 **Supported Providers**:
-- `google` - Google Calendar integration (stub)
-- `microsoft` - Microsoft Graph API (stub)
-- `calendly` - Calendly API (stub)
-- `manual` - Manual scheduling (development mode)
+- `calendly` - Returns the booking URL saved in Settings, when it is a valid Calendly link
+- anything else (including `manual`) - Reported as not configured
+
+This agent deliberately does not create events and does not do OAuth calendar
+sync: invitees book through your Calendly link, which is the only integration
+this app ships.
 
 **Example Usage**:
 ```python
 from app.agents import CalendarAgent
-from datetime import datetime, timezone
 
-# Initialize for manual scheduling
-agent = CalendarAgent(provider="manual")
-
-# List available calendars
-calendars = agent.list_calendars()
-
-# Create an event
-event = agent.create_event(
-    summary="Demo Call",
-    start_time=datetime(2024, 1, 15, 14, 0, tzinfo=timezone.utc),
-    duration_minutes=30,
-    attendees=["client@example.com"]
+agent = CalendarAgent(
+    provider="calendly",
+    booking_url="https://calendly.com/you/intro",
 )
 
-# Generate meeting link
+# List the configured booking page
+calendars = agent.list_calendars()
+
+# Share the booking link in an email
 link = agent.generate_meeting_link("call")
 ```
 
 **Methods**:
 ```python
 def list_calendars(self) -> List[Dict[str, Any]]
-def create_event(self, summary, start_time, duration_minutes, ...) -> Dict[str, Any]
+def create_event(self, summary, start_time, duration_minutes, ...) -> Dict[str, Any]  # raises ValueError
 def generate_meeting_link(self, meeting_type: str = "call") -> str
 def available(self) -> bool
 ```
@@ -500,22 +495,30 @@ All agents are exposed via REST API endpoints under `/api/agents/`:
 
 **Personalize an email:**
 ```bash
-curl -X POST "http://127.0.0.1:8000/api/agents/personalize?contact_id=1&template_id=5&use_ai=true"
+curl -X POST "http://127.0.0.1:8000/api/agents/personalize" \
+  -H "Content-Type: application/json" \
+  -d '{"contact_id": 1, "template_id": 5, "use_ai": true}'
 ```
 
 **Send email directly:**
 ```bash
-curl -X POST "http://127.0.0.1:8000/api/agents/send?to_email=user@example.com&subject=Hello&body=Message"
+curl -X POST "http://127.0.0.1:8000/api/agents/send" \
+  -H "Content-Type: application/json" \
+  -d '{"to_email": "user@example.com", "subject": "Hello", "body": "Message"}'
 ```
 
 **Enhance subject with AI:**
 ```bash
-curl -X POST "http://127.0.0.1:8000/api/agents/brain/enhance-subject?subject=Quick%20question"
+curl -X POST "http://127.0.0.1:8000/api/agents/brain/enhance-subject" \
+  -H "Content-Type: application/json" \
+  -d '{"subject": "Quick question"}'
 ```
 
 **Generate A/B alternatives:**
 ```bash
-curl -X POST "http://127.0.0.1:8000/api/agents/brain/alternatives?subject=Hello&body=Message&count=3"
+curl -X POST "http://127.0.0.1:8000/api/agents/brain/alternatives" \
+  -H "Content-Type: application/json" \
+  -d '{"subject": "Hello", "body": "Message", "count": 3}'
 ```
 
 **Check agent status:**

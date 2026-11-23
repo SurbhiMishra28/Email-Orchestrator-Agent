@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Inverted dark theme** - The dashboard was rebuilt on a near-black sage palette (`#060b09` floor, `#7fb39d` accent) with a cinematic splash. The `ink` ramp is inverted (low numbers are the page floor, high numbers are the brightest text) so existing utility classes keep their meaning
 - **PersonalizedEmailAgent** - New agent for contact-specific email personalization with AI enhancement
 - **SenderAgent** - Low-level SMTP sending agent with validation and error handling
-- **CalendarAgent** - Meeting scheduling integration (Google Calendar, Microsoft, Calendly, manual)
+- **CalendarAgent** - Shares the Calendly booking link saved in Settings; event creation is refused because invitees book through that link
 - **AIBrainAgent** - AI intelligence layer for content optimization and A/B testing
 - **Zero-touch autopilot** - `POST /api/run` drafts intros, syncs the inbox, classifies and answers replies, generates follow-ups and sends, with no approval step
 - **Queue drain** - `services/send_worker.drain_queue()` keeps passing the queue so a single Run delivers the whole ready batch instead of one paced email
@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`MAIL_SUPPRESS_SEND`** - dry-run mode that records a send without opening an SMTP connection; the test suite enables it so it can never mail the real account in `.env`
 
 ### Changed
+- **Template deletion is guarded** - `DELETE /api/templates/{id}` now answers **409** with a clear message when a campaign or A/B test still references the template, instead of surfacing a raw database error, and the Templates view shows that message inline
 - **Sign-in screen restored** - The app asks `GET /api/auth/me` for the stored session on first load and shows the email/password form (with a toggle into workspace registration) when there is no usable one. The rail's avatar button signs out and returns to that form. `POST /api/auth/register` creates the tenant, its first admin and the starter templates
 - **`/health` returns 503 when the database is unreachable** - The payload reports `"status": "degraded"` and `checks.database.healthy: false`, so a platform probe fails the deploy instead of reporting a process that cannot serve requests as up. The app still starts and serves when the database is missing at boot; only the probe fails
 - **Dashboard theme** - Replaced the light sky-blue palette with the dark sage theme; `red`/`amber`/`blue` utilities map to `danger`/`warn`/`info` scales and all white surfaces use the inverted `ink` ramp

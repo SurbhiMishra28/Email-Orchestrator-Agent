@@ -75,16 +75,17 @@ end but the external integration is a placeholder. **Not built** = planned only.
 | SMTP (any relay) | Done | Requires real credentials; blocked until configured |
 | IMAP inbox | Done | Read-only via `BODY.PEEK` |
 | NVIDIA LLM | Done | Optional; templates used when no key |
-| Calendly | Done (stub) | Booking link generation only |
-| Google Calendar | Done (stub) | No OAuth flow |
-| Microsoft Graph | Done (stub) | No OAuth flow |
+| Calendly | Done | Shares the booking link saved in Settings |
+| Google Calendar | Not built | No OAuth flow |
+| Microsoft Graph | Not built | No OAuth flow |
 | Stripe billing | Not built | Roadmap only |
 
 ## Known gaps
 
 - SMTP and IMAP cannot be exercised in an offline environment; those paths are
   covered by configuration checks, not live network calls.
-- Calendar providers are stubs: no OAuth, no real event creation.
+- Calendar integration stops at link sharing: there is no OAuth, no event
+  creation and no calendar sync.
 - Billing, plan upgrades and invoicing are not implemented. `plan_daily_limit`
   reads a plan field but there is no purchase flow.
 - Open/click tracking conflicts with the README's historical "no tracking pixels"

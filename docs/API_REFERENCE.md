@@ -409,6 +409,7 @@ Returns expanded template content without creating a draft.
 **Status Codes**:
 - 200 OK - Template deleted
 - 404 Not Found - Template does not exist
+- 409 Conflict - A campaign or A/B test still references the template; remove or repoint those first
 
 ---
 
@@ -739,13 +740,13 @@ The Agents API exposes all subagents via REST endpoints for use in the UI and ex
 
 Generate personalized email content for a contact using a template.
 
-**Query Parameters**:
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
+**Request Body**:
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
 | contact_id | int | Yes | - | Contact to personalize for |
 | template_id | int | Yes | - | Template to use |
 | use_ai | boolean | No | true | Enable AI enhancement |
-| custom_values | string | No | - | JSON-encoded custom variables |
+| custom_values | object | No | - | Custom template variables |
 
 **Response**:
 ```json
@@ -771,9 +772,9 @@ Generate personalized email content for a contact using a template.
 
 Send an email directly using the SenderAgent (bypasses draft creation).
 
-**Query Parameters**:
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
+**Request Body**:
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
 | to_email | string | Yes | - | Recipient email address |
 | subject | string | Yes | - | Email subject |
 | body | string | Yes | - | Email body |
@@ -825,17 +826,21 @@ List available calendars for the configured provider.
 **Query Parameters**:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| provider | string | manual | Calendar provider (google, microsoft, calendly, manual) |
+| provider | string | manual | Calendar provider (`calendly` is the only one this app supports) |
 
-**Response**:
+**Response** (provider `calendly`, with a booking URL saved in settings):
 ```json
 {
   "calendars": [
-    {"id": "google-primary", "name": "Google Calendar", "timezone": "America/New_York"}
+    {"id": "calendly-link", "name": "Calendly booking page", "url": "https://calendly.com/you/intro"}
   ],
-  "provider": "google"
+  "provider": "calendly"
 }
 ```
+
+**Status Codes**:
+- 200 OK - Provider configured
+- 501 Not Implemented - No provider configured; the app ships a Calendly booking link, not OAuth calendar sync
 
 ---
 
@@ -843,11 +848,12 @@ List available calendars for the configured provider.
 
 **POST** `/api/agents/calendar/event`
 
-Create a calendar event.
+Create a calendar event. Events cannot be created by this app: with Calendly,
+invitees book through your link.
 
-**Query Parameters**:
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
+**Request Body**:
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
 | summary | string | Yes | - | Event title |
 | start_time | string | Yes | - | ISO format start datetime |
 | duration_minutes | int | No | 30 | Event duration |
@@ -856,18 +862,9 @@ Create a calendar event.
 | location | string | No | - | Physical or virtual location |
 | provider | string | No | manual | Calendar provider |
 
-**Response**:
-```json
-{
-  "event": {
-    "id": "event-id",
-    "summary": "Demo Call",
-    "status": "confirmed",
-    "provider": "google"
-  },
-  "meeting_link": "https://meet.google.com/xxx-xxxx-xxx"
-}
-```
+**Status Codes**:
+- 400 Bad Request - `start_time` is not ISO format
+- 501 Not Implemented - No provider can create events; share the Calendly booking link instead
 
 ---
 
@@ -877,11 +874,11 @@ Create a calendar event.
 
 Optimize an email subject line using AI.
 
-**Query Parameters**:
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
+**Request Body**:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
 | subject | string | Yes | Subject line to enhance |
-| context | string | No | JSON-encoded context for personalization |
+| context | object | No | Optional context for personalization |
 
 **Response**:
 ```json
@@ -899,9 +896,9 @@ Optimize an email subject line using AI.
 
 Improve email body content using AI.
 
-**Query Parameters**:
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
+**Request Body**:
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
 | body | string | Yes | - | Body text to enhance |
 | style | string | No | professional | Tone style (professional, friendly, casual) |
 
@@ -921,9 +918,9 @@ Improve email body content using AI.
 
 Generate subject/body variants for A/B testing.
 
-**Query Parameters**:
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
+**Request Body**:
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
 | subject | string | Yes | - | Original subject |
 | body | string | Yes | - | Original body |
 | count | int | No | 3 | Number of alternatives |
@@ -948,9 +945,9 @@ Generate subject/body variants for A/B testing.
 
 Summarize an email thread.
 
-**Query Parameters**:
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
+**Request Body**:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
 | messages | array | Yes | List of message bodies to summarize |
 
 **Response**:
@@ -969,9 +966,9 @@ Summarize an email thread.
 
 Extract actionable items from email text.
 
-**Query Parameters**:
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
+**Request Body**:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
 | email_text | string | Yes | Email body to analyze |
 
 **Response**:

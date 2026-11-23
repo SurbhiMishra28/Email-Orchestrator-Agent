@@ -3072,9 +3072,19 @@ export default function App(){
 
   const deleteTemplate = async (tid) => {
 
-    await api(`/api/templates/${tid}`, { method: "DELETE" });
+    setTemplateDraftError(null);
 
-    await loadTemplates();
+    try {
+
+      await api(`/api/templates/${tid}`, { method: "DELETE" });
+
+      await loadTemplates();
+
+    } catch (e) {
+
+      setTemplateDraftError(e.message || "Could not delete template");
+
+    }
 
   };
 
@@ -4644,6 +4654,8 @@ export default function App(){
                 <button onClick={()=>{setEditingTemplate(null);setTemplateForm({name:"",category:"intro",subject_template:"",body_template:"",variables:{},tags:[],is_active:true});setComposing(true);}} className="btn-primary"><PenLine className="h-3.5 w-3.5"/>New template</button>
 
               </PageHeader>
+
+              {templateDraftError&&<div className="notice-error">{templateDraftError}</div>}
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
 

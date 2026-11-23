@@ -1,8 +1,9 @@
 """Templates API router (tenant-scoped)."""
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from typing import List
 
-from app.db import SessionLocal, Template, Log, Contact, Draft
+from app.db import SessionLocal, Template, Log, Contact, Draft, Campaign, ABTest
 from app.deps import current_tenant_id
 from app.models.schemas import TemplateCreate, TemplateUpdate, TemplateOut, TemplateUseRequest, TemplateExpandRequest
 
@@ -190,9 +191,40 @@ def delete_template(template_id: int, tenant_id: int = Depends(current_tenant_id
     db = SessionLocal()
     try:
         db_template = _get_tenant_template(db, template_id, tenant_id)
-        
+
+        references = []
+        campaign_count = (
+            db.query(Campaign)
+            .filter(Campaign.template_id == template_id)
+            .count()
+        )
+        if campaign_count:
+            references.append(f"{campaign_count} campaign(s)")
+        ab_test_count = (
+            db.query(ABTest)
+            .filter(ABTest.template_id == template_id)
+            .count()
+        )
+        if ab_test_count:
+            references.append(f"{ab_test_count} A/B test(s)")
+        if references:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Template is still used by {' and '.join(references)}. "
+                    "Remove or repoint those first."
+                ),
+            )
+
         db.delete(db_template)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Template is still referenced by other records.",
+            )
         return {"message": "Template deleted"}
     finally:
         db.close()
