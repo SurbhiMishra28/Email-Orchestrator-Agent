@@ -315,6 +315,19 @@ def send_email(smtp_config, recipient: str, subject: str, body: str, from_name: 
     final_sender = from_email or sender
     display_name = from_name or app_settings.SENDER_NAME or ""
     display_name = display_name.strip()
+
+    # Resend REST API over HTTPS. Used when RESEND_API_KEY is set, which is the
+    # only way to send from hosts that block SMTP ports (Render free tier).
+    if app_settings.RESEND_API_KEY:
+        return _send_via_resend(
+            final_sender=final_sender,
+            display_name=display_name,
+            recipient=recipient,
+            subject=sanitize_subject(subject),
+            body=body or "",
+            html_body=html_body,
+        )
+
     message = EmailMessage()
     message["From"] = formataddr((display_name, final_sender)) if display_name else final_sender
     message["To"] = recipient
@@ -350,6 +363,61 @@ def send_email(smtp_config, recipient: str, subject: str, body: str, from_name: 
         raise MailDeliveryError(f"SMTP connection failed: {exc}") from exc
     finally:
         _close_server(server)
+
+
+def _send_via_resend(
+    final_sender: str,
+    display_name: str,
+    recipient: str,
+    subject: str,
+    body: str,
+    html_body: Optional[str],
+) -> str:
+    """Send one message through Resend's REST API and return its message-id.
+
+    HTTPS on 443, so it works on hosts that block SMTP ports. Resend returns a
+    JSON id like ``<msg-id@resend.com>``; we pass it through unchanged so the
+    tracking layer sees the same shape an SMTP send would produce.
+    """
+    from_addr = formataddr((display_name, final_sender)) if display_name else final_sender
+    payload: Dict[str, object] = {
+        "from": from_addr,
+        "to": recipient,
+        "subject": subject,
+        "text": body,
+    }
+    if html_body:
+        payload["html"] = html_body
+
+    headers = {
+        "Authorization": f"Bearer {app_settings.RESEND_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    try:
+        with httpx.Client(timeout=RESEND_TIMEOUT_SECONDS) as client:
+            resp = client.post(RESEND_API_URL, headers=headers, content=json.dumps(payload))
+    except httpx.HTTPError as exc:
+        raise MailDeliveryError(f"Resend API request failed: {exc}") from exc
+
+    if resp.status_code >= 400:
+        # Resend returns a JSON body with ``name``/``message`` describing the
+        # failure; surface the message rather than the raw status line.
+        try:
+            detail = resp.json()
+            message = detail.get("message") or detail.get("name") or resp.text
+        except Exception:
+            message = resp.text or f"HTTP {resp.status_code}"
+        raise MailDeliveryError(f"Resend rejected the message: {message}")
+
+    try:
+        data = resp.json()
+    except Exception as exc:
+        raise MailDeliveryError(f"Resend returned invalid JSON: {exc}") from exc
+
+    msg_id = data.get("id") or ""
+    if not msg_id:
+        raise MailDeliveryError("Resend returned no message id")
+    return msg_id
 
 
 def test_connection(
