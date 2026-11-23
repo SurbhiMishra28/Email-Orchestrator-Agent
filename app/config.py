@@ -1,5 +1,4 @@
 """Application configuration with environment variable support."""
-import logging
 import os
 from typing import Optional
 
@@ -146,23 +145,15 @@ class Settings:
     # Frontend
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:8000")
 
-    # JWT Settings for SaaS authentication
+    # JWT Settings for the programmatic API
     JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
-    # When true the app runs as a single-user local tool: one implicit tenant is
-    # provisioned at startup and requests do not need a bearer token. Set to
-    # false for the multi-tenant SaaS deployment.
-    #
-    # This is never honoured on a hosted platform. Single-user mode means the
-    # API accepts unauthenticated reads *and* writes, so a deploy that inherited
-    # SINGLE_USER_MODE=true from a developer's .env would publish an open
-    # instance holding that .env's SMTP credentials -- anyone could send mail as
-    # the configured account. The unauthenticated mode is only safe on loopback,
-    # so it is forced off as soon as a platform URL is present.
-    SINGLE_USER_MODE: bool = (
-        os.getenv("SINGLE_USER_MODE", "true").lower() == "true"
-        and not _PLATFORM_PUBLIC_URL
-    )
+
+    # This app is a single-user tool: it runs one implicit workspace and serves
+    # every request as that workspace, with no sign-in screen. The value is fixed
+    # rather than read from the environment so a deploy cannot accidentally
+    # require a login the UI no longer offers.
+    SINGLE_USER_MODE: bool = True
 
     # Identity used for that implicit local tenant.
     LOCAL_USER_EMAIL: str = os.getenv("LOCAL_USER_EMAIL", "local@localhost")
@@ -171,12 +162,3 @@ class Settings:
 
 # Global settings instance
 settings = Settings()
-
-if _PLATFORM_PUBLIC_URL and os.getenv("SINGLE_USER_MODE", "").lower() == "true":
-    logging.getLogger(__name__).warning(
-        "SINGLE_USER_MODE=true was ignored because this instance is served at %s. "
-        "Single-user mode disables authentication, so it is only allowed on "
-        "loopback. Requests now require a bearer token; register an account to "
-        "sign in.",
-        _PLATFORM_PUBLIC_URL,
-    )

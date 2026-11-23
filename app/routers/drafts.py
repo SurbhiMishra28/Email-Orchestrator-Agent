@@ -6,7 +6,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.db import SessionLocal, Contact, Draft, Log, SMTPConfig, Template
+from app.db import SessionLocal, Contact, Draft, Log, Template
 from app.deps import current_tenant_id
 from app.models.schemas import DraftCreate, DraftUpdate, DraftOut
 from app.agents import expand_template_with_ai
@@ -16,6 +16,7 @@ from app.services.mailer import (
     MailDeliveryError,
     MailNotConfigured,
     is_configured,
+    resolve_smtp_config,
     send_email,
 )
 from app.services.provisioning import INTRO_CATEGORIES
@@ -241,9 +242,7 @@ def send_draft(draft_id: int, tenant_id: int = Depends(current_tenant_id)):
             _mark_blocked(db, db_draft, reason, tenant_id)
             raise HTTPException(status_code=409, detail=reason)
 
-        smtp_config = (
-            db.query(SMTPConfig).filter(SMTPConfig.tenant_id == tenant_id).first()
-        )
+        smtp_config = resolve_smtp_config(db, tenant_id)
 
         # Refuse an address that cannot receive mail before touching SMTP: the
         # relay would accept it and the draft would be marked sent for mail

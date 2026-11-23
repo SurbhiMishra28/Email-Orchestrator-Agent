@@ -132,7 +132,29 @@ class SMTPConfigBase(BaseModel):
 class SMTPConfigOut(SMTPConfigBase):
     configured: bool
     authentication_configured: bool = False
-    
+    # ``database`` when the tenant saved its own mailbox, ``environment`` when
+    # the local single-user deployment supplied it.
+    source: str = "database"
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class IMAPConfigBase(BaseModel):
+    host: Optional[str] = None
+    port: int = 993
+    user: Optional[str] = None
+    password: Optional[str] = None
+    folder: str = "INBOX"
+
+
+class IMAPConfigOut(BaseModel):
+    host: Optional[str] = None
+    port: int = 993
+    user: Optional[str] = None
+    folder: str = "INBOX"
+    configured: bool = False
+    source: str = "database"
+
     model_config = ConfigDict(from_attributes=True)
 
 

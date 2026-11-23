@@ -70,15 +70,12 @@ def test_local_single_user_tenant_still_inherits_the_mailbox(db, operator_enviro
     assert smtp.configured is True
 
 
-def test_inheritance_defaults_to_single_user_mode(db, operator_environment, monkeypatch):
-    monkeypatch.setattr(
-        provisioning.app_settings, "SINGLE_USER_MODE", False, raising=False
-    )
-
+def test_inheritance_defaults_to_on(db, operator_environment):
+    """A new tenant in this single-workspace build inherits the mailbox."""
     provisioning.provision_tenant_defaults(db, tenant_id=7)
 
     smtp = db.query(SMTPConfig).filter(SMTPConfig.tenant_id == 7).one()
-    assert smtp.password in (None, "")
+    assert smtp.password == "operator-app-password"
 
 
 def test_starter_templates_are_still_created_for_a_new_tenant(

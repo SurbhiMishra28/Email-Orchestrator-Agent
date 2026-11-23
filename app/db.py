@@ -566,6 +566,30 @@ class SMTPConfig(Base):
     authentication_configured: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
+class IMAPConfig(Base):
+    """Per-tenant mailbox used for reply polling.
+
+    Kept apart from ``SMTPConfig`` because sending and receiving are separate
+    mailboxes: a tenant can relay through one provider and read replies on
+    another. Like SMTP, the row is blank by default and only the local
+    single-user tenant may inherit the deployment's environment.
+    """
+
+    __tablename__ = "imap_config"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("tenants.id"), nullable=True, index=True, unique=True
+    )
+    host: Mapped[Optional[str]] = mapped_column(String(255), default="")
+    port: Mapped[int] = mapped_column(Integer, default=993)
+    user: Mapped[Optional[str]] = mapped_column(String(255), default="")
+    password: Mapped[Optional[str]] = mapped_column(String(255), default="")
+    folder: Mapped[str] = mapped_column(String(255), default="INBOX")
+    configured: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 class Settings(Base):
     __tablename__ = "settings"
     
@@ -701,6 +725,7 @@ def _ensure_tenant_columns(inspector, table_names):
         "events",
         "templates",
         "smtp_config",
+        "imap_config",
         "settings",
         "email_verifications",
         "inbox_messages",

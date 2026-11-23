@@ -16,7 +16,8 @@ long-term agent memory are not configured.
 
 ## Key Features
 
-- **Multi-Tenant SaaS Ready**: Multi-tenant architecture with JWT authentication and role-based access control
+- **No Login**: The dashboard opens straight into one workspace; optional bearer
+  tokens are only needed for the programmatic API
 - **Agent System**: Personalized Email, Reply Analyzer, Auto-Responder, AI Brain, Sender, and Calendar agents
 - **Reply Automation**: Automatic reply generation and sending based on reply classification
 - **Rate Limits**: Warm-up cap (5-50 emails/day based on tenure), daily cap, domain cap
@@ -24,7 +25,7 @@ long-term agent memory are not configured.
 - **IMAP Sync**: Read-only inbox polling for reply processing
 - **Mail Tracking**: The dashboard shows sent mail, follow-up status, replies, and automatic reply outcomes
 
-## Quick Start (SaaS Mode)
+## Quick Start
 
 ### 1. Environment Setup
 
@@ -37,7 +38,7 @@ Configure these key variables:
 # Database
 DATABASE_URL=mysql+pymysql://root:@localhost:3307/email_orchestrator
 
-# JWT for SaaS Authentication
+# JWT for the programmatic API (optional; the dashboard needs no login)
 JWT_SECRET_KEY=your-generated-secret-key
 
 # SMTP for email sending
@@ -101,15 +102,16 @@ interface is branded **MailMatrix**.
 
 ---
 
-## Legacy Mode (No Users)
+## Single Workspace (No Login)
 
-The application also runs in a **single-user mode** without authentication. This is
-the default: `SINGLE_USER_MODE=true` in `.env`.
+The application has no sign-in screen anywhere. A request without credentials is
+served as one implicit workspace (named by `LOCAL_TENANT_NAME`, default `Local`),
+which is created on first use along with its owner (`LOCAL_USER_EMAIL`, default
+`local@localhost`).
 
-- Binds to `127.0.0.1` only (not exposed to internet)
-- No user accounts or login required
-- All data is shared (single workspace)
-- Good for personal use or development
+- No user accounts, passwords, or login screen
+- All data lives in that single workspace
+- The dashboard opens directly on the Overview
 
 ### Requirements
 
@@ -117,7 +119,7 @@ the default: `SINGLE_USER_MODE=true` in `.env`.
 - Node.js 18+
 - MySQL 8+ or MariaDB 10.6+ (or use SQLite for development)
 
-### Setup (Legacy Mode)
+### Setup
 
 1. Create a MySQL/MariaDB database (optional for SQLite fallback).
 2. Copy `.env.example` to `.env` and set your configuration.
@@ -144,17 +146,21 @@ The Overview's Recent Activity panel streams high-level agent and method lifecyc
 
 ---
 
-## Configuration (Legacy Mode)
+## Configuration
 
 - `DATABASE_URL` - MySQL/MariaDB connection string (defaults to SQLite for development)
+- `LOCAL_TENANT_NAME`, `LOCAL_USER_EMAIL` - identity of the implicit workspace
 - `NVIDIA_API_KEY` enables LangChain-backed generation; leave it unset to use
   built-in templates.
 - `SMTP_HOST`, `SMTP_FROM`, and (when required by your provider) `SMTP_USER` and
   `SMTP_PASS` enable real SMTP sending. Without SMTP configuration, sending is blocked.
-- The Settings page can test SMTP connectivity and authentication without sending
-  a message.
-- Pending drafts can be sent individually from Drafts after saving and testing the
-  SMTP settings.
+- SMTP and IMAP settings are stored per workspace, so the same server can host
+  several mailboxes. A blank row is filled from `SMTP_*` / `IMAP_*` for the
+  local workspace only; a workspace registered on a published instance never
+  inherits those credentials.
+- The Settings page has a card for each: both can test connectivity and
+  authentication without sending a message.
+- Pending drafts can be sent individually from Drafts once SMTP settings are saved.
 - Contact imports can include `email_permission=true` for opted-in or otherwise
   eligible recipients. Missing or unrecognized values remain ineligible.
 - To start hands-off sending after import, configure SMTP and IMAP, set a Calendly
@@ -168,8 +174,10 @@ The Overview's Recent Activity panel streams high-level agent and method lifecyc
 - `FOLLOWUPS_ENABLED=false` turns off automatic follow-up drafting.
 - `CORS_ORIGINS` restricts cross-origin access; the default only allows localhost.
 
-The application has no user accounts or login. It binds to `127.0.0.1` and is
-meant to run on your own machine; do not expose port 8000 to the internet.
+Because there is no authentication, anyone who can reach the server works in the
+same workspace. For local use bind to `127.0.0.1` and do not expose port 8000 to
+the internet. If you must host it publicly, keep `MAIL_SUPPRESS_SEND=true` until
+you add your own access control in front of it.
 
 See `.env.example` and [the setup guide](docs/README.md) for all settings.
 

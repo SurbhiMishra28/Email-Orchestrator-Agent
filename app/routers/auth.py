@@ -113,14 +113,10 @@ async def register(user_data: UserRegister):
         )
         db.commit()
 
-        # Provision per-tenant settings, SMTP and starter templates so the new
-        # account has a working workspace the moment they log in.
-        #
-        # Environment inheritance is left at its default, which follows
-        # SINGLE_USER_MODE: true only for the local single-user tool, where the
-        # registering account *is* the mailbox owner. On a public deployment that
-        # mode is forced off, so a stranger who registers gets blank SMTP fields
-        # instead of the operator's real mailbox and password.
+        # Provision per-tenant settings, SMTP and starter templates so a new
+        # account has a working workspace immediately. Inheritance defaults to
+        # on, which is right for this single-workspace build: the deployment's
+        # environment is the mailbox this app sends from.
         from app.services.provisioning import provision_tenant_defaults
 
         provision_tenant_defaults(db, tenant.id)

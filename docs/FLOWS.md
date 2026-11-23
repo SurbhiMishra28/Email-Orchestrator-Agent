@@ -2,8 +2,8 @@
 
 End-to-end behaviour of the orchestrator: who calls what, which gates apply, and
 where state is written. Every flow below is tenant-scoped — `tenant_id` is resolved
-from the JWT (or the implicit local tenant when `SINGLE_USER_MODE=true`) and applied
-to every query, insert and update.
+from the bearer token when one is sent, otherwise from the single implicit workspace,
+and applied to every query, insert and update.
 
 ## 1. Request lifecycle
 
@@ -13,9 +13,9 @@ Every API call passes through the same gate chain before touching business logic
 flowchart TD
     A[Browser / API client] --> B{Path protected?}
     B -- "/api/track/* , /api/auth/* , /health" --> C[Public handler]
-    B -- everything else --> D{SINGLE_USER_MODE}
-    D -- true --> E[Resolve implicit Local tenant]
-    D -- false --> F{Bearer token valid?}
+    B -- everything else --> D{Bearer token sent?}
+    D -- no --> E[Resolve the implicit workspace]
+    D -- yes --> F{Token valid?}
     F -- no --> G[401 Unauthorized]
     F -- yes --> H[Decode sub + tenant_id]
     E --> I[Rate limiter key = tenant:id]

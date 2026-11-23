@@ -177,28 +177,25 @@ def _settings_single_user_mode(env_overrides):
     return completed.stdout.strip()
 
 
-def test_single_user_mode_is_forced_off_on_a_hosted_platform():
-    """An open API with real SMTP credentials must never be published.
+def test_single_user_mode_is_fixed_and_cannot_be_disabled():
+    """There is no login screen, so the app can never require a bearer token.
 
-    ``SINGLE_USER_MODE=true`` disables authentication entirely, so a deploy that
-    inherited it from a developer's .env let anyone read and write the account
-    and send mail as it. The setting is now ignored whenever the instance has a
-    public platform URL.
+    The flag is no longer read from the environment: a deploy that still has an
+    old ``SINGLE_USER_MODE=false`` must not start asking for a session the UI
+    cannot create.
     """
+    assert _settings_single_user_mode({"SINGLE_USER_MODE": "false"}) == "True"
+
+
+def test_single_user_mode_survives_a_hosted_platform_url():
+    """A platform URL must not flip the app back into a login-required mode."""
     assert (
         _settings_single_user_mode(
             {
-                "SINGLE_USER_MODE": "true",
                 "RENDER_EXTERNAL_URL": "https://example.onrender.com",
             }
         )
-        == "False"
-    )
-
-
-def test_single_user_mode_still_works_locally():
-    assert (
-        _settings_single_user_mode({"SINGLE_USER_MODE": "true", "RENDER": ""}) == "True"
+        == "True"
     )
 
 

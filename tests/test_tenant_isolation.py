@@ -9,7 +9,6 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import settings
 from app.main import app
 
 
@@ -207,11 +206,10 @@ def test_state_analytics_are_computed_and_tenant_scoped(two_tenants):
     ]
 
 
-def test_every_resource_router_requires_auth_unless_single_user():
-    # No lifespan re-entry: the app is already initialized by the session client.
-    # This client carries no Authorization header, so every call is anonymous.
+def test_every_resource_router_serves_the_implicit_workspace_without_a_token():
+    # There is no login screen: this build serves an anonymous request as its
+    # single implicit workspace. A token is optional, so no path may answer 401.
     anon = TestClient(app)
-    expected = (200,) if settings.SINGLE_USER_MODE else (401, 403)
     protected_paths = [
         ("get", "/api/contacts"),
         ("get", "/api/drafts"),
@@ -227,7 +225,7 @@ def test_every_resource_router_requires_auth_unless_single_user():
     ]
     for method, path in protected_paths:
         response = getattr(anon, method)(path)
-        assert response.status_code in expected, f"{path} returned {response.status_code}"
+        assert response.status_code == 200, f"{path} returned {response.status_code}"
 
 
 def test_refresh_token_returns_a_working_token(two_tenants):

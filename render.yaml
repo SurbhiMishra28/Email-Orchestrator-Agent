@@ -39,8 +39,6 @@ services:
         value: sqlite:////var/data/email_orchestrator.db
       - key: JWT_SECRET_KEY
         generateValue: true
-      - key: SINGLE_USER_MODE
-        value: "false"
       # PUBLIC_BASE_URL and CORS_ORIGINS are intentionally unset: the app reads
       # RENDER_EXTERNAL_URL itself, so tracking links and browser calls point at
       # the deployed host without a hand-copied value.

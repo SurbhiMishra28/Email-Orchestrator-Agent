@@ -15,6 +15,7 @@ the SPA at `/`, the API under `/api`, and the OpenAPI docs at `/docs`.
 | Guide | What it covers |
 |---|---|
 | [FLOWS.md](FLOWS.md) | End-to-end request, import, send, reply, tracking and A/B flows with diagrams |
+| [BACKEND_FLOWS.md](BACKEND_FLOWS.md) | Module-level backend flows: routing, service calls, state writes and error mapping |
 | [FEATURES.md](FEATURES.md) | Feature inventory with implementation status and covering tests |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Module layout and design decisions |
 | [API_REFERENCE.md](API_REFERENCE.md) | Detailed request/response examples |
@@ -33,7 +34,7 @@ the SPA at `/`, the API under `/api`, and the OpenAPI docs at `/docs`.
 | Path | Purpose |
 |---|---|
 | `main.py` | FastAPI app, lifespan provisioning, SPA mount, analytics, rate limiting |
-| `config.py` | Settings including `SINGLE_USER_MODE` and `LOCAL_*` |
+| `config.py` | Settings including the `LOCAL_*` implicit-workspace identity |
 | `db.py` | SQLAlchemy models and session factory |
 | `auth.py` | Password hashing, JWT issue/verify, local-user provisioning |
 | `deps.py` | `current_tenant_id` and auth dependencies |
@@ -58,11 +59,10 @@ Brevo-style splash: the `MailMatrix` wordmark fills the screen with a short load
 bar, then fades into the dashboard. The splash is skipped for users who prefer
 reduced motion.
 
-There is a sign-in screen: on first load the app asks `GET /api/auth/me` for the
-stored session and, when there is none or it has expired, shows the email/password
-form with a toggle into workspace registration. The rail's avatar button signs out
-and returns to that form. In `SINGLE_USER_MODE` no form is needed, because
-`/api/auth/me` answers from the implicit local tenant.
+There is no sign-in screen. On first load the app asks `GET /api/auth/me` for the
+workspace identity; that endpoint never answers 401, because a request without a
+token is served as the implicit workspace and one is provisioned on first use. The
+dashboard therefore opens straight on the Overview.
 
 Navigation is grouped, and the rail is responsive:
 
@@ -91,25 +91,31 @@ open the matching view, and the back button moves between views.
 
 ## Accounts and sessions
 
-`POST /api/auth/register` creates a tenant and its first admin, provisions blank
-SMTP fields plus starter templates, and returns a 7-day token. `POST /api/auth/login`
-issues a token for an existing account. The UI stores the token in `localStorage`
-and sends it as `Authorization: Bearer`; a 401/403 anywhere clears it and returns to
-the sign-in screen.
+The app has no login. A request without a bearer token resolves to the single
+implicit workspace (`LOCAL_TENANT_NAME` / `LOCAL_USER_EMAIL`), which is provisioned
+on first use along with its starter templates. The dashboard calls
+`GET /api/auth/me` once at startup and never stores a session.
+
+The token endpoints remain for the programmatic API. `POST /api/auth/register`
+creates an additional tenant and its first admin, `POST /api/auth/login` issues a
+7-day token for it, and `POST /api/auth/refresh-token` renews one. The UI never
+calls them, and API keys under `/api/auth/api-keys` are the recommended way to
+authenticate scripts.
 
 No workspace ships with sample data. Every contact, list, template, campaign and
 draft in a workspace is created by its owner, and a new tenant starts empty apart
 from the starter templates `provision_tenant_defaults()` installs.
 
-Sending always uses the workspace's own relay: `provision_tenant_defaults()`
-copies the deployment's `SMTP_*` environment only in `SINGLE_USER_MODE`, which is
-forced off on a hosted platform. A hosted account must enter its own host, user,
-password and sender under **Settings** before anything can be delivered.
+Sending always uses the workspace's own relay: `provision_tenant_defaults()` copies
+the deployment's `SMTP_*` environment only for the implicit workspace. Any other
+tenant created through `/api/auth/register` must enter its own host, user, password
+and sender under **Settings** before anything can be delivered.
 
 ## API endpoints
 
-All routes below are tenant-scoped. With `SINGLE_USER_MODE=true` no token is
-required; otherwise send `Authorization: Bearer <token>`.
+All routes below are tenant-scoped. No token is required: a request without
+credentials is served as the implicit workspace. A bearer token (or API key) is
+optional and selects its own tenant instead.
 
 ### System and state
 
@@ -266,9 +272,9 @@ See `.env.example` for the full list. The values that most affect behaviour:
 
 | Variable | Effect |
 |---|---|
-| `SINGLE_USER_MODE` | `true` runs with no login and one implicit local tenant |
+| `LOCAL_TENANT_NAME` / `LOCAL_USER_EMAIL` | Identity of the implicit workspace used when a request carries no token |
 | `DATABASE_URL` | MySQL/MariaDB connection string |
-| `JWT_SECRET_KEY` | Signing key for access tokens |
+| `JWT_SECRET_KEY` | Signing key for optional access tokens |
 | `SMTP_HOST` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | Sending; blocked until set |
 | `IMAP_*` | Read-only inbox sync |
 | `AUTOPILOT` + `AUTO_APPROVE` | Both must be true for unattended sending |

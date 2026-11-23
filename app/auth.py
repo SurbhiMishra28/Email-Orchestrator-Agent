@@ -59,8 +59,9 @@ security = HTTPBearer(auto_error=False)
 def get_or_create_local_user() -> "UserPayload":
     """Return the implicit single-user account, creating it on first use.
 
-    Single-user mode runs as a local tool: there is no sign-up flow and no
-    bearer token, so every request is attributed to one local tenant.
+    This build runs as a single-user tool: there is no sign-up flow and no
+    bearer token on the dashboard path, so every request is attributed to one
+    workspace. The lowest tenant id is that workspace.
     """
     db = SessionLocal()
     try:
@@ -89,7 +90,7 @@ def get_or_create_local_user() -> "UserPayload":
         return UserPayload(
             id=user.id,
             email=user.email,
-            tenant_id=tenant.id,
+            tenant_id=user.tenant_id or tenant.id,
             role=user.role,
             is_api_key=False,
         )
@@ -139,17 +140,12 @@ async def get_current_user(
 ) -> "UserPayload":
     """Resolve the caller.
 
-    With a bearer token the JWT identifies the user. In single-user mode a
-    missing token resolves to the implicit local account instead of failing,
-    so the bundled dashboard works without a login screen.
+    This app is a single-user tool: a request without a bearer token resolves to
+    the implicit local account, which is why the dashboard has no sign-in
+    screen. A token is still honoured when the programmatic API is used.
     """
     if credentials is None or not credentials.credentials:
-        if settings.SINGLE_USER_MODE:
-            return get_or_create_local_user()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-        )
+        return get_or_create_local_user()
 
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
@@ -188,12 +184,7 @@ async def get_current_user_or_api_key(
 ) -> "UserPayload":
     """Get current user from JWT or validate API key."""
     if credentials is None or not credentials.credentials:
-        if settings.SINGLE_USER_MODE:
-            return get_or_create_local_user()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-        )
+        return get_or_create_local_user()
 
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])

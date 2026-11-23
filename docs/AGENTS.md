@@ -119,7 +119,10 @@ agent = ReplyAnalyzerAgent(contact_id=1)
 result = agent.analyze_reply(
     subject="Re: Hello",
     body="Thanks! I'd like to learn more about pricing.",
-    sender_email="john@example.com"
+    sender_email="john@example.com",
+    # The inbox pipeline passes False and records replies_received itself after
+    # de-duplicating the message, so a reply is not metered twice.
+    record_usage_metric=True,
 )
 agent.close()
 ```
@@ -157,8 +160,11 @@ agent.close()
 **Configuration**:
 ```
 NVIDIA_API_KEY=your-key
-NVIDIA_MODEL=nvidia/nllama-3-70b
+NVIDIA_MODEL=nvidia/nemotron-3.5-super-vl-120b-a12b
 ```
+
+The model is read from `app.config.settings.NVIDIA_MODEL`, so `/api/agents/status`
+always reports the model actually in use.
 
 **Capabilities**:
 - Subject line optimization
@@ -216,10 +222,14 @@ def extract_action_items(self, email_text: str) -> List[str]
 **Example Usage**:
 ```python
 from app.agents import SenderAgent
-from app.db import SMTPConfig
+from app.db import SessionLocal
+from app.services.mailer import resolve_smtp_config
 
-# Get or create SMTP config
-smtp = db.query(SMTPConfig).first()
+# Resolve the mailbox this tenant will actually use (saved row, else the
+# local tenant's environment). Never read the SMTPConfig row directly: a blank
+# row would look unconfigured even when the environment supplies the mailbox.
+db = SessionLocal()
+smtp = resolve_smtp_config(db, tenant_id)
 
 agent = SenderAgent(smtp_config=smtp)
 

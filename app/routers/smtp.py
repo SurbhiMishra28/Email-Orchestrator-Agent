@@ -4,7 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.db import Log, SMTPConfig, SessionLocal
 from app.deps import current_tenant_id
 from app.models.schemas import SMTPConfigBase, SMTPConfigOut
-from app.services.mailer import test_connection
+from app.services.mailer import (
+    SMTPConfigView,
+    environment_config,
+    resolve_smtp_config,
+    test_connection,
+)
 
 router = APIRouter()
 
@@ -29,29 +34,24 @@ def _get_or_create_config(db, tenant_id: int) -> SMTPConfig:
 
 @router.get("/status", response_model=SMTPConfigOut)
 def get_smtp_status(tenant_id: int = Depends(current_tenant_id)):
+    """Report the mailbox used for sending.
+
+    A blank database row is completed from the environment for the local
+    single-user tenant, so the dashboard shows the mailbox that will actually be
+    used instead of claiming nothing is configured.
+    """
     db = SessionLocal()
     try:
-        config = db.query(SMTPConfig).filter(SMTPConfig.tenant_id == tenant_id).first()
-        if not config:
-            return SMTPConfigOut(
-                host=None,
-                port=587,
-                user=None,
-                password=None,
-                sender=None,
-                configured=False,
-                authentication_configured=False,
-            )
-
+        view = resolve_smtp_config(db, tenant_id)
         return SMTPConfigOut(
-            host=config.host,
-            port=config.port,
-            user=config.user,
+            host=view.host or None,
+            port=view.port,
+            user=view.user or None,
             password=None,  # Never return the password
-            sender=config.sender,
-            configured=config.configured,
-            authentication_configured=bool(getattr(config, "authentication_configured", False))
-            or bool(config.user and config.password),
+            sender=view.sender or None,
+            configured=view.configured,
+            authentication_configured=view.authentication_configured,
+            source=view.source,
         )
     finally:
         db.close()
@@ -103,16 +103,48 @@ def test_smtp_config(
     config: SMTPConfigBase,
     tenant_id: int = Depends(current_tenant_id),
 ):
-    """Test SMTP connectivity, falling back to saved credentials for blanks."""
+    """Test SMTP connectivity, falling back to saved (or environment) values.
+
+    The dashboard posts blank inputs when it only wants to re-check what is
+    stored, so every field is filled from the resolved mailbox first.
+    """
     db = SessionLocal()
     try:
-        saved = db.query(SMTPConfig).filter(SMTPConfig.tenant_id == tenant_id).first()
+        resolved = resolve_smtp_config(db, tenant_id)
     finally:
         db.close()
 
-    host = (config.host or (saved.host if saved else None) or "").strip()
-    port = config.port or (saved.port if saved else 587)
-    user = (config.user or (saved.user if saved else None) or "").strip() or None
-    password = config.password or (saved.password if saved else None)
+    candidate = SMTPConfigView(
+        host=config.host or resolved.host,
+        port=config.port or resolved.port,
+        user=config.user or resolved.user,
+        password=config.password or resolved.password,
+        sender=config.sender or resolved.sender,
+    )
 
-    return test_connection(host, port, user, password)
+    result = test_connection(
+        candidate.host, candidate.port, candidate.user or None, candidate.password or None
+    )
+    result["configured"] = candidate.configured
+    result["source"] = resolved.source
+    result["host"] = candidate.host
+    result["port"] = candidate.port
+    return result
+
+
+@router.get("/defaults")
+def smtp_defaults(tenant_id: int = Depends(current_tenant_id)):
+    """Describe the environment mailbox without leaking its password.
+
+    Lets an operator see that a deployment has credentials available and offers
+    them as a one-click fill-in for the tenant's own row.
+    """
+    env = environment_config()
+    return {
+        "available": bool(env.host),
+        "host": env.host or None,
+        "port": env.port,
+        "user": env.user or None,
+        "sender": env.sender or None,
+        "authentication_configured": env.authentication_configured,
+    }

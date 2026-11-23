@@ -26,12 +26,21 @@ This document outlines the security considerations, best practices, and implemen
 ### 2. Authentication & Authorization
 
 #### Current State
-- **JWT bearer authentication** - `POST /api/auth/register` and `/api/auth/login` issue 7-day tokens; every `/api` route resolves the caller through `app.auth.get_current_user` and scopes queries to their tenant
-- **`SINGLE_USER_MODE`** - When enabled (the local single-user tool only) a request without a token resolves to the implicit local tenant. It is forced off whenever the instance has a platform URL, so a deployment always requires a token
+- **No login.** A request without credentials is served as the single implicit
+  workspace (`LOCAL_TENANT_NAME` / `LOCAL_USER_EMAIL`), provisioned on first use.
+  The public dashboard needs no authentication. Anyone who can reach the process
+  reads and writes that workspace and can send as the configured mailbox, so access
+  control has to live in front of the app (VPN, identity-aware proxy, HTTP basic
+  auth at the platform edge) whenever it is not bound to `127.0.0.1`.
+- **Optional bearer tokens** - `POST /api/auth/register` and `/api/auth/login` issue
+  7-day tokens for additional tenants, and API keys authenticate scripts. Presenting
+  one selects that tenant; every `/api` route still resolves the caller through
+  `app.auth.get_current_user` and scopes queries to a single tenant.
 - **Role-based access control** - `Depends(require_role("admin"))` gates team management; the last admin of a tenant cannot be demoted or removed
 
-Registration is open by default: anyone who can reach the instance can create a
-tenant. Gate `POST /api/auth/register` at the proxy if the instance is private.
+Registration is open: anyone who can reach the instance can create an extra tenant,
+which is why such a tenant never inherits the deployment's `SMTP_*` credentials.
+Gate `POST /api/auth/register` at the proxy if the instance is private.
 
 ### 3. Rate Limiting
 
@@ -161,7 +170,7 @@ if not api_key.startswith('nvapi-'):
 
 ### Before Production Deployment
 
-- [ ] Implement user authentication
+- [ ] Put access control in front of the app (it ships with no login)
 - [ ] Change default database user from root
 - [ ] Enable HTTPS with valid TLS certificate
 - [ ] Configure proper CORS origins

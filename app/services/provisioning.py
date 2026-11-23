@@ -5,7 +5,7 @@ rows. Keeping the logic here avoids importing ``app.main`` from routers, which
 would be circular.
 """
 from app.config import settings as app_settings
-from app.db import Settings, SMTPConfig, Template
+from app.db import IMAPConfig, Settings, SMTPConfig, Template
 
 DEFAULT_INTRO_SUBJECT = "A quick introduction"
 DEFAULT_INTRO_BODY = (
@@ -61,11 +61,11 @@ def provision_tenant_defaults(db, tenant_id: int, inherit_environment: bool = No
 
     ``inherit_environment`` controls whether the process environment (the
     deployment's ``.env``) is copied into this tenant's rows. That is right for
-    the single-user local tool, where the one implicit tenant *is* the mailbox
+    the implicit workspace of this no-login app, where it *is* the mailbox
     owner, and wrong for every other tenant: on a public deployment the
     environment holds the operator's own SMTP password, so copying it would let
-    anyone who registers send mail as that account. It defaults to
-    ``SINGLE_USER_MODE``, which is itself forced off on a hosted platform.
+    anyone who registers send mail as that account. It defaults to on, and
+    ``app.main`` passes it explicitly so only the implicit workspace inherits.
     """
     if inherit_environment is None:
         inherit_environment = app_settings.SINGLE_USER_MODE
@@ -103,6 +103,23 @@ def provision_tenant_defaults(db, tenant_id: int, inherit_environment: bool = No
 
     smtp_row.configured = bool(smtp_row.host and (smtp_row.sender or smtp_row.user))
     smtp_row.authentication_configured = bool(smtp_row.user and smtp_row.password)
+
+    imap_row = db.query(IMAPConfig).filter(IMAPConfig.tenant_id == tenant_id).first()
+    if not imap_row:
+        imap_row = IMAPConfig(tenant_id=tenant_id)
+        db.add(imap_row)
+
+    if inherit_environment:
+        if not imap_row.host and app_settings.IMAP_HOST:
+            imap_row.host = app_settings.IMAP_HOST
+        if not imap_row.port or imap_row.port == 993:
+            imap_row.port = app_settings.IMAP_PORT or imap_row.port
+        if not imap_row.user and app_settings.IMAP_USER:
+            imap_row.user = app_settings.IMAP_USER
+        if not imap_row.password and app_settings.IMAP_PASSWORD:
+            imap_row.password = app_settings.IMAP_PASSWORD
+
+    imap_row.configured = bool(imap_row.host and imap_row.user and imap_row.password)
 
     # Existing rows may use a legacy category; migrate them before the count
     # check below decides whether this tenant still needs default templates.

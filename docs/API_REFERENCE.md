@@ -2,13 +2,14 @@
 
 ## Authentication
 
-Every `/api` route is tenant-scoped. Send `Authorization: Bearer <token>` from
-`POST /api/auth/login`, `POST /api/auth/register` or
-`POST /api/auth/refresh-token`.
+Every `/api` route is workspace-scoped. This app has no login screen: a request
+without credentials is served as the single implicit workspace
+(`LOCAL_TENANT_NAME`/`LOCAL_USER_EMAIL`), and one is provisioned on first use.
 
-With `SINGLE_USER_MODE=true` (the local single-user tool) no token is required and
-one implicit local tenant is used. That mode is forced off on hosted platforms, so
-a deployment always requires a token.
+A bearer token is optional and only needed by the programmatic API.
+`POST /api/auth/register` creates an additional tenant with its own admin and
+starter templates, `POST /api/auth/login` issues a token for it and
+`POST /api/auth/refresh-token` renews one.
 
 ### Current user
 
@@ -31,9 +32,9 @@ Returns the account and its tenant:
 }
 ```
 
-The web app calls this on first load and shows the sign-in screen when it answers
-401/403. `POST /api/auth/register` creates the tenant, its first admin and starter
-templates; `POST /api/auth/login` issues a token for an existing account.
+The dashboard calls this on first load to label the workspace; it never answers
+401. `POST /api/auth/register` creates an additional tenant with its first admin
+and starter templates; `POST /api/auth/login` issues a token for it.
 
 ## Base URL
 
@@ -90,7 +91,24 @@ Returns the current application state including contacts, drafts, and settings.
   "templates": [...],
   "logs": [...],
   "tools": [...],
-  "analytics": {}
+  "analytics": {},
+  "smtp": {
+    "host": "smtp.gmail.com",
+    "port": 587,
+    "user": "you@gmail.com",
+    "sender": "you@gmail.com",
+    "configured": true,
+    "authenticated": true,
+    "source": "database"
+  },
+  "imap": {
+    "host": "imap.gmail.com",
+    "port": 993,
+    "user": "you@gmail.com",
+    "folder": "INBOX",
+    "configured": true,
+    "source": "database"
+  }
 }
 ```
 
@@ -425,10 +443,17 @@ Returns expanded template content without creating a draft.
   "host": "smtp.gmail.com",
   "port": 587,
   "user": "you@gmail.com",
+  "sender": "you@gmail.com",
   "configured": true,
-  "authentication_configured": true
+  "authentication_configured": true,
+  "source": "database"
 }
 ```
+
+`source` is `database` when the tenant has its own saved row and `environment`
+when the values were filled in from the deployment's `SMTP_*` variables. That
+fallback only applies to the local single-user tenant, so a second workspace
+always reports its own row.
 
 ---
 
@@ -447,15 +472,53 @@ Returns expanded template content without creating a draft.
 }
 ```
 
+A blank `password` keeps the stored one, so the other fields can be re-saved
+without retyping the app password.
+
 ---
 
 #### Test SMTP Connection
 
 **POST** `/api/smtp/test`
 
+Any field left out or blank is filled from the saved row (or, for the local
+tenant, the environment), so an empty body re-checks the mailbox in use.
+
+**Response**:
+```json
+{
+  "ok": true,
+  "authenticated": true,
+  "message": "Connection successful, authentication passed",
+  "configured": true,
+  "source": "database",
+  "host": "smtp.gmail.com",
+  "port": 587
+}
+```
+
 **Status Codes**:
 - 200 OK - Connection successful
 - 400 Bad Request - Configuration invalid
+
+---
+
+#### SMTP Defaults
+
+**GET** `/api/smtp/defaults`
+
+Reports what the deployment's environment offers, without the password, so the
+dashboard can pre-fill a tenant's row.
+```json
+{
+  "available": true,
+  "host": "smtp.gmail.com",
+  "port": 587,
+  "user": "you@gmail.com",
+  "sender": "you@gmail.com",
+  "authentication_configured": true
+}
+```
 
 ---
 
@@ -538,6 +601,7 @@ Query Parameters:
 ```json
 {
   "configured": true,
+  "source": "database",
   "messages": [
     {
       "id": 1,
@@ -547,6 +611,71 @@ Query Parameters:
       "received_at": "2024-01-15T10:30:00.000000+00:00"
     }
   ]
+}
+```
+
+---
+
+#### Get Inbox Status
+
+**GET** `/api/inbox/status`
+
+Reports the mailbox used for reply polling. The password is never returned.
+
+**Response**:
+```json
+{
+  "host": "imap.gmail.com",
+  "port": 993,
+  "user": "you@gmail.com",
+  "folder": "INBOX",
+  "configured": true,
+  "source": "database"
+}
+```
+
+---
+
+#### Save Inbox Config
+
+**POST** `/api/inbox/config`
+
+**Request Body**:
+```json
+{
+  "host": "imap.gmail.com",
+  "port": 993,
+  "user": "you@gmail.com",
+  "password": "your-app-password",
+  "folder": "INBOX"
+}
+```
+
+A blank `password` keeps the stored one.
+
+---
+
+#### Test Inbox Connection
+
+**POST** `/api/inbox/test`
+
+Blank fields are filled from the saved row (or the environment for the local
+tenant). Responds with `ok`, `authenticated`, `message`, `configured`, `source`,
+`host` and `port`.
+
+---
+
+#### Inbox Defaults
+
+**GET** `/api/inbox/defaults`
+
+```json
+{
+  "available": true,
+  "host": "imap.gmail.com",
+  "port": 993,
+  "user": "you@gmail.com",
+  "folder": "INBOX"
 }
 ```
 
@@ -565,10 +694,14 @@ Query Parameters:
 ```json
 {
   "configured": true,
-  "synced": 10,
-  "total_stored": 35
+  "fetched": 10,
+  "new": 4
 }
 ```
+
+Fetching uses `BODY.PEEK`, so nothing is marked read in the mailbox. Each
+tenant polls only its own mailbox; a tenant without IMAP credentials is skipped
+instead of being fed the operator's mail.
 
 ---
 
@@ -808,10 +941,14 @@ Test the SMTP connection without sending an email.
 ```json
 {
   "success": true,
-  "message": "Connection successful",
+  "ok": true,
+  "authenticated": true,
+  "message": "Connection successful, authentication passed",
   "configured": true,
+  "authentication_configured": true,
   "host": "smtp.gmail.com",
-  "port": 587
+  "port": 587,
+  "source": "database"
 }
 ```
 

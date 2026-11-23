@@ -2,6 +2,13 @@
 
 This guide covers how to deploy Email Orchestrator as a multi-tenant SaaS product.
 
+> **The shipped app has no login.** A request without a bearer token is served as
+> one implicit workspace, so the dashboard opens directly and anyone who can reach
+> the process can use it. The multi-tenant pieces described here (registration,
+> login, roles, API keys) exist in the API for programmatic use, but they are not
+> wired to a sign-in screen. Treat this document as the path to turning the app
+> into a multi-tenant product, not as a description of its current UI.
+
 ## Table of Contents
 
 1. [Architecture Overview](#architecture-overview)
@@ -185,6 +192,9 @@ Get the authenticated user's information:
 GET /api/auth/me
 Authorization: Bearer <token>
 ```
+
+Omit the header and the endpoint answers for the implicit workspace instead of
+failing.
 
 Response:
 ```json
@@ -554,6 +564,10 @@ To support the SaaS authentication flow, the frontend needs:
 5. **Usage dashboard**
 6. **Subscription page**
 
+None of the account pages exist today: the shipped dashboard has no sign-in screen
+and always works in the implicit workspace. The endpoints below are available for a
+future UI.
+
 ### API Client Updates
 
 Update the frontend API client to handle authentication:
@@ -616,11 +630,11 @@ const apiFetch = (url, options = {}) => {
 |----------|--------|-------------|---------------|
 | `/api/auth/register` | POST | Create account | ❌ |
 | `/api/auth/login` | POST | Get JWT token | ❌ |
-| `/api/auth/me` | GET | Current user info | ✅ |
-| `/api/auth/api-keys` | POST | Create API key | ✅ |
-| `/api/auth/api-keys` | GET | List API keys | ✅ |
-| `/api/auth/api-keys/{id}` | DELETE | Revoke API key | ✅ |
-| `/api/usage` | GET | Usage statistics | ✅ |
+| `/api/auth/me` | GET | Current user info | optional (falls back to the implicit workspace) |
+| `/api/auth/api-keys` | POST | Create API key | optional |
+| `/api/auth/api-keys` | GET | List API keys | optional |
+| `/api/auth/api-keys/{id}` | DELETE | Revoke API key | optional |
+| `/api/usage` | GET | Usage statistics | optional |
 | `/api/billing/status` | GET | Subscription status | ✅ |
 | `/api/billing/subscribe` | POST | Create subscription | ✅ |
 

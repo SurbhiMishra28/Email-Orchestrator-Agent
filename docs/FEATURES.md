@@ -42,7 +42,8 @@ end but the external integration is a placeholder. **Not built** = planned only.
 
 | Feature | Status | Backend | Frontend | Verified by |
 |---|---|---|---|---|
-| SMTP config + test | Done | `app/routers/smtp.py` | Settings view | `test_basic.py` |
+| SMTP config + test | Done | `app/routers/smtp.py` | Settings view | `test_mailbox_resolution.py` |
+| IMAP config + test | Done | `app/routers/inbox.py` | Settings view | `test_mailbox_resolution.py` |
 | IMAP inbox sync (read-only) | Done | `app/routers/inbox.py` | Inbox view | `test_basic.py` |
 | Follow-up drafting (day 3/5) | Done | `app/services/followups.py` | Automation view | `test_followups.py` |
 | Email verification | Done | `app/routers/verifications.py` | Verifications view | `test_verification.py` |
@@ -56,8 +57,8 @@ end but the external integration is a placeholder. **Not built** = planned only.
 | Feature | Status | Backend | Frontend | Verified by |
 |---|---|---|---|---|
 | Multi-tenancy | Done | `app/db.py`, `app/deps.py` | — | `test_tenant_isolation.py` |
-| JWT auth + refresh | Done | `app/routers/auth.py` | Auth screen | `test_tenant_isolation.py` |
-| Single-user mode | Done | `app/config.py`, `app/auth.py` | — | `test_basic.py` |
+| JWT auth + refresh | Done | `app/routers/auth.py` | — (no login screen) | `test_tenant_isolation.py` |
+| Single implicit workspace | Done | `app/config.py`, `app/auth.py` | — (opens directly) | `test_tenant_isolation.py`, `test_startup_resilience.py` |
 | Team members + invites | Done | `app/routers/tenants.py` | Team view | `test_teams.py` |
 | API keys | Done | `auth.py/api-keys` | — | `test_tenant_isolation.py` |
 | Usage metering | Done | `app/services/usage.py` | Overview bar | `test_usage.py` |
@@ -72,8 +73,8 @@ end but the external integration is a placeholder. **Not built** = planned only.
 
 | Integration | Status | Notes |
 |---|---|---|
-| SMTP (any relay) | Done | Requires real credentials; blocked until configured |
-| IMAP inbox | Done | Read-only via `BODY.PEEK` |
+| SMTP (any relay) | Done | Per-tenant row; the local tenant falls back to `SMTP_*` |
+| IMAP inbox | Done | Read-only via `BODY.PEEK`; per-tenant row, local fallback to `IMAP_*` |
 | NVIDIA LLM | Done | Optional; templates used when no key |
 | Calendly | Done | Shares the booking link saved in Settings |
 | Google Calendar | Not built | No OAuth flow |

@@ -16,6 +16,7 @@ from app.services.limits import check_tenant_send_allowed
 from app.services.mailer import (
     MailDeliveryError,
     MailNotConfigured,
+    resolve_smtp_config,
     send_email,
 )
 from app.services.usage import EMAILS_SENT, record_usage
@@ -45,9 +46,8 @@ def _tenant_contact(db, contact_id: int, tenant_id: int) -> Contact:
 
 
 def _tenant_smtp(db, tenant_id: int):
-    return (
-        db.query(SMTPConfig).filter(SMTPConfig.tenant_id == tenant_id).first()
-    )
+    """The mailbox messages are sent from for this tenant."""
+    return resolve_smtp_config(db, tenant_id)
 
 
 def _tenant_settings(db, tenant_id: int):
@@ -247,23 +247,23 @@ async def send_email_endpoint(
 
 @router.get("/test-smtp")
 def test_smtp_connection(tenant_id: int = Depends(current_tenant_id)):
-    """Test SMTP connection using SenderAgent."""
+    """Test the mailbox configured for this tenant."""
     db = SessionLocal()
     try:
-        smtp_config = _tenant_smtp(db, tenant_id)
-        agent = SenderAgent(smtp_config=smtp_config)
-        
+        view = resolve_smtp_config(db, tenant_id)
+        agent = SenderAgent(smtp_config=view)
+
         success, message = agent.test_connection()
-        
-        result = {
+
+        return {
             "success": success,
             "message": message,
             "configured": agent.is_configured(),
+            "host": view.host or None,
+            "port": view.port,
+            "authentication_configured": view.authentication_configured,
+            "source": view.source,
         }
-        if smtp_config:
-            result["host"] = smtp_config.host
-            result["port"] = smtp_config.port
-        return result
     finally:
         db.close()
 
@@ -504,6 +504,8 @@ def get_agents_status(tenant_id: int = Depends(current_tenant_id)):
             },
             "sender": {
                 "status": "configured" if sender_agent.is_configured() else "not_configured",
+                "source": getattr(smtp_config, "source", "database"),
+                "host": getattr(smtp_config, "host", None) or None,
                 "description": "Handles SMTP email delivery"
             },
             "calendar": {
@@ -513,7 +515,7 @@ def get_agents_status(tenant_id: int = Depends(current_tenant_id)):
             },
             "ai_brain": {
                 "status": "enabled" if app_settings.NVIDIA_API_KEY else "disabled",
-                "model": getattr(app_settings, 'NVIDIA_MODEL', 'nvidia/nllama-3-70b'),
+                "model": app_settings.NVIDIA_MODEL,
                 "description": "AI-powered content optimization"
             },
             "reply_analyzer": {

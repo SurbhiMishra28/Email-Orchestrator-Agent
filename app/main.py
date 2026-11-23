@@ -299,9 +299,11 @@ def get_state_from_db(tenant_id: int) -> Dict[str, Any]:
         settings_row = (
             db.query(Settings).filter(Settings.tenant_id == tenant_id).first()
         )
-        smtp_config = (
-            db.query(SMTPConfig).filter(SMTPConfig.tenant_id == tenant_id).first()
-        )
+        from app.services.inbox import resolve_imap_config
+        from app.services.mailer import resolve_smtp_config
+
+        smtp_view = resolve_smtp_config(db, tenant_id)
+        imap_view = resolve_imap_config(db, tenant_id)
 
         contacts_out = []
         for contact in contacts:
@@ -374,12 +376,15 @@ def get_state_from_db(tenant_id: int) -> Dict[str, Any]:
             "usage": _build_usage(db, tenant_id),
             "settings": settings_out,
             "smtp": {
-                "host": smtp_config.host if smtp_config else None,
-                "port": smtp_config.port if smtp_config else 587,
-                "user": smtp_config.user if smtp_config else None,
-                "sender": smtp_config.sender if smtp_config else None,
-                "configured": smtp_config.configured if smtp_config else False,
+                "host": smtp_view.host or None,
+                "port": smtp_view.port,
+                "user": smtp_view.user or None,
+                "sender": smtp_view.sender or None,
+                "configured": smtp_view.configured,
+                "authenticated": smtp_view.authentication_configured,
+                "source": smtp_view.source,
             },
+            "imap": imap_view.describe(),
         }
     except SQLAlchemyError as exc:
         logger.error("Database state fetch failed: %s", exc)
@@ -412,51 +417,59 @@ def _bootstrap_database() -> None:
             logger.warning("Recovered %s interrupted send(s)", interrupted)
 
         # Provision defaults for every tenant, including ones created before
-        # settings/SMTP became per-tenant.
+        # settings/SMTP became per-tenant. This build is single-user, so the
+        # lowest tenant id is the implicit workspace every request runs as.
         from app.db import Tenant
+        from app.services.mailer import local_tenant_id
 
-        if app_settings.SINGLE_USER_MODE:
-            # Local single-user mode: make sure the implicit tenant and user
-            # exist, then adopt any rows written before multi-tenancy.
-            from app.auth import get_or_create_local_user
+        local_tenant = local_tenant_id(db)
 
-            local_user = get_or_create_local_user()
-            legacy_tenant_id = local_user.tenant_id
-            adopted = 0
-            for model in (
-                Contact,
-                Draft,
-                Event,
-                Log,
-                ToolUse,
-                Template,
-                SMTPConfig,
-                Settings,
-                InboxMessage,
-                ReplyProcessed,
-            ):
-                adopted += (
-                    db.query(model)
-                    .filter(model.tenant_id.is_(None))
-                    .update(
-                        {model.tenant_id: legacy_tenant_id},
-                        synchronize_session=False,
-                    )
+        # Make sure the implicit tenant and user exist, then adopt any rows
+        # written before multi-tenancy.
+        from app.auth import get_or_create_local_user
+
+        local_user = get_or_create_local_user()
+        legacy_tenant_id = local_user.tenant_id
+        adopted = 0
+        for model in (
+            Contact,
+            Draft,
+            Event,
+            Log,
+            ToolUse,
+            Template,
+            SMTPConfig,
+            Settings,
+            InboxMessage,
+            ReplyProcessed,
+        ):
+            adopted += (
+                db.query(model)
+                .filter(model.tenant_id.is_(None))
+                .update(
+                    {model.tenant_id: legacy_tenant_id},
+                    synchronize_session=False,
                 )
-            db.commit()
-            if adopted:
-                logger.info(
-                    "Assigned %s legacy row(s) to local tenant %s",
-                    adopted,
-                    legacy_tenant_id,
-                )
+            )
+        db.commit()
+        if adopted:
+            logger.info(
+                "Assigned %s legacy row(s) to local tenant %s",
+                adopted,
+                legacy_tenant_id,
+            )
 
         tenant_ids = [row[0] for row in db.query(Tenant.id).all()]
         if tenant_ids:
             for tenant_id in tenant_ids:
-                provision_tenant_defaults(db, tenant_id)
+                provision_tenant_defaults(
+                    db,
+                    tenant_id,
+                    inherit_environment=tenant_id == local_tenant,
+                )
         else:
-            # No tenants yet (local single-user mode): keep the legacy global row.
+            # A brand-new database: keep the legacy global row until the first
+            # request provisions the implicit tenant.
             if not db.query(Settings).first():
                 db.add(
                     Settings(
@@ -538,15 +551,37 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
 
 
-async def _poll_inbox_job():
-    """Fetch new mail when IMAP credentials are present."""
+async def _inbox_configured_ids(tenant_ids) -> list:
+    """Filter ``tenant_ids`` down to the ones with their own resolvable mailbox.
+
+    Inbox polling must never read one mailbox on behalf of another tenant: the
+    rows it writes carry ``tenant_id``, so a shared mailbox would duplicate the
+    operator's correspondence into every account.
+    """
     from fastapi.concurrency import run_in_threadpool
 
-    from app.db import Tenant
-    from app.services.inbox import is_configured, sync_inbox
+    db = SessionLocal()
+    try:
+        return [
+            tenant_id
+            for tenant_id in tenant_ids
+            if await run_in_threadpool(_tenant_has_inbox, db, tenant_id)
+        ]
+    finally:
+        db.close()
 
-    if not is_configured():
-        return
+
+def _tenant_has_inbox(db, tenant_id) -> bool:
+    from app.services.inbox import resolve_imap_config
+
+    return resolve_imap_config(db, tenant_id).configured
+
+
+async def _poll_inbox_job():
+    """Fetch new mail for every tenant that has its own IMAP credentials."""
+    from fastapi.concurrency import run_in_threadpool
+
+    from app.services.inbox import sync_inbox
 
     db = SessionLocal()
     try:
@@ -554,7 +589,7 @@ async def _poll_inbox_job():
     finally:
         db.close()
 
-    for tenant_id in tenant_ids or [None]:
+    for tenant_id in await _inbox_configured_ids(tenant_ids or [None]):
         try:
             await run_in_threadpool(sync_inbox, 25, tenant_id)
         except Exception as exc:  # a mailbox outage must not stop the scheduler
@@ -566,7 +601,6 @@ async def _autopilot_job():
     from fastapi.concurrency import run_in_threadpool
 
     from app.agents import QueueManager
-    from app.db import Tenant
     from app.services.inbox import is_configured, sync_inbox
 
     db = SessionLocal()
@@ -618,7 +652,7 @@ async def _run_autopilot_for_tenant(
 
     intro = await create_intro_drafts(tenant_id=tenant_id)
 
-    if is_configured():
+    if is_configured(tenant_id):
         try:
             await run_in_threadpool(sync_inbox, 100, tenant_id)
         except Exception as exc:
@@ -741,7 +775,7 @@ async def _process_incoming_replies(tenant_id: Optional[int] = None) -> int:
     from app.agents import ReplyAnalyzerAgent, AutoResponder
     from app.services.bounces import looks_like_bounce
     from app.services.usage import REPLIES_RECEIVED, record_usage
-    
+
     db = SessionLocal()
     replies_queued = 0
     try:
@@ -825,13 +859,16 @@ async def _process_incoming_replies(tenant_id: Optional[int] = None) -> int:
                 db.commit()
                 continue  # Skip already processed messages
             
-            # Classify the reply
+            # Classify the reply. The pipeline meters the reply itself below,
+            # after de-duplicating it, so the built-in usage metric is disabled
+            # here: recording in both places counted every reply twice.
             agent = ReplyAnalyzerAgent(contact_id=contact.id)
             try:
                 classification = agent.analyze_reply(
                     subject=msg.subject or "",
                     body=msg.snippet or "",
-                    sender_email=sender_email
+                    sender_email=sender_email,
+                    record_usage_metric=False,
                 )
             except Exception:
                 logger.exception("Could not classify reply %s", msg_uid)
@@ -855,9 +892,7 @@ async def _process_incoming_replies(tenant_id: Optional[int] = None) -> int:
             msg.processed_at = datetime.now(timezone.utc)
             db.commit()
 
-            auto_responder = AutoResponder(
-                contact_id=contact.id,
-            )
+            auto_responder = AutoResponder(contact_id=contact.id)
             try:
                 response = auto_responder.generate_response(
                     classification=classification,

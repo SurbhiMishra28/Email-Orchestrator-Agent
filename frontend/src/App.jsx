@@ -4,8 +4,6 @@ import { Mail, Users, FileText, Inbox, Settings, Play, BarChart3, Activity, Send
 
 
 
-const AUTH_TOKEN_KEY = "email-orchestrator-token";
-
 const BRAND_NAME = "MailMatrix";
 
 // Brevo-style opening screen: the wordmark dominates, then the app takes over.
@@ -24,20 +22,7 @@ const KNOWN_VIEWS = [
   "verifications", "automation", "team", "settings", "campaigns", "experiments",
 ];
 
-const getToken = () => {
-  try { return localStorage.getItem(AUTH_TOKEN_KEY) || ""; } catch { return ""; }
-};
-
-const storeToken = (token) => {
-  try {
-    if (token) localStorage.setItem(AUTH_TOKEN_KEY, token);
-    else localStorage.removeItem(AUTH_TOKEN_KEY);
-  } catch { /* storage unavailable: stay in-memory for this page load */ }
-};
-
 const api = async (path, opts = {}) => {
-
-  const token = getToken();
 
   const response = await fetch(path, {
 
@@ -45,7 +30,6 @@ const api = async (path, opts = {}) => {
 
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...opts.headers,
     },
 
@@ -566,229 +550,10 @@ function ErrorDisplay({err,onRetry}){
 
 
 
-function AuthScreen({onAuthenticated}){
 
-  const [mode,setMode]=useState("login");
 
-  const [form,setForm]=useState({email:"",password:"",name:"",tenant_name:""});
 
-  const [busy,setBusy]=useState(false);
-
-  const [err,setErr]=useState(null);
-
-  const update=(key,value)=>setForm(current=>({...current,[key]:value}));
-
-  const submit=async(e)=>{
-
-    e.preventDefault();
-
-    setBusy(true);
-
-    setErr(null);
-
-    try{
-
-      const payload = mode==="login"
-        ? {email:form.email,password:form.password}
-        : {email:form.email,password:form.password,name:form.name,tenant_name:form.tenant_name};
-
-      const result=await api(`/api/auth/${mode}`,{method:"POST",body:JSON.stringify(payload)});
-
-      storeToken(result.access_token);
-
-      const me=await api("/api/auth/me");
-
-      onAuthenticated(me);
-
-    }catch(e){
-
-      storeToken("");
-
-      setErr(e?.message||"Authentication failed");
-
-    }finally{
-
-      setBusy(false);
-
-    }
-
-  };
-
-  const feats=[
-    ["Lists & segments","Folders, per-list senders and unsubscribe state"],
-    ["Campaigns","Draft, schedule, pause and track delivery"],
-    ["A/B experiments","Stable variants with weighted assignment"],
-  ];
-
-  return (
-
-    <div className="auth-shell">
-
-      <div className="auth-aurora" aria-hidden="true"><span/><span/><span/></div>
-
-      <div className="auth-grain" aria-hidden="true"/>
-
-      <div className="auth-panel">
-
-        <div className="auth-card">
-
-          <div className="mb-7 flex items-center gap-2.5">
-
-            <div className="brand-mark"><Mail className="h-[18px] w-[18px]"/></div>
-
-            <span className="text-[16px] font-bold tracking-tight">{BRAND_NAME}</span>
-
-            <span className="ml-auto rounded-full border border-ink-200 bg-ink-200/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-400">Beta</span>
-
-          </div>
-
-          <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-ink-900">
-
-            {mode==="login"?"Welcome back":"Create your workspace"}
-
-          </h1>
-
-          <p className="mt-1.5 mb-6 text-[13px] leading-5 text-ink-500">
-
-            {mode==="login"?"Sign in to your outbound workspace.":"Start sending in minutes. No credit card required."}
-
-          </p>
-
-          <form onSubmit={submit} className="space-y-3.5">
-
-            {mode==="register"&&(
-
-              <div className="grid gap-3.5 sm:grid-cols-2">
-
-                <label className="block">
-
-                  <span className="field-label">Your name</span>
-
-                  <input required value={form.name} onChange={e=>update("name",e.target.value)} className={inputCls} placeholder="Jane Doe"/>
-
-                </label>
-
-                <label className="block">
-
-                  <span className="field-label">Workspace name</span>
-
-                  <input required value={form.tenant_name} onChange={e=>update("tenant_name",e.target.value)} className={inputCls} placeholder="Acme Inc"/>
-
-                </label>
-
-              </div>
-
-            )}
-
-            <label className="block">
-
-              <span className="field-label">Email address</span>
-
-              <input required type="email" autoComplete="email" value={form.email} onChange={e=>update("email",e.target.value)} className={inputCls} placeholder="you@company.com"/>
-
-            </label>
-
-            <label className="block">
-
-              <span className="field-label">Password</span>
-
-              <input required type="password" autoComplete={mode==="login"?"current-password":"new-password"} value={form.password} onChange={e=>update("password",e.target.value)} className={inputCls} placeholder={mode==="login"?"Your password":"At least 8 characters"}/>
-
-            </label>
-
-            {err&&<div className="notice-error">{err}</div>}
-
-            <button type="submit" disabled={busy} className={btnPrimary+" w-full"}>
-
-              {busy&&<Loader2 className="h-4 w-4 animate-spin"/>}
-
-              {mode==="login"?"Sign in":"Create workspace"}
-
-            </button>
-
-          </form>
-
-          <p className="mt-6 text-center text-[13px] text-ink-500">
-
-            {mode==="login"?"New here? ":"Already have an account? "}
-
-            <button
-
-              type="button"
-
-              onClick={()=>{setMode(mode==="login"?"register":"login");setErr(null);}}
-
-              className="link"
-
-            >
-
-              {mode==="login"?"Create a workspace":"Sign in"}
-
-            </button>
-
-          </p>
-
-        </div>
-
-      </div>
-
-      <aside className="auth-stage">
-
-        <div className="pointer-events-none absolute -right-32 -top-40 h-[30rem] w-[30rem] rounded-full bg-brand-500/10 blur-3xl"/>
-
-        <div className="pointer-events-none absolute -bottom-48 -left-24 h-[34rem] w-[34rem] rounded-full bg-brand-500/[0.06] blur-3xl"/>
-
-        <div className="relative max-w-md">
-
-          <div className="auth-eyebrow"><Sparkles className="h-3.5 w-3.5"/>Outreach, orchestrated</div>
-
-          <h2 className="mt-7 text-[32px] font-semibold leading-[1.18] tracking-tight text-ink-900">
-
-            One quiet workspace for the whole outbound loop.
-
-          </h2>
-
-          <p className="mt-4 max-w-sm text-[14px] leading-6 text-ink-500">
-
-            MailMatrix drafts, paces and follows up on every conversation, then respects your daily caps so deliverability never becomes a surprise.
-
-          </p>
-
-        </div>
-
-        <div className="relative grid gap-2.5">
-
-          {feats.map(([title,desc])=>(
-
-            <div key={title} className="auth-feature flex items-start gap-3">
-
-              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500"/>
-
-              <div>
-
-                <div className="text-[13px] font-semibold text-ink-800">{title}</div>
-
-                <div className="mt-0.5 text-[11.5px] leading-4 text-ink-400">{desc}</div>
-
-              </div>
-
-            </div>
-
-          ))}
-
-        </div>
-
-      </aside>
-
-    </div>
-
-  );
-
-}
-
-
-
-function AutomationView({api,signOut}){
+function AutomationView({api}){
 
   const [status,setStatus]=useState(null);
 
@@ -814,13 +579,11 @@ function AutomationView({api,signOut}){
 
     }catch(e){
 
-      if(e?.status===401||e?.status===403){ signOut(); return; }
-
       setError(e?.message||"Could not load automation status");
 
     }
 
-  },[api,signOut]);
+  },[api]);
 
   useEffect(()=>{ load(); },[load]);
 
@@ -1046,7 +809,7 @@ function AutomationView({api,signOut}){
 
 
 
-function TeamView({api,signOut,currentUserId}){
+function TeamView({api,currentUserId}){
 
   const [members,setMembers]=useState([]);
 
@@ -1076,8 +839,6 @@ function TeamView({api,signOut,currentUserId}){
 
     }catch(e){
 
-      if(e?.status===401||e?.status===403){ signOut(); return; }
-
       setError(e?.message||"Could not load team");
 
     }finally{
@@ -1086,7 +847,7 @@ function TeamView({api,signOut,currentUserId}){
 
     }
 
-  },[api,signOut]);
+  },[api]);
 
   useEffect(()=>{ load(); },[load]);
 
@@ -1334,7 +1095,7 @@ function TeamView({api,signOut,currentUserId}){
 
 
 
-function ExperimentsView({api,signOut}){
+function ExperimentsView({api}){
 
   const [tests,setTests]=useState([]);
 
@@ -1388,8 +1149,6 @@ function ExperimentsView({api,signOut}){
 
     }catch(e){
 
-      if(e?.status===401||e?.status===403){ signOut(); return; }
-
       setError(e?.message||"Could not load experiments");
 
     }finally{
@@ -1398,7 +1157,7 @@ function ExperimentsView({api,signOut}){
 
     }
 
-  },[api,signOut]);
+  },[api]);
 
   useEffect(()=>{ load(); },[load]);
 
@@ -1689,8 +1448,6 @@ export default function App(){
 
   const [user,setUser]=useState(null);
 
-  const [authChecked,setAuthChecked]=useState(false);
-
   const [view,setView]=useState(()=>{
     const path=window.location.pathname.replace(/^\/+|\/+$/g,"");
     return KNOWN_VIEWS.includes(path)?path:"overview";
@@ -1716,6 +1473,16 @@ export default function App(){
   const [smtpDirty,setSmtpDirty]=useState(false);
 
   const [smtpError,setSmtpError]=useState(null);
+
+  const [imap,setImap]=useState({host:"",port:"",user:"",pass:"",folder:"INBOX"});
+
+  const [imapConfig,setImapConfig]=useState(null);
+
+  const [imapCheck,setImapCheck]=useState(null);
+
+  const [imapDirty,setImapDirty]=useState(false);
+
+  const [imapError,setImapError]=useState(null);
 
   const [draftError,setDraftError]=useState(null);
 
@@ -2216,22 +1983,6 @@ export default function App(){
 
   };
 
-  const signOut=useCallback(()=>{
-
-    storeToken("");
-
-    setUser(null);
-
-    setAuthChecked(true);
-
-    setState({contacts:[],drafts:[],events:[],logs:[],tools:[],analytics:{}});
-
-    setError(null);
-
-    setLoading(true);
-
-  },[]);
-
   // ---------------------------------------------------------------- campaigns
   // Brevo's Campaigns page: a listing of sends with a channel picker, status
   // filters and per-campaign results. Creating one opens a small editor that
@@ -2282,8 +2033,6 @@ export default function App(){
 
     } catch (e) {
 
-      if (e?.status === 401 || e?.status === 403) { signOut(); return; }
-
       setCampaignError(e?.message || "Could not load campaigns");
 
     } finally {
@@ -2292,7 +2041,7 @@ export default function App(){
 
     }
 
-  }, [signOut]);
+  }, []);
 
   const openCampaignEditor = () => {
 
@@ -2663,8 +2412,6 @@ export default function App(){
 
     } catch (e) {
 
-      if (e?.status === 401 || e?.status === 403) { signOut(); return; }
-
       setListError(e?.message || "Could not load lists");
 
     } finally {
@@ -2673,7 +2420,7 @@ export default function App(){
 
     }
 
-  }, [signOut]);
+  }, []);
 
   const loadFolders = useCallback(async () => {
 
@@ -2685,11 +2432,9 @@ export default function App(){
 
     } catch (e) {
 
-      if (e?.status === 401 || e?.status === 403) { signOut(); return; }
-
     }
 
-  }, [signOut]);
+  }, []);
 
   const loadListMembers = useCallback(async (listId) => {
 
@@ -2701,13 +2446,11 @@ export default function App(){
 
     } catch (e) {
 
-      if (e?.status === 401 || e?.status === 403) { signOut(); return; }
-
       setListError(e?.message || "Could not load list members");
 
     }
 
-  }, [signOut]);
+  }, []);
 
   // Keep the address bar in sync so a refresh or a shared deep link reopens
   // the same view, and the browser's back button moves between views.
@@ -2762,15 +2505,13 @@ export default function App(){
 
   useEffect(()=>{ setNavOpen(false); },[view]);
 
-  // Resolve the session once on first load. A stored token is reused; without a
-  // usable one the sign-in screen is shown, except in single-user mode where
-  // /api/auth/me answers from the implicit local tenant.
+  // Resolve the workspace identity once on first load. The server serves every
+  // request as its single implicit tenant, so this cannot fail with a 401 and
+  // there is no sign-in screen to fall back to.
   useEffect(()=>{
 
     let active=true;
     (async()=>{
-
-      const hadToken=Boolean(getToken());
 
       try{
 
@@ -2780,13 +2521,7 @@ export default function App(){
 
       }catch(err){
 
-        if(hadToken&&(err?.status===401||err?.status===403)) storeToken("");
-
-        if(active&&!hadToken&&err?.status!==401&&err?.status!==403) setError(err?.message||String(err));
-
-      }finally{
-
-        if(active) setAuthChecked(true);
+        if(active) setError(err?.message||String(err));
 
       }
 
@@ -2826,8 +2561,6 @@ export default function App(){
 
     }catch(e){
 
-      if(e?.status===401||e?.status===403){ signOut(); return; }
-
       if(!quiet&&e?.name!=="AbortError")setError(e?.message||String(e));
 
     }finally{
@@ -2836,7 +2569,7 @@ export default function App(){
 
     }
 
-  },[signOut]);
+  },[]);
 
   useEffect(()=>{
 
@@ -2858,9 +2591,7 @@ export default function App(){
 
         if(!active||e?.name==="AbortError")return;
 
-        if(e?.status===401||e?.status===403){ signOut(); return; }
-
-        if(!quiet)setError(e?.message||String(e));
+          if(!quiet)setError(e?.message||String(e));
 
       }finally{
 
@@ -2884,7 +2615,7 @@ export default function App(){
 
     return ()=>{active=false;clearInterval(t);controller.abort();};
 
-  },[user,signOut]);
+  },[user]);
 
 
 
@@ -3341,21 +3072,11 @@ export default function App(){
 
     setSendSelectedTemplate(templateId);
 
-    // Check SMTP readiness properly when opening the modal
-
-    // smtpReady might be false due to race condition - re-check synchronously
-
-    const smtpIsReady = Boolean(
-
-      smtpConfig?.configured &&
-
-      !smtpDirty &&
-
-      smtpCheck?.ok &&
-
-      (!smtpConfig.authentication_configured || smtpCheck?.authenticated)
-
-    );
+    // Send gating is about saved configuration, not about the last connection
+    // test: a test that fails on a flaky network must not lock the workspace
+    // out of sending. The server still refuses to send when SMTP is unusable,
+    // and the failure is reported by the send itself.
+    const smtpIsReady = Boolean(smtpConfig?.configured && !smtpDirty);
 
     setSendSelectedSmtpReady(smtpIsReady);
 
@@ -3770,6 +3491,43 @@ export default function App(){
 
       
 
+      // Inbox mailbox (IMAP)
+
+      try {
+
+        const config = await api("/api/inbox/status");
+
+        if(!active)return;
+
+        setImapConfig(config);
+
+        setImap((current)=>({
+
+          ...current,
+
+          host:config.host||"",
+
+          port:String(config.port||993),
+
+          user:config.user||"",
+
+          folder:config.folder||"INBOX",
+
+          pass:"",
+
+        }));
+
+        setImapDirty(false);
+
+        setImapError(null);
+
+      } catch(e) {
+
+        if(active)setImapError(e?.message||String(e));
+
+      }
+      
+
       // Fetch health status
 
       try {
@@ -4140,6 +3898,114 @@ export default function App(){
 
 
 
+  const updateImap=(key,value)=>{
+
+    setImap((current)=>({...current,[key]:value}));
+
+    setImapDirty(true);
+
+    setImapCheck(null);
+
+    setImapError(null);
+
+  };
+
+
+
+  const checkImap=async()=>{
+
+    const port=imap.port?Number(imap.port):993;
+
+    if(!Number.isInteger(port)||port<1||port>65535){
+
+      setImapCheck({ok:false,message:"IMAP port must be an integer between 1 and 65535."});
+
+      return;
+
+    }
+
+    try{
+
+      setImapCheck({checking:true,message:"Connecting to IMAP server..."});
+
+      const result=await api("/api/inbox/test",{method:"POST",body:JSON.stringify({
+
+        host:imap.host.trim()||undefined,
+
+        port,
+
+        user:imap.user.trim()||undefined,
+
+        password:imap.pass||undefined,
+
+        folder:imap.folder.trim()||"INBOX",
+
+      })});
+
+      setImapCheck(result);
+
+    }catch(e){setImapCheck({ok:false,message:e?.message||String(e)});}
+
+  };
+
+
+
+  const saveImap=async()=>{
+
+    const port=imap.port?Number(imap.port):993;
+
+    if(!imap.host.trim()){
+
+      setImapCheck({ok:false,message:"Enter an IMAP host before saving."});
+
+      return;
+
+    }
+
+    if(!Number.isInteger(port)||port<1||port>65535){
+
+      setImapCheck({ok:false,message:"IMAP port must be an integer between 1 and 65535."});
+
+      return;
+
+    }
+
+    try{
+
+      await api("/api/inbox/config",{method:"POST",body:JSON.stringify({
+
+        host:imap.host,
+
+        port,
+
+        user:imap.user,
+
+        password:imap.pass,
+
+        folder:imap.folder,
+
+      })});
+
+      const config=await api("/api/inbox/status");
+
+      setImapConfig(config);
+
+      setImap((current)=>({...current,pass:""}));
+
+      setImapDirty(false);
+
+      setImapCheck(null);
+
+      setImapError(null);
+
+      setStatus("saved");setTimeout(()=>setStatus(null),1500);
+
+    }catch(e){setImapError(e?.message||String(e));}
+
+  };
+
+
+
   const approveAndSend=async(draft)=>{
 
     const recipient=state.contacts.find((contact)=>contact.id===draft.contact_id);
@@ -4160,11 +4026,9 @@ export default function App(){
 
     }
 
-    if(!smtpConfig?.configured||smtpDirty||!smtpCheck?.ok||
+    if(!smtpConfig?.configured||smtpDirty){
 
-      (smtpConfig.authentication_configured&&!smtpCheck.authenticated)){
-
-      setDraftError("Configure and save SMTP in Settings, then successfully test the connection before sending.");
+      setDraftError("Save the SMTP configuration in Settings before sending.");
 
       return;
 
@@ -4224,17 +4088,7 @@ export default function App(){
 
 
 
-  const smtpReady=Boolean(
-
-    smtpConfig?.configured &&
-
-    !smtpDirty &&
-
-    smtpCheck?.ok &&
-
-    (!smtpConfig.authentication_configured || smtpCheck?.authenticated === true)
-
-  );
+  const smtpReady=Boolean(smtpConfig?.configured && !smtpDirty);
 
 
 
@@ -4245,10 +4099,6 @@ export default function App(){
     if(!smtpConfig?.configured) return "SMTP not configured";
 
     if(smtpDirty) return "Save SMTP changes";
-
-    if(!smtpCheck?.ok) return "Test SMTP in Settings";
-
-    if(smtpConfig.authentication_configured&&smtpCheck?.authenticated !== true) return "SMTP auth not verified";
 
     const recipient=state.contacts.find(c=>c.id===draft.contact_id);
 
@@ -4319,22 +4169,6 @@ export default function App(){
     return ()=>clearTimeout(timer);
   },[]);
 
-  if(!authChecked){
-
-    return <Splash/>;
-
-  }
-
-
-
-  if(!user){
-
-    return <AuthScreen onAuthenticated={setUser}/>;
-
-  }
-
-
-
   if(error){
 
     return (
@@ -4346,6 +4180,14 @@ export default function App(){
       </div>
 
     );
+
+  }
+
+
+
+  if(!user){
+
+    return <Splash/>;
 
   }
 
@@ -4420,7 +4262,6 @@ export default function App(){
               <div className="truncate text-[12px] font-medium text-ink-800">{user?.name||user?.email}</div>
               <div className="truncate text-[11px] capitalize text-ink-400">{user?.role||"member"}</div>
             </div>
-            <button onClick={signOut} className="icon-btn" title="Sign out" aria-label="Sign out"><XCircle className="h-4 w-4"/></button>
           </div>
 
         </div>
@@ -5526,7 +5367,7 @@ export default function App(){
 
               {!inbox.configured ? (
 
-                <EmptyState icon={Mail} title="IMAP is not configured" description="Add IMAP_HOST, IMAP_USER and IMAP_PASS to your environment, then reload."/>
+                <EmptyState icon={Mail} title="IMAP is not configured" description="Add the mailbox in Settings → Inbox (IMAP), or set IMAP_HOST, IMAP_USER and IMAP_PASS in the environment."/>
 
               ) : inbox.messages.length === 0 ? (
 
@@ -5826,19 +5667,19 @@ export default function App(){
 
         {view==="automation"&&(
 
-          <AutomationView api={api} signOut={signOut}/>
+          <AutomationView api={api}/>
 
         )}
 
         {view==="experiments"&&(
 
-          <ExperimentsView api={api} signOut={signOut}/>
+          <ExperimentsView api={api}/>
 
         )}
 
         {view==="team"&&user?.role==="admin"&&(
 
-          <TeamView api={api} signOut={signOut} currentUserId={user?.id}/>
+          <TeamView api={api} currentUserId={user?.id}/>
 
         )}
 
@@ -5991,6 +5832,80 @@ export default function App(){
                 {smtpCheck&&smtpCheck.message&&(
 
                   <p className={"text-[12px] "+(smtpCheck.ok?"text-brand-700":"text-danger-600")}>{smtpCheck.message}</p>
+
+                )}
+
+                {smtpConfig?.source==="environment"&&(
+
+                  <p className="text-[12px] text-ink-500">Using the mailbox from the environment. Saving a row here overrides it.</p>
+
+                )}
+
+              </div>
+
+            </Card>
+
+            <Card title="Inbox (IMAP)" subtitle="Mailbox polled for replies; read state is never changed">
+
+              <div className="space-y-3">
+
+                {imapError&&<div className="notice-error">{imapError}</div>}
+
+                <label className="block"><span className="field-label">Host</span>
+
+                  <input type="text" placeholder="imap.example.com" className={inputCls} value={imap.host} onChange={e=>updateImap("host",e.target.value)}/>
+
+                </label>
+
+                <div className="grid gap-3 sm:grid-cols-[100px_1fr]">
+
+                  <label className="block"><span className="field-label">Port</span>
+
+                    <input type="number" placeholder="993" className={inputCls} value={imap.port} onChange={e=>updateImap("port",e.target.value)}/>
+
+                  </label>
+
+                  <label className="block"><span className="field-label">Username</span>
+
+                    <input type="text" placeholder="you@yourdomain.com" className={inputCls} value={imap.user} onChange={e=>updateImap("user",e.target.value)}/>
+
+                  </label>
+
+                </div>
+
+                <label className="block"><span className="field-label">Password</span>
+
+                  <input type="password" placeholder="••••••••" className={inputCls} value={imap.pass} onChange={e=>updateImap("pass",e.target.value)}/>
+
+                </label>
+
+                <label className="block"><span className="field-label">Folder</span>
+
+                  <input type="text" placeholder="INBOX" className={inputCls} value={imap.folder} onChange={e=>updateImap("folder",e.target.value)}/>
+
+                </label>
+
+                <div className="flex flex-wrap gap-2">
+
+                  <button onClick={checkImap} disabled={imapCheck?.checking} className={btnGhost}>
+
+                    {imapCheck?.checking?"Checking...":"Test connection"}
+
+                  </button>
+
+                  <button onClick={saveImap} className={btnPrimary}>Save IMAP</button>
+
+                </div>
+
+                {imapCheck&&imapCheck.message&&(
+
+                  <p className={"text-[12px] "+(imapCheck.ok?"text-brand-700":"text-danger-600")}>{imapCheck.message}</p>
+
+                )}
+
+                {imapConfig?.source==="environment"&&(
+
+                  <p className="text-[12px] text-ink-500">Using the mailbox from the environment. Saving a row here overrides it.</p>
 
                 )}
 
@@ -7043,7 +6958,7 @@ export default function App(){
 
                   <div className="notice-error mb-4">
 
-                    <p className="text-[12px]">SMTP is not configured. Please configure SMTP in Settings first.</p>
+                    <p className="text-[12px]">SMTP is not configured. Add it in Settings → SMTP configuration, then save.</p>
 
                   </div>
 

@@ -63,7 +63,7 @@ These are required for a public deployment. Do **not** reuse the local `.env`.
 |----------|-------|
 | `DATABASE_URL` | MySQL connection string, or the SQLite path on a persistent disk |
 | `JWT_SECRET_KEY` | `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
-| `SINGLE_USER_MODE` | `false` — otherwise every visitor shares one workspace |
+| `LOCAL_TENANT_NAME` / `LOCAL_USER_EMAIL` | Identity of the implicit workspace |
 | `PUBLIC_BASE_URL` | Your deployed https URL (used for tracking pixel/click links) |
 | `CORS_ORIGINS` | Your deployed origin only |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` or your preference |
@@ -77,24 +77,28 @@ The platform files set the safety defaults (`MAIL_SUPPRESS_SEND=true`,
 `AUTOPILOT=false`, `AUTO_APPROVE=false`) so a deploy cannot start mailing people
 before you have checked it.
 
-### Single-user mode is disabled on a public host
+### There is no login — put access control in front of the app
 
-`SINGLE_USER_MODE=true` turns authentication off: every request is served as one
-implicit local account, with no token required. That is correct for the local
-tool and **dangerous on a public URL** — the deployed API accepts unauthenticated
-reads and writes, so anyone who finds the address can read contacts, change
-settings, re-enable autopilot, and send mail as the configured mailbox.
+The app has no sign-in screen anywhere, including this deployment. A request
+without credentials is served as the single implicit workspace, so **anyone who
+knows the URL can read contacts, change settings, re-enable autopilot and send
+mail as the configured mailbox.**
 
-`app/config.py` therefore ignores the setting whenever the instance has a
-platform URL (`RENDER_EXTERNAL_URL`, `RAILWAY_PUBLIC_DOMAIN`, `FLY_APP_NAME`).
-Requests then need a bearer token, so a `.env` copied from a laptop cannot publish
-an open instance. The dashboard shows its sign-in screen, and
-`POST /api/auth/register` creates the owner account.
+That is acceptable only because the shipped platform files keep
+`MAIL_SUPPRESS_SEND=true`, `AUTOPILOT=false` and `AUTO_APPROVE=false`: nothing is
+actually delivered until you change them. Before you turn real sending on:
+
+1. Put an authenticating proxy in front of the service (HTTP basic auth at the
+   platform edge, an identity-aware proxy, or a VPN), or
+2. Keep the service unexposed and reach it only from your own machine.
+
+Do not enable `AUTOPILOT`/`AUTO_APPROVE` or `MAIL_SUPPRESS_SEND=false` on a public
+URL that has no access control in front of it.
 
 Treat any SMTP credentials that were reachable this way as compromised: the
 deployed instance exposed a working Gmail account (host, user and sender were
 readable anonymously) until autopilot was turned off. Rotate the mailbox's app
-password and re-enter it in **Settings** once authentication is in place.
+password and re-enter it in **Settings** once access control is in place.
 
 ## 3. Deploy
 
@@ -105,7 +109,7 @@ npm i -g @railway/cli
 railway login
 railway init
 railway add --plugin mysql   # provides DATABASE_URL for the service
-railway variables --set SINGLE_USER_MODE=false --set JWT_SECRET_KEY=...
+railway variables --set JWT_SECRET_KEY=...
 railway up
 railway domain
 ```
@@ -169,16 +173,17 @@ curl -I https://YOUR-URL/             # 200 and the MailMatrix shell
 `DATABASE_URL` is wrong, which the logs restate with the host it tried to reach
 (password redacted).
 
-Then open the deployment. The sign-in screen appears; create the owner account with
-**Create a workspace**, which returns a token for the new tenant. The Overview starts
-empty because a new workspace holds no sample data — only the starter templates.
-**Settings** shows blank SMTP fields, since `SINGLE_USER_MODE` is off on a hosted
-platform and a tenant never inherits the deployment's `SMTP_*`. Enter your own relay
-there, and only then set `MAIL_SUPPRESS_SEND=false`.
+Then open the deployment. There is no sign-in screen: the dashboard opens directly
+on the Overview of the implicit workspace, which is provisioned on the first
+request. It starts empty because a new workspace holds no sample data — only the
+starter templates. **Settings** shows the deployment's `SMTP_*` values because the
+implicit workspace inherits the environment; replace them with your own relay if
+you want a different mailbox, and only then set `MAIL_SUPPRESS_SEND=false`.
 
-Because registration is open, anyone who finds the URL can create a workspace. If
-the instance is private, disable or gate `POST /api/auth/register` at your proxy
-until you want more accounts.
+Because the app has no authentication, anyone who finds the URL works in the same
+workspace. Either keep the instance private (proxy or VPN in front of it) or gate it
+at your edge; `POST /api/auth/register` and the token endpoints only matter for the
+programmatic API.
 
 ## Serverless alternative
 

@@ -335,10 +335,7 @@ class QueueManager:
                 self._alive = True
                 return results
 
-            smtp_query = db.query(SMTPConfig)
-            if tenant_id is not None:
-                smtp_query = smtp_query.filter(SMTPConfig.tenant_id == tenant_id)
-            smtp_config = smtp_query.first()
+            smtp_config = get_smtp_for_tenant(db, tenant_id)
             if not is_configured(smtp_config):
                 results["skipped"] = len(drafts)
                 results["details"].append(
@@ -737,13 +734,23 @@ Classify this email reply."""
             needs_human_review=needs_human_review
         )
     
-    def analyze_reply(self, subject: str, body: str, sender_email: str) -> Dict[str, Any]:
+    def analyze_reply(
+        self,
+        subject: str,
+        body: str,
+        sender_email: str,
+        record_usage_metric: bool = True,
+    ) -> Dict[str, Any]:
         """Full analysis workflow including database logging.
         
         Args:
             subject: Email subject
             body: Email body
             sender_email: Sender email address
+            record_usage_metric: Whether to meter this reply. The inbox pipeline
+                passes ``False`` because it records ``replies_received`` itself
+                after de-duplicating the message; recording here as well counted
+                every reply twice.
             
         Returns:
             Dictionary with classification results
@@ -780,7 +787,8 @@ Classify this email reply."""
                 }
             )
             self.db.add(event)
-            record_usage(self.db, reply_tenant, REPLIES_RECEIVED)
+            if record_usage_metric:
+                record_usage(self.db, reply_tenant, REPLIES_RECEIVED)
             
             # Log the event
             log = Log(message=f"Reply classified as {classification.reply_type} (confidence: {classification.confidence}) from {sender_email}", level="info", tenant_id=reply_tenant)
@@ -833,11 +841,14 @@ def get_settings_for_tenant(db, tenant_id: Optional[int]):
 
 
 def get_smtp_for_tenant(db, tenant_id: Optional[int]):
-    """Return the SMTP config row for ``tenant_id``."""
-    query = db.query(SMTPConfig)
-    if tenant_id is not None:
-        query = query.filter(SMTPConfig.tenant_id == tenant_id)
-    return query.order_by(SMTPConfig.id.asc()).first()
+    """Return the mailbox to send from for ``tenant_id``.
+
+    Resolution (stored row, then the local deployment's environment) lives in
+    ``app.services.mailer`` so every send path agrees on which mailbox is used.
+    """
+    from app.services.mailer import resolve_smtp_config
+
+    return resolve_smtp_config(db, tenant_id)
 
 
 @instrument_agent
@@ -964,8 +975,6 @@ class PersonalizedEmailAgent:
         variables: Dict[str, Any]
     ) -> Dict[str, str] | None:
         """Use AI to personalize email content."""
-        import asyncio
-        
         messages = [
             SystemMessage(
                 content=(
@@ -990,7 +999,10 @@ Make it sound natural and engaging, referencing the specific contact details pro
             )
         ]
         
-        result = asyncio.run(self._invoke_llm(llm, messages))
+        # ``llm.invoke`` is a blocking call and this method is reached from async
+        # endpoints, so it must not be wrapped in ``asyncio.run`` (which raises
+        # "event loop is already running" and silently fell back to templates).
+        result = llm.invoke(messages)
         content = result.content if hasattr(result, "content") else str(result)
         
         # Parse JSON response
@@ -1004,20 +1016,13 @@ Make it sound natural and engaging, referencing the specific contact details pro
         try:
             data = json.loads(text)
             if data.get("subject") and data.get("body"):
-                return {"subject": data["subject"], "body": data["body"]}
+                from app.services.mailer import sanitize_subject
+
+                return {"subject": sanitize_subject(data["subject"]), "body": data["body"]}
         except json.JSONDecodeError:
             pass
         
         return None
-    
-    async def _invoke_llm(self, llm, messages):
-        """Safely invoke LLM."""
-        import asyncio
-        try:
-            return await asyncio.to_thread(llm.invoke, messages)
-        except Exception as e:
-            logger.warning(f"LLM invocation failed: {e}")
-            raise
     
     def close(self):
         """Close database connection."""
@@ -1044,7 +1049,9 @@ class SenderAgent:
     
     def __init__(self, smtp_config: Optional[SMTPConfig] = None):
         """Initialize sender agent with optional SMTP configuration."""
-        self.smtp_config = smtp_config or SMTPConfig()
+        from app.services.mailer import SMTPConfigView
+
+        self.smtp_config = smtp_config or SMTPConfigView()
         self._connection = None
     
     def is_configured(self) -> bool:
@@ -1070,23 +1077,25 @@ class SenderAgent:
         return True, ""
     
     def test_connection(self, timeout: int = 10) -> Tuple[bool, str]:
-        """Test SMTP connection without sending email.
-        
+        """Test SMTP connection and, when credentials exist, authentication.
+
         Returns:
             Tuple of (success, message)
         """
-        from app.services.mailer import _open_server, _close_server
-        
-        try:
-            server = _open_server(
-                self.smtp_config.host,
-                self.smtp_config.port,
-                timeout=timeout
-            )
-            _close_server(server)
-            return True, "Connection successful"
-        except Exception as e:
-            return False, str(e)
+        from app.services.mailer import test_connection
+
+        host = (getattr(self.smtp_config, "host", "") or "").strip()
+        if not host:
+            return False, "SMTP host not configured"
+
+        result = test_connection(
+            host,
+            getattr(self.smtp_config, "port", 587),
+            (getattr(self.smtp_config, "user", "") or "").strip() or None,
+            getattr(self.smtp_config, "password", "") or None,
+        )
+        ok = bool(result.get("ok")) and result.get("authenticated", True) is not False
+        return ok, str(result.get("message") or "")
     
     def send(
         self,
@@ -1257,7 +1266,9 @@ class AIBrainAgent:
     
     def __init__(self, model_name: Optional[str] = None):
         """Initialize AI brain agent."""
-        self.model_name = model_name or os.getenv("NVIDIA_MODEL", "nvidia/nemotron-3-ultra-550b-a55b")
+        from app.config import settings as app_settings
+
+        self.model_name = model_name or app_settings.NVIDIA_MODEL
         self._llm = None
         self._initialized = False
     
@@ -1289,7 +1300,11 @@ class AIBrainAgent:
         
         try:
             result = self._llm.invoke([HumanMessage(content=prompt)])
-            return str(result.content if hasattr(result, 'content') else result).strip()
+            # A model answers with prose, quotes or markdown; a Subject header
+            # must be one clean line or the message cannot be built.
+            from app.services.mailer import sanitize_subject
+
+            return sanitize_subject(str(result.content if hasattr(result, 'content') else result))
         except Exception as e:
             logger.warning(f"Subject optimization failed: {e}")
             return subject
