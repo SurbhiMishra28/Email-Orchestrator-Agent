@@ -497,15 +497,6 @@ async def lifespan(app: FastAPI):
         except Exception as exc:  # provisioning must never block serving
             logger.error("Startup provisioning failed: %s", exc)
 
-        # Prepare the shared demo workspace so the sign-in button is instant on
-        # the first visitor instead of paying for the seed inside a request.
-        try:
-            from app.services.demo import seed_demo_workspace
-
-            seed_demo_workspace()
-        except Exception as exc:  # the demo must never stop the app from serving
-            logger.warning("Demo workspace could not be prepared: %s", exc)
-
     # Scheduled work: inbox polling, follow-up drafting and opt-in autopilot.
     # On a serverless host (ENABLE_BACKGROUND_JOBS=false) the process is frozen
     # between requests, so an interval scheduler would never fire and would
@@ -552,7 +543,6 @@ async def _poll_inbox_job():
     from fastapi.concurrency import run_in_threadpool
 
     from app.db import Tenant
-    from app.services.demo import is_demo_tenant
     from app.services.inbox import is_configured, sync_inbox
 
     if not is_configured():
@@ -560,14 +550,7 @@ async def _poll_inbox_job():
 
     db = SessionLocal()
     try:
-        # The shared demo workspace is skipped: IMAP is one process-wide mailbox,
-        # so polling on its behalf would copy the operator's own mail into a
-        # tenant every visitor can open.
-        tenant_ids = [
-            row[0]
-            for row in db.query(Tenant.id).all()
-            if not is_demo_tenant(db, row[0])
-        ]
+        tenant_ids = [row[0] for row in db.query(Tenant.id).all()]
     finally:
         db.close()
 
@@ -630,25 +613,12 @@ async def _run_autopilot_for_tenant(
     ``send=False`` stops after drafting so a caller can hand the (slow, paced)
     sending to a background worker and still answer the HTTP request promptly.
     """
-    from app.services.demo import is_demo_tenant
     from app.services.outreach import create_intro_drafts
     from app.services.send_worker import drain_queue
 
     intro = await create_intro_drafts(tenant_id=tenant_id)
 
-    # Never pull the deployment's mailbox into the shared demo workspace: IMAP is
-    # one process-wide account, so its mail is the operator's own. The rest of
-    # the pass (drafting, follow-ups, sending through the visitor's relay) runs
-    # normally.
-    demo = False
-    if tenant_id is not None:
-        db = SessionLocal()
-        try:
-            demo = is_demo_tenant(db, tenant_id)
-        finally:
-            db.close()
-
-    if is_configured() and not demo:
+    if is_configured():
         try:
             await run_in_threadpool(sync_inbox, 100, tenant_id)
         except Exception as exc:
@@ -1071,9 +1041,6 @@ async def run_orchestrator(
     allows one send per 60 seconds, so a real list would hold the request open
     for a long time. ``result.queued`` says the sending continues server-side.
     """
-    from app.deps import ensure_sending_allowed
-
-    ensure_sending_allowed(tenant_id)
     requested_goal = (payload.goal if payload and payload.goal else goal) or None
     db = SessionLocal()
     try:

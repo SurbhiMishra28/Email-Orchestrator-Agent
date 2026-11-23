@@ -566,6 +566,228 @@ function ErrorDisplay({err,onRetry}){
 
 
 
+function AuthScreen({onAuthenticated}){
+
+  const [mode,setMode]=useState("login");
+
+  const [form,setForm]=useState({email:"",password:"",name:"",tenant_name:""});
+
+  const [busy,setBusy]=useState(false);
+
+  const [err,setErr]=useState(null);
+
+  const update=(key,value)=>setForm(current=>({...current,[key]:value}));
+
+  const submit=async(e)=>{
+
+    e.preventDefault();
+
+    setBusy(true);
+
+    setErr(null);
+
+    try{
+
+      const payload = mode==="login"
+        ? {email:form.email,password:form.password}
+        : {email:form.email,password:form.password,name:form.name,tenant_name:form.tenant_name};
+
+      const result=await api(`/api/auth/${mode}`,{method:"POST",body:JSON.stringify(payload)});
+
+      storeToken(result.access_token);
+
+      const me=await api("/api/auth/me");
+
+      onAuthenticated(me);
+
+    }catch(e){
+
+      storeToken("");
+
+      setErr(e?.message||"Authentication failed");
+
+    }finally{
+
+      setBusy(false);
+
+    }
+
+  };
+
+  const feats=[
+    ["Lists & segments","Folders, per-list senders and unsubscribe state"],
+    ["Campaigns","Draft, schedule, pause and track delivery"],
+    ["A/B experiments","Stable variants with weighted assignment"],
+  ];
+
+  return (
+
+    <div className="auth-shell">
+
+      <div className="auth-aurora" aria-hidden="true"><span/><span/><span/></div>
+
+      <div className="auth-grain" aria-hidden="true"/>
+
+      <div className="auth-panel">
+
+        <div className="auth-card">
+
+          <div className="mb-7 flex items-center gap-2.5">
+
+            <div className="brand-mark"><Mail className="h-[18px] w-[18px]"/></div>
+
+            <span className="text-[16px] font-bold tracking-tight">{BRAND_NAME}</span>
+
+            <span className="ml-auto rounded-full border border-ink-200 bg-ink-200/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-400">Beta</span>
+
+          </div>
+
+          <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-ink-900">
+
+            {mode==="login"?"Welcome back":"Create your workspace"}
+
+          </h1>
+
+          <p className="mt-1.5 mb-6 text-[13px] leading-5 text-ink-500">
+
+            {mode==="login"?"Sign in to your outbound workspace.":"Start sending in minutes. No credit card required."}
+
+          </p>
+
+          <form onSubmit={submit} className="space-y-3.5">
+
+            {mode==="register"&&(
+
+              <div className="grid gap-3.5 sm:grid-cols-2">
+
+                <label className="block">
+
+                  <span className="field-label">Your name</span>
+
+                  <input required value={form.name} onChange={e=>update("name",e.target.value)} className={inputCls} placeholder="Jane Doe"/>
+
+                </label>
+
+                <label className="block">
+
+                  <span className="field-label">Workspace name</span>
+
+                  <input required value={form.tenant_name} onChange={e=>update("tenant_name",e.target.value)} className={inputCls} placeholder="Acme Inc"/>
+
+                </label>
+
+              </div>
+
+            )}
+
+            <label className="block">
+
+              <span className="field-label">Email address</span>
+
+              <input required type="email" autoComplete="email" value={form.email} onChange={e=>update("email",e.target.value)} className={inputCls} placeholder="you@company.com"/>
+
+            </label>
+
+            <label className="block">
+
+              <span className="field-label">Password</span>
+
+              <input required type="password" autoComplete={mode==="login"?"current-password":"new-password"} value={form.password} onChange={e=>update("password",e.target.value)} className={inputCls} placeholder={mode==="login"?"Your password":"At least 8 characters"}/>
+
+            </label>
+
+            {err&&<div className="notice-error">{err}</div>}
+
+            <button type="submit" disabled={busy} className={btnPrimary+" w-full"}>
+
+              {busy&&<Loader2 className="h-4 w-4 animate-spin"/>}
+
+              {mode==="login"?"Sign in":"Create workspace"}
+
+            </button>
+
+          </form>
+
+          <p className="mt-6 text-center text-[13px] text-ink-500">
+
+            {mode==="login"?"New here? ":"Already have an account? "}
+
+            <button
+
+              type="button"
+
+              onClick={()=>{setMode(mode==="login"?"register":"login");setErr(null);}}
+
+              className="link"
+
+            >
+
+              {mode==="login"?"Create a workspace":"Sign in"}
+
+            </button>
+
+          </p>
+
+        </div>
+
+      </div>
+
+      <aside className="auth-stage">
+
+        <div className="pointer-events-none absolute -right-32 -top-40 h-[30rem] w-[30rem] rounded-full bg-brand-500/10 blur-3xl"/>
+
+        <div className="pointer-events-none absolute -bottom-48 -left-24 h-[34rem] w-[34rem] rounded-full bg-brand-500/[0.06] blur-3xl"/>
+
+        <div className="relative max-w-md">
+
+          <div className="auth-eyebrow"><Sparkles className="h-3.5 w-3.5"/>Outreach, orchestrated</div>
+
+          <h2 className="mt-7 text-[32px] font-semibold leading-[1.18] tracking-tight text-ink-900">
+
+            One quiet workspace for the whole outbound loop.
+
+          </h2>
+
+          <p className="mt-4 max-w-sm text-[14px] leading-6 text-ink-500">
+
+            MailMatrix drafts, paces and follows up on every conversation, then respects your daily caps so deliverability never becomes a surprise.
+
+          </p>
+
+        </div>
+
+        <div className="relative grid gap-2.5">
+
+          {feats.map(([title,desc])=>(
+
+            <div key={title} className="auth-feature flex items-start gap-3">
+
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500"/>
+
+              <div>
+
+                <div className="text-[13px] font-semibold text-ink-800">{title}</div>
+
+                <div className="mt-0.5 text-[11.5px] leading-4 text-ink-400">{desc}</div>
+
+              </div>
+
+            </div>
+
+          ))}
+
+        </div>
+
+      </aside>
+
+    </div>
+
+  );
+
+}
+
+
+
 function AutomationView({api,signOut}){
 
   const [status,setStatus]=useState(null);
@@ -1994,42 +2216,6 @@ export default function App(){
 
   };
 
-  // Acquire a workspace session. There is no sign-in screen: if the stored token
-  // is missing or stale, the app opens the shared demo workspace instead, so the
-  // dashboard is what a visitor sees on first load.
-  const openSession=useCallback(async()=>{
-
-    try{
-
-      const me=await api("/api/auth/me");
-
-      setUser(me);
-
-      return me;
-
-    }catch(err){
-
-      storeToken("");
-
-      if(err?.status!==401&&err?.status!==403) throw err;
-
-    }
-
-    const demo=await api("/api/auth/demo",{method:"POST"});
-
-    storeToken(demo.access_token);
-
-    const me=await api("/api/auth/me");
-
-    setUser(me);
-
-    return me;
-
-  },[]);
-
-  // Drop the current token and take a fresh one. There is no sign-in screen, so
-  // this is the "start over" action rather than a sign-out: a 401 anywhere in
-  // the app lands here and the visitor keeps a working dashboard.
   const signOut=useCallback(()=>{
 
     storeToken("");
@@ -2044,9 +2230,7 @@ export default function App(){
 
     setLoading(true);
 
-    openSession().catch(err=>setError(err?.message||"Could not reopen the workspace"));
-
-  },[openSession]);
+  },[]);
 
   // ---------------------------------------------------------------- campaigns
   // Brevo's Campaigns page: a listing of sends with a channel picker, status
@@ -2578,22 +2762,27 @@ export default function App(){
 
   useEffect(()=>{ setNavOpen(false); },[view]);
 
-  // Resolve the session once on first load. A stored token is reused; without
-  // one the app opens the demo workspace rather than a sign-in screen. On a
-  // single-user local install /api/auth/me answers anyway, and on a hosted
-  // deployment the demo session is the intended starting point.
+  // Resolve the session once on first load. A stored token is reused; without a
+  // usable one the sign-in screen is shown, except in single-user mode where
+  // /api/auth/me answers from the implicit local tenant.
   useEffect(()=>{
 
     let active=true;
     (async()=>{
 
+      const hadToken=Boolean(getToken());
+
       try{
 
-        await openSession();
+        const me=await api("/api/auth/me");
+
+        if(active) setUser(me);
 
       }catch(err){
 
-        if(active) setError(err?.message||"Could not open a workspace");
+        if(hadToken&&(err?.status===401||err?.status===403)) storeToken("");
+
+        if(active&&!hadToken&&err?.status!==401&&err?.status!==403) setError(err?.message||String(err));
 
       }finally{
 
@@ -2605,7 +2794,7 @@ export default function App(){
 
     return ()=>{active=false;};
 
-  },[openSession]);
+  },[]);
 
   useEffect(() => {
 
@@ -4130,14 +4319,7 @@ export default function App(){
 
   if(!user){
 
-    return (
-      <div className="flex h-screen items-center justify-center bg-ink-50 text-ink-900">
-        <div className="text-center">
-          <div className="brand-mark mx-auto"><Mail className="h-[18px] w-[18px]"/></div>
-          <p className="mt-4 text-[13px] text-ink-500">Starting the workspace…</p>
-        </div>
-      </div>
-    );
+    return <AuthScreen onAuthenticated={setUser}/>;
 
   }
 
@@ -4186,13 +4368,6 @@ export default function App(){
           <button onClick={()=>setNavOpen(false)} className="icon-btn md:hidden" title="Close menu" aria-label="Close menu"><X className="h-4 w-4"/></button>
         </div>
 
-        {user?.demo&&(
-          <div className="mx-2.5 mt-2.5 rounded-[10px] border border-brand-300/40 bg-brand-500/10 px-3 py-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-brand-700">Demo workspace</div>
-            <p className="mt-1 text-[11px] leading-4 text-ink-400">Shared sample data. Add your own SMTP settings in Settings to send.</p>
-          </div>
-        )}
-
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-2.5 py-3">
 
           {navGroups.map(group=>(
@@ -4235,7 +4410,7 @@ export default function App(){
               <div className="truncate text-[12px] font-medium text-ink-800">{user?.name||user?.email}</div>
               <div className="truncate text-[11px] capitalize text-ink-400">{user?.role||"member"}</div>
             </div>
-            <button onClick={signOut} className="icon-btn" title="Restart session" aria-label="Restart session"><XCircle className="h-4 w-4"/></button>
+            <button onClick={signOut} className="icon-btn" title="Sign out" aria-label="Sign out"><XCircle className="h-4 w-4"/></button>
           </div>
 
         </div>

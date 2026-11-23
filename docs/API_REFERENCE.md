@@ -3,80 +3,37 @@
 ## Authentication
 
 Every `/api` route is tenant-scoped. Send `Authorization: Bearer <token>` from
-`POST /api/auth/login`, `POST /api/auth/register`, `POST /api/auth/demo` or
+`POST /api/auth/login`, `POST /api/auth/register` or
 `POST /api/auth/refresh-token`.
 
 With `SINGLE_USER_MODE=true` (the local single-user tool) no token is required and
 one implicit local tenant is used. That mode is forced off on hosted platforms, so
 a deployment always requires a token.
 
-### Demo Session
+### Current user
 
-**POST** `/api/auth/demo`
+**GET** `/api/auth/me`
 
-Signs the caller into the shared demo workspace. Takes no request body and no
-credentials: the workspace is created on first use, so a visitor can evaluate the
-product before registering.
+Returns the account and its tenant:
 
-**Response**:
 ```json
 {
-  "access_token": "eyJhbGciOi...",
-  "token_type": "bearer",
-  "user": {
-    "id": 41,
-    "email": "demo@mailmatrix.app",
-    "name": "Demo Operator",
-    "role": "admin",
-    "tenant": {
-      "id": 12,
-      "name": "MailMatrix Demo",
-      "plan": "free",
-      "daily_email_limit": 50
-    },
-    "demo": true
+  "id": 41,
+  "email": "owner@company.com",
+  "name": "Owner Name",
+  "role": "admin",
+  "tenant": {
+    "id": 12,
+    "name": "Acme Inc",
+    "plan": "free",
+    "daily_email_limit": 50
   }
 }
 ```
 
-**Status Codes**:
-- 200 OK - Session issued; the token is valid for 7 days
-- 503 Service Unavailable - The demo workspace could not be prepared
-
-The UI has no sign-in form: it calls this endpoint itself whenever there is no
-usable stored session, so a visitor reaches the dashboard directly.
-
-**Sending in the demo**
-
-`DEMO_ALLOW_SENDING` defaults to `true`, so a demo token can save SMTP settings and
-send — through its own relay only. The demo tenant never inherits the deployment's
-`SMTP_*` values, and its seeded recipients are reserved `.example.com` addresses
-that the placeholder guard refuses until a visitor edits a contact.
-
-One route stays refused even with sending enabled:
-
-| Route | Why it is refused |
-|---|---|
-| `POST /api/inbox/sync` | `IMAP_*` is deployment-wide, so a sync would copy the operator's private mail into a shared tenant |
-
-With `DEMO_ALLOW_SENDING=false` the original read-only behaviour returns and every
-relay path answers **403** with a `detail` explaining the restriction:
-
-| Route | Why it is refused |
-|---|---|
-| `POST /api/drafts/{draft_id}/send` | Demo must never deliver mail |
-| `POST /api/queue/run`, `/run-all`, `/run-async` | Queue paths would send |
-| `POST /api/scheduling/run-now`, `/api/scheduling/autopilot` (enable) | Autopilot would send |
-| `POST /api/run` | Full autopilot pass would send |
-| `POST /api/smtp/config`, `POST /api/smtp/test` | No credential storage, no relay probe |
-| `POST /api/inbox/sync` | No mailbox access from the shared tenant |
-
-Everything else — browsing contacts, drafts, campaigns, analytics, editing seeded
-rows — works normally in both modes.
-
-**Current user** — `GET /api/auth/me` returns the same `user` object shown above and
-includes `"demo": true` for demo sessions (`false` for a normal account). The UI uses
-that flag to show the demo banner.
+The web app calls this on first load and shows the sign-in screen when it answers
+401/403. `POST /api/auth/register` creates the tenant, its first admin and starter
+templates; `POST /api/auth/login` issues a token for an existing account.
 
 ## Base URL
 

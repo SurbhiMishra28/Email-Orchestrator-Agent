@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.db import InboxMessage, SessionLocal
-from app.deps import current_tenant_id, ensure_mailbox_allowed
+from app.deps import current_tenant_id
 from app.services.inbox import InboxError, InboxNotConfigured, is_configured, sync_inbox
 
 logger = logging.getLogger(__name__)
@@ -44,10 +44,6 @@ def list_inbox(limit: int = 50, tenant_id: int = Depends(current_tenant_id)):
 @router.post("/sync")
 def sync(limit: int = 25, tenant_id: int = Depends(current_tenant_id)):
     """Fetch the newest messages from IMAP and store ones not seen before."""
-    # IMAP credentials are deployment-wide, not per tenant, so a sync from the
-    # shared demo workspace would copy the operator's own mail into a workspace
-    # every visitor can open. Refused regardless of DEMO_ALLOW_SENDING.
-    ensure_mailbox_allowed(tenant_id)
     if not is_configured():
         raise HTTPException(
             status_code=400,

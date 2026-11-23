@@ -7,7 +7,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.db import SessionLocal, Contact, Draft, Log, SMTPConfig, Template
-from app.deps import current_tenant_id, ensure_sending_allowed
+from app.deps import current_tenant_id
 from app.models.schemas import DraftCreate, DraftUpdate, DraftOut
 from app.agents import expand_template_with_ai
 from app.services.limits import check_send_allowed
@@ -218,7 +218,6 @@ def send_draft(draft_id: int, tenant_id: int = Depends(current_tenant_id)):
     A draft is only ever marked ``sent`` after the relay accepted the message.
     Missing settings or ineligible recipients leave it ``blocked`` with a reason.
     """
-    ensure_sending_allowed(tenant_id)
     db = SessionLocal()
     try:
         db_draft = _get_tenant_draft(db, draft_id, tenant_id)

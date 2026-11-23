@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from app.agents import QueueManager, expand_template_with_ai
 from app.config import settings as app_settings
 from app.db import Contact, Draft, Log, SessionLocal, Settings, Template
-from app.deps import current_tenant_id, ensure_sending_allowed
+from app.deps import current_tenant_id
 from app.services.recipients import blocked_reason
 from app.services.usage import EMAILS_DRAFTED, record_usage
 
@@ -98,7 +98,6 @@ async def run_orchestration(
     tenant_id: int = Depends(current_tenant_id),
 ):
     """Run one queue pass for the caller's tenant and return what happened."""
-    ensure_sending_allowed(tenant_id)
     db = SessionLocal()
     qm = get_queue_manager()
     try:
@@ -143,7 +142,6 @@ async def run_orchestration_all(
     
     If contact_ids is provided in the request body, only those contacts will be processed.
     """
-    ensure_sending_allowed(tenant_id)
     if request is None:
         request = RunAllRequest()
     
@@ -278,7 +276,6 @@ async def run_orchestration_async(
     batch never holds an HTTP connection open. Poll ``/jobs/{job_id}`` for the
     outcome;     ``services/limits.py`` still gates every individual send.
     """
-    ensure_sending_allowed(tenant_id)
     from app.services.send_worker import drain_queue, get_worker
 
     if request is None:

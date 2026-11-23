@@ -58,10 +58,11 @@ Brevo-style splash: the `MailMatrix` wordmark fills the screen with a short load
 bar, then fades into the dashboard. The splash is skipped for users who prefer
 reduced motion.
 
-There is no login page: the app resolves or issues a session itself
-(`GET /api/auth/me`, falling back to `POST /api/auth/demo`) and renders the
-dashboard. The rail's avatar button restarts that session rather than leading to a
-sign-in form.
+There is a sign-in screen: on first load the app asks `GET /api/auth/me` for the
+stored session and, when there is none or it has expired, shows the email/password
+form with a toggle into workspace registration. The rail's avatar button signs out
+and returns to that form. In `SINGLE_USER_MODE` no form is needed, because
+`/api/auth/me` answers from the implicit local tenant.
 
 Navigation is grouped, and the rail is responsive:
 
@@ -88,36 +89,22 @@ the component classes (`.app-rail`, `.surface`, `.data-table`, `.splash`).
 Deep links work: `/contacts`, `/agents`, `/campaigns`, `/experiments` and the rest
 open the matching view, and the back button moves between views.
 
-## Demo workspace
+## Accounts and sessions
 
-There is no sign-in screen. On first load the dashboard asks `GET /api/auth/me`
-for the stored session and, when there is none (or it has expired), calls
-`POST /api/auth/demo` and opens the shared workspace directly. A visitor lands on
-a populated Overview with no account to create.
+`POST /api/auth/register` creates a tenant and its first admin, provisions blank
+SMTP fields plus starter templates, and returns a 7-day token. `POST /api/auth/login`
+issues a token for an existing account. The UI stores the token in `localStorage`
+and sends it as `Authorization: Bearer`; a 401/403 anywhere clears it and returns to
+the sign-in screen.
 
-The demo is one shared tenant (`Tenant.subdomain == "demo"`), seeded on first use
-by `app/services/demo.py` (idempotent, also run at startup): contacts, folders,
-lists, templates, campaigns, drafts, replies, engagement events, inbox messages,
-verifications and an A/B test. Its rows are on reserved `.example.com` addresses,
-so the placeholder guard refuses to mail them until a visitor edits a contact.
+No workspace ships with sample data. Every contact, list, template, campaign and
+draft in a workspace is created by its owner, and a new tenant starts empty apart
+from the starter templates `provision_tenant_defaults()` installs.
 
-Sending is enabled (`DEMO_ALLOW_SENDING=true`), which is what lets the demo show
-the product's core loop, but on terms that cannot hurt the operator:
-
-- The demo tenant **never inherits the deployment's SMTP credentials**.
-  `provision_tenant_defaults()` refuses environment inheritance for it, so the
-  form starts blank and a visitor must enter their own relay.
-- **Inbox sync is always refused** for the demo (`app.deps.ensure_mailbox_allowed`).
-  `IMAP_*` is process-wide, not per tenant, so a sync would copy the operator's
-  private mail into a workspace every visitor can open.
-- Autopilot starts off in the seeded settings. A visitor can turn it on for their
-  own session, and the pass sends only through whatever relay they configured.
-
-Set `DEMO_ALLOW_SENDING=false` to restore the original read-only behaviour: every
-relay path — draft send, queue runs, scheduling, `POST /api/run`, SMTP config and
-test, inbox sync — then returns 403 via `app.deps.ensure_sending_allowed()`.
-
-Because it is one shared tenant, any visitor can edit or delete the seeded rows.
+Sending always uses the workspace's own relay: `provision_tenant_defaults()`
+copies the deployment's `SMTP_*` environment only in `SINGLE_USER_MODE`, which is
+forced off on a hosted platform. A hosted account must enter its own host, user,
+password and sender under **Settings** before anything can be delivered.
 
 ## API endpoints
 
@@ -139,7 +126,6 @@ required; otherwise send `Authorization: Bearer <token>`.
 |---|---|---|
 | POST | `/api/auth/register` | Create tenant and owner |
 | POST | `/api/auth/login` | Obtain access token |
-| POST | `/api/auth/demo` | Open the shared, seeded demo workspace with no credentials |
 | POST | `/api/auth/refresh-token` | Refresh an access token |
 | GET | `/api/auth/me` | Current user and tenant |
 | GET / POST | `/api/auth/api-keys` | List / create API keys |

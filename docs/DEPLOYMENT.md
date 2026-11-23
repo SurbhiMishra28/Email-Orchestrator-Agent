@@ -88,7 +88,7 @@ settings, re-enable autopilot, and send mail as the configured mailbox.
 `app/config.py` therefore ignores the setting whenever the instance has a
 platform URL (`RENDER_EXTERNAL_URL`, `RAILWAY_PUBLIC_DOMAIN`, `FLY_APP_NAME`).
 Requests then need a bearer token, so a `.env` copied from a laptop cannot publish
-an open instance. The dashboard opens the shared demo workspace on its own, and
+an open instance. The dashboard shows its sign-in screen, and
 `POST /api/auth/register` creates the owner account.
 
 Treat any SMTP credentials that were reachable this way as compromised: the
@@ -169,17 +169,16 @@ curl -I https://YOUR-URL/             # 200 and the MailMatrix shell
 `DATABASE_URL` is wrong, which the logs restate with the host it tried to reach
 (password redacted).
 
-Then open the deployment. There is no sign-in form: the app opens the shared demo
-workspace by itself and the Overview should be populated. Confirm the demo holds no
-relay of yours — **Settings** shows blank SMTP fields, because the demo tenant never
-inherits `SMTP_*` from the environment — and that **Inbox → Sync** returns 403, since
-`IMAP_*` is your own mailbox. Create a real workspace through
-`POST /api/auth/register` before setting `MAIL_SUPPRESS_SEND=false` and adding live
-SMTP credentials.
+Then open the deployment. The sign-in screen appears; create the owner account with
+**Create a workspace**, which returns a token for the new tenant. The Overview starts
+empty because a new workspace holds no sample data — only the starter templates.
+**Settings** shows blank SMTP fields, since `SINGLE_USER_MODE` is off on a hosted
+platform and a tenant never inherits the deployment's `SMTP_*`. Enter your own relay
+there, and only then set `MAIL_SUPPRESS_SEND=false`.
 
-The demo tenant is shared, so anything a visitor edits there is visible to the next
-one; it holds no credentials and no real addresses. Set `DEMO_ALLOW_SENDING=false`
-to make it read-only instead of send-capable.
+Because registration is open, anyone who finds the URL can create a workspace. If
+the instance is private, disable or gate `POST /api/auth/register` at your proxy
+until you want more accounts.
 
 ## Serverless alternative
 
@@ -188,7 +187,7 @@ If you must run on a serverless host (Vercel, Lambda), set
 
 ```bash
 curl -X POST https://YOUR-URL/api/scheduling/run-now -H "Authorization: Bearer $TOKEN"
-curl -X POST https://YOUR-URL/api/inbox/sync
+curl -X POST https://YOUR-URL/api/inbox/sync -H "Authorization: Bearer $TOKEN"
 ```
 
 Pacing still applies, so a large queue will drain slowly across several cron

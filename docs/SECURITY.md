@@ -26,27 +26,12 @@ This document outlines the security considerations, best practices, and implemen
 ### 2. Authentication & Authorization
 
 #### Current State
-- **No authentication implemented** - Development/demo mode
-- All API endpoints are publicly accessible
+- **JWT bearer authentication** - `POST /api/auth/register` and `/api/auth/login` issue 7-day tokens; every `/api` route resolves the caller through `app.auth.get_current_user` and scopes queries to their tenant
+- **`SINGLE_USER_MODE`** - When enabled (the local single-user tool only) a request without a token resolves to the implicit local tenant. It is forced off whenever the instance has a platform URL, so a deployment always requires a token
+- **Role-based access control** - `Depends(require_role("admin"))` gates team management; the last admin of a tenant cannot be demoted or removed
 
-#### Production Recommendations
-Implement authentication before production deployment:
-
-```python
-# Example: JWT Authentication
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-async def get_current_user(token: str = Depends(oauth2_scheme)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    # Validate token and return user
-```
+Registration is open by default: anyone who can reach the instance can create a
+tenant. Gate `POST /api/auth/register` at the proxy if the instance is private.
 
 ### 3. Rate Limiting
 

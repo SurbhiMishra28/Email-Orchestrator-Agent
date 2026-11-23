@@ -8,12 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Demo workspace** - `POST /api/auth/demo` opens a shared, seeded `demo` tenant with no credentials. The app calls it on first load whenever there is no usable session, so a visitor lands on a populated dashboard with nothing to sign in to. 18 contacts on reserved `.example.com` addresses, folders, lists, templates, campaigns, drafts in mixed states, classified replies, engagement events, inbox messages, verifications, an A/B test and usage rows. `app/services/demo.py` seeds idempotently at startup and on first use
-- **`DEMO_ALLOW_SENDING`** - Defaults to `true`: the demo may save SMTP settings and send, which is what lets it demonstrate the product's core loop. Safety is structural rather than a refusal — `provision_tenant_defaults()` never copies the deployment's `SMTP_*` into the demo tenant, so a visitor must supply their own relay, and the seeded recipients are reserved-domain addresses the placeholder guard refuses. `false` restores read-only mode, where `app.deps.ensure_sending_allowed()` returns 403 on every relay path
-- **Inbox sync stays refused for the demo** - `app.deps.ensure_mailbox_allowed()` blocks `POST /api/inbox/sync` regardless of `DEMO_ALLOW_SENDING`, because `IMAP_*` is process-wide: a sync would copy the operator's private mail into a workspace every visitor can open. The same check is used by the autopilot inbox step
-- **`demo` flag on `/api/auth/me`** - Identifies demo sessions so the UI shows the demo banner
 - **Inverted dark theme** - The dashboard was rebuilt on a near-black sage palette (`#060b09` floor, `#7fb39d` accent) with a cinematic splash. The `ink` ramp is inverted (low numbers are the page floor, high numbers are the brightest text) so existing utility classes keep their meaning
-- **Demo workspace tests** - `tests/test_demo_workspace.py` covers demo identity, the `/me` flag, seeded content minimums, seed idempotency, the no-inherited-SMTP invariant, a successful send with a visitor-supplied relay, the IMAP refusal, and read-only mode refusing all nine relay paths
 - **PersonalizedEmailAgent** - New agent for contact-specific email personalization with AI enhancement
 - **SenderAgent** - Low-level SMTP sending agent with validation and error handling
 - **CalendarAgent** - Meeting scheduling integration (Google Calendar, Microsoft, Calendly, manual)
@@ -32,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`MAIL_SUPPRESS_SEND`** - dry-run mode that records a send without opening an SMTP connection; the test suite enables it so it can never mail the real account in `.env`
 
 ### Changed
-- **The login page is gone** - The app resolves a session itself on first load (`GET /api/auth/me`, falling back to `POST /api/auth/demo`) and renders the dashboard directly. There is no email/password form, no register toggle and no `AuthScreen` component; the rail's avatar button restarts the session instead of signing out, so a 401 anywhere re-opens a workspace rather than stranding the visitor on a form. `POST /api/auth/register`, `/login` and `/refresh-token` remain available for API clients
+- **Sign-in screen restored** - The app asks `GET /api/auth/me` for the stored session on first load and shows the email/password form (with a toggle into workspace registration) when there is no usable one. The rail's avatar button signs out and returns to that form. `POST /api/auth/register` creates the tenant, its first admin and the starter templates
 - **`/health` returns 503 when the database is unreachable** - The payload reports `"status": "degraded"` and `checks.database.healthy: false`, so a platform probe fails the deploy instead of reporting a process that cannot serve requests as up. The app still starts and serves when the database is missing at boot; only the probe fails
 - **Dashboard theme** - Replaced the light sky-blue palette with the dark sage theme; `red`/`amber`/`blue` utilities map to `danger`/`warn`/`info` scales and all white surfaces use the inverted `ink` ramp
 - Updated agent documentation to reflect complete implementation
@@ -44,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Queue passes skip blacklisted contacts instead of retrying them
 
 ### Removed
+- **The demo workspace** - `POST /api/auth/demo`, `app/services/demo.py`, `DEMO_ALLOW_SENDING`, the `demo` flag on `/api/auth/me`, the demo guards in `app/deps.py` and `tests/test_demo_workspace.py`. No workspace ships with seeded sample data: every contact, list, template, campaign and draft is created by its owner
 - The 100 fictional contacts imported from `customers-100.csv`, the empty placeholder list they created, and the 154 delivery-failure inbox rows left by earlier sends to placeholder addresses
 
 ---
