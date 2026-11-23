@@ -551,30 +551,25 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
 
 
-async def _inbox_configured_ids(tenant_ids) -> list:
+def _tenants_with_inbox(tenant_ids) -> list:
     """Filter ``tenant_ids`` down to the ones with their own resolvable mailbox.
 
     Inbox polling must never read one mailbox on behalf of another tenant: the
     rows it writes carry ``tenant_id``, so a shared mailbox would duplicate the
-    operator's correspondence into every account.
+    operator's correspondence into every account. The lookup is a cheap series
+    of row reads, so it stays synchronous; only the IMAP round-trip is offloaded.
     """
-    from fastapi.concurrency import run_in_threadpool
+    from app.services.inbox import resolve_imap_config
 
     db = SessionLocal()
     try:
         return [
             tenant_id
             for tenant_id in tenant_ids
-            if await run_in_threadpool(_tenant_has_inbox, db, tenant_id)
+            if resolve_imap_config(db, tenant_id).configured
         ]
     finally:
         db.close()
-
-
-def _tenant_has_inbox(db, tenant_id) -> bool:
-    from app.services.inbox import resolve_imap_config
-
-    return resolve_imap_config(db, tenant_id).configured
 
 
 async def _poll_inbox_job():
@@ -589,7 +584,7 @@ async def _poll_inbox_job():
     finally:
         db.close()
 
-    for tenant_id in await _inbox_configured_ids(tenant_ids or [None]):
+    for tenant_id in _tenants_with_inbox(tenant_ids):
         try:
             await run_in_threadpool(sync_inbox, 25, tenant_id)
         except Exception as exc:  # a mailbox outage must not stop the scheduler
