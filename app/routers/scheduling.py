@@ -176,15 +176,33 @@ async def run_scheduling_now(tenant_id: int = Depends(current_tenant_id)):
     Drafting and reply handling are inline; the paced sending is handed to the
     background worker so this request returns promptly and the user does not
     have to press Run again.
+
+    A serverless host has no worker to hand off to -- the process is frozen as
+    soon as the response is sent -- so the queue is drained inline for a bounded
+    window and the remainder is left for the next tick.
     """
     from app.main import _autopilot_pass
-    from app.services.send_worker import get_worker
+    from app.services.send_worker import drain_queue
 
     result = await _autopilot_pass(tenant_id, send=False)
 
-    job = get_worker().submit(tenant_id)
-    result["queued"] = True
-    result["job_id"] = job.id
+    if app_settings.ENABLE_BACKGROUND_JOBS:
+        from app.services.send_worker import get_worker
+
+        job = get_worker().submit(tenant_id)
+        result["queued"] = True
+        result["job_id"] = job.id
+        queued_label = f"sending queued as job {job.id}"
+    else:
+        drained = await drain_queue(
+            tenant_id=tenant_id, max_seconds=app_settings.SYNC_DRAIN_SECONDS
+        )
+        result["send"] = drained
+        result["queued"] = False
+        queued_label = (
+            f"sending drained inline: {drained.get('sent', 0)} sent, "
+            f"{drained.get('skipped', 0)} skipped"
+        )
 
     db = SessionLocal()
     try:
@@ -194,7 +212,7 @@ async def run_scheduling_now(tenant_id: int = Depends(current_tenant_id)):
                     "Autopilot pass run manually: "
                     f"{result.get('intros_drafted', 0)} intros drafted, "
                     f"{result.get('replies_answered', 0)} replies answered, "
-                    f"sending queued as job {job.id}"
+                    f"{queued_label}"
                 ),
                 level="info",
                 tenant_id=tenant_id,

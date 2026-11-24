@@ -36,6 +36,7 @@ from app.db import (
 from app.deps import current_tenant_id
 from app.models.schemas import ContactOut, DraftOut, SettingsOut
 from app.services.provisioning import provision_tenant_defaults
+from app import security
 from app.live_logs import live_logs
 from app.routers import api
 
@@ -490,25 +491,33 @@ async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
     logger.info("Starting Email Orchestrator...")
-    # A missing database is a configuration problem, not a code bug: report it
-    # through /health and log loudly, but keep serving so the deployment stays
-    # up and the fix is a settings change rather than a redeploy.
+    # Schema creation and workspace provisioning. These are idempotent, but on
+    # a serverless host every cold start would repeat the DDL checks against the
+    # managed database, which is slow and races between concurrent instances.
+    # Such a deployment sets AUTO_INIT_DB=false and runs
+    # ``python scripts/init_db.py`` once instead.
     database_ready = True
-    try:
-        init_db()
-    except SQLAlchemyError as exc:
-        database_ready = False
-        logger.error(
-            "Database unavailable at startup (%s). The app will keep running "
-            "and /health will report degraded. Check DATABASE_URL.",
-            exc,
+    if not app_settings.AUTO_INIT_DB:
+        logger.info(
+            "AUTO_INIT_DB=false: skipping schema creation and provisioning at "
+            "startup. Run 'python scripts/init_db.py' once per database."
         )
-
-    if database_ready:
+    else:
         try:
-            _bootstrap_database()
-        except Exception as exc:  # provisioning must never block serving
-            logger.error("Startup provisioning failed: %s", exc)
+            init_db()
+        except SQLAlchemyError as exc:
+            database_ready = False
+            logger.error(
+                "Database unavailable at startup (%s). The app will keep running "
+                "and /health will report degraded. Check DATABASE_URL.",
+                exc,
+            )
+
+        if database_ready:
+            try:
+                _bootstrap_database()
+            except Exception as exc:  # provisioning must never block serving
+                logger.error("Startup provisioning failed: %s", exc)
 
     # Scheduled work: inbox polling, follow-up drafting and opt-in autopilot.
     # On a serverless host (ENABLE_BACKGROUND_JOBS=false) the process is frozen
@@ -981,6 +990,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# HTTP Basic auth. Installed after CORS so a rejected request still carries the
+# CORS headers and the browser can report the 401 instead of a CORS error.
+security.install(app)
+
 
 @app.get("/health")
 @app.get("/health/")
@@ -1016,7 +1029,13 @@ def health_check():
 @app.get("/api/state/")
 def get_state(tenant_id: int = Depends(current_tenant_id)):
     """Get the caller's application state for the frontend."""
-    return get_state_from_db(tenant_id)
+    state = get_state_from_db(tenant_id)
+    if isinstance(state, dict):
+        # The frontend keys its live-log socket off this flag so a host that
+        # cannot hold a WebSocket (any serverless platform) renders the log as
+        # static instead of reconnecting forever.
+        state["live_logs"] = app_settings.ENABLE_LIVE_LOGS
+    return state
 
 
 @app.get("/api/usage")
@@ -1029,26 +1048,34 @@ def get_usage(tenant_id: int = Depends(current_tenant_id)):
         db.close()
 
 
-@app.websocket("/ws/live-logs")
-async def live_agent_logs(websocket: WebSocket):
-    """Stream transient agent method lifecycle events to connected clients."""
-    await websocket.accept()
-    queue = live_logs.subscribe()
+if app_settings.ENABLE_LIVE_LOGS:
 
-    async def send_events():
-        while True:
-            await websocket.send_json(await queue.get())
+    @app.websocket("/ws/live-logs")
+    async def live_agent_logs(websocket: WebSocket):
+        """Stream transient agent method lifecycle events to connected clients."""
+        await websocket.accept()
+        queue = live_logs.subscribe()
 
-    sender = asyncio.create_task(send_events())
-    try:
-        async for _ in websocket.iter_text():
+        async def send_events():
+            while True:
+                await websocket.send_json(await queue.get())
+
+        sender = asyncio.create_task(send_events())
+        try:
+            async for _ in websocket.iter_text():
+                pass
+        except WebSocketDisconnect:
             pass
-    except WebSocketDisconnect:
-        pass
-    finally:
-        sender.cancel()
-        await asyncio.gather(sender, return_exceptions=True)
-        live_logs.unsubscribe(queue)
+        finally:
+            sender.cancel()
+            await asyncio.gather(sender, return_exceptions=True)
+            live_logs.unsubscribe(queue)
+
+else:
+    logger.info(
+        "Live log WebSocket disabled (ENABLE_LIVE_LOGS=false); /ws/live-logs "
+        "is not registered"
+    )
 
 
 @app.post("/api/run")
@@ -1070,6 +1097,11 @@ async def run_orchestrator(
     Sending is queued on the background worker instead of draining here: pacing
     allows one send per 60 seconds, so a real list would hold the request open
     for a long time. ``result.queued`` says the sending continues server-side.
+
+    A serverless host has no background worker: the process is frozen the
+    moment the response is sent, so a handoff would silently drop every
+    remaining message. There the queue is drained inline for a bounded window
+    and the rest is left for the next cron tick.
     """
     requested_goal = (payload.goal if payload and payload.goal else goal) or None
     db = SessionLocal()
@@ -1088,16 +1120,42 @@ async def run_orchestrator(
 
     result = await _autopilot_pass(tenant_id, send=False)
 
-    from app.services.send_worker import get_worker
+    if app_settings.ENABLE_BACKGROUND_JOBS:
+        from app.services.send_worker import get_worker
 
-    job = get_worker().submit(tenant_id)
-    result["queued"] = True
-    result["job_id"] = job.id
+        job = get_worker().submit(tenant_id)
+        result["queued"] = True
+        result["job_id"] = job.id
+    else:
+        # No worker exists to hand off to, and the response would abandon the
+        # queue. Drain what fits in the window and say what is left.
+        from app.services.send_worker import drain_queue
+
+        drained = await drain_queue(
+            tenant_id=tenant_id, max_seconds=app_settings.SYNC_DRAIN_SECONDS
+        )
+        result["send"] = drained
+
+        db = SessionLocal()
+        try:
+            remaining = (
+                db.query(Draft)
+                .filter(
+                    Draft.tenant_id == tenant_id,
+                    Draft.status.in_(["draft", "blocked"]),
+                )
+                .count()
+            )
+        finally:
+            db.close()
+
+        result["paused"] = remaining > 0
+        result["remaining"] = int(remaining)
 
     return {
         "message": "Autopilot run started",
         "goal": resolved_goal,
-        "job_id": job.id,
+        "job_id": result.get("job_id"),
         "result": result,
     }
 
@@ -1136,13 +1194,28 @@ class SPAStaticFiles(StaticFiles):
             return await super().get_response("index.html", scope)
 
 
-if os.path.exists(frontend_dist):
+# Serve the built frontend when this process serves static files itself
+# (local development and any long-lived host). On Vercel the SPA is built and
+# served from the CDN instead: the function ships only ``app/``, so this mount
+# would find no dist directory and, if it did, would turn every asset request
+# into a function invocation.
+if os.getenv("VERCEL"):
+    logger.info(
+        "Running on Vercel: static frontend is served by the CDN, not mounted here"
+    )
+elif os.path.exists(frontend_dist):
     try:
         app.mount("/", SPAStaticFiles(directory=frontend_dist, html=True), name="frontend-dist")
     except (RuntimeError, OSError):
         pass
-if os.path.exists(frontend_public) and not os.path.exists(frontend_dist):
-    # Fallback to serving index.html from public (development mode)
+if (
+    not os.getenv("VERCEL")
+    and os.path.exists(frontend_public)
+    and not os.path.exists(frontend_dist)
+):
+    # Fallback to serving index.html from public (development mode). Skipped on
+    # Vercel, where the CDN serves the built SPA and a "/" route here would only
+    # shadow it with a "frontend not built" message.
     @app.get("/", include_in_schema=False)
     def serve_index():
         """Serve the frontend index.html at root."""

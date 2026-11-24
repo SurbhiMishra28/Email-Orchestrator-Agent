@@ -3,7 +3,10 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# This script lives in scripts/, so the import root is its parent directory.
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from app.db import SessionLocal, Template, Settings
 from app.services.provisioning import normalize_template_categories

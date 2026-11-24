@@ -13,8 +13,12 @@ jinja2>=3.1
 # LangChain model integration and agent tools
 langchain-core>=1.0
 langchain-nvidia-ai-endpoints>=0.3
-# MySQL is the required application database
+# MySQL is the local development database
 pymysql>=1.1
+# PostgreSQL is the production database on Vercel (Neon). psycopg 3 is the
+# driver named by the ``postgresql+psycopg://`` URL; the binary extra avoids
+# requiring a compiler in the build image.
+psycopg[binary]>=3.1
 # used by /api/deliverability/check (SPF/DMARC/MX DNS lookups)
 dnspython>=2.6
 # JWT authentication and password hashing (app/auth.py)

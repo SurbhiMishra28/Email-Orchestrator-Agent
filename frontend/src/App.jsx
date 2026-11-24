@@ -246,7 +246,7 @@ function StatCard({label,value,icon:Icon,color="blue",hint}){
 
 
 
-function LiveAgentActivity(){
+function LiveAgentActivity({enabled=true}){
 
   const [events,setEvents]=useState([]);
 
@@ -255,6 +255,11 @@ function LiveAgentActivity(){
   const [paused,setPaused]=useState(false);
 
   useEffect(()=>{
+
+    // A serverless host cannot hold a WebSocket open, so the API reports the
+    // capability in /api/state. Connecting anyway would produce a reconnect
+    // loop that fires every few seconds for the life of the page.
+    if(!enabled) return;
 
     let socket=null;
 
@@ -308,7 +313,7 @@ function LiveAgentActivity(){
 
     return ()=>{ closed=true; clearTimeout(retry); try{ socket?.close(); }catch{} };
 
-  },[]);
+  },[enabled]);
 
   const visible=paused?[]:events;
 
@@ -324,11 +329,11 @@ function LiveAgentActivity(){
 
         <div className="flex items-center gap-2 text-[12px]">
 
-          <span className={"h-2 w-2 rounded-full "+(connected?"bg-brand-500":"bg-ink-300")}/>
+          <span className={"h-2 w-2 rounded-full "+(enabled&&connected?"bg-brand-500":"bg-ink-300")}/>
 
-          <span className="text-ink-600">{connected?"Streaming":"Disconnected"}</span>
+          <span className="text-ink-600">{!enabled?"Unavailable on this host":connected?"Streaming":"Disconnected"}</span>
 
-          {running.size>0&&<span className="font-medium text-info-600">{running.size} running</span>}
+          {enabled&&running.size>0&&<span className="font-medium text-info-600">{running.size} running</span>}
 
         </div>
 
@@ -345,6 +350,18 @@ function LiveAgentActivity(){
         </div>
 
       </div>
+
+      {!enabled&&(
+
+        <p className="text-[12px] text-ink-500">
+          Live streaming needs a long-lived process. This deployment runs on a
+          serverless host, so activity is available from the activity log and
+          each send is reported in the queue results.
+        </p>
+
+      )}
+
+      {enabled&& (
 
       <div className="max-h-80 space-y-1 overflow-y-auto font-mono text-[11.5px]">
 
@@ -365,6 +382,8 @@ function LiveAgentActivity(){
         {visible.length===0&&<p className="text-ink-500">No agent activity yet. Run the queue or send an email to see events.</p>}
 
       </div>
+
+      )}
 
     </Card>
 
@@ -3445,7 +3464,7 @@ export default function App(){
 
         // Auto-test SMTP connection if already configured
 
-        if (config?.configured && config?.authentication_configured) {
+        if (config?.configured && (config?.authentication_configured || config?.transport === "gmail_api")) {
 
           try {
 
@@ -3808,9 +3827,10 @@ export default function App(){
 
   const checkSmtp=async()=>{
 
+    const gmailApi=smtpConfig?.transport==="gmail_api";
     const port=smtp.port?Number(smtp.port):587;
 
-    if(!Number.isInteger(port)||port<1||port>65535){
+    if(!gmailApi&&(!Number.isInteger(port)||port<1||port>65535)){
 
       setSmtpCheck({ok:false,message:"SMTP port must be an integer between 1 and 65535."});
 
@@ -3820,15 +3840,14 @@ export default function App(){
 
     try{
 
-      setSmtpCheck({checking:true,message:"Connecting to SMTP server..."});
-
+      setSmtpCheck({checking:true,message:gmailApi?"Checking Gmail API access...":"Connecting to SMTP server..."});
       const result=await api("/api/smtp/test",{method:"POST",body:JSON.stringify({
 
-        host:smtp.host.trim()||undefined,
+        host:gmailApi?undefined:(smtp.host.trim()||undefined),
 
-        port,
+        port:gmailApi?undefined:port,
 
-        user:smtp.user.trim()||undefined,
+        user:gmailApi?undefined:(smtp.user.trim()||undefined),
 
         password:smtp.pass||undefined,
 
@@ -3914,9 +3933,10 @@ export default function App(){
 
   const checkImap=async()=>{
 
+    const gmailApi=imapConfig?.transport==="gmail_api";
     const port=imap.port?Number(imap.port):993;
 
-    if(!Number.isInteger(port)||port<1||port>65535){
+    if(!gmailApi&&(!Number.isInteger(port)||port<1||port>65535)){
 
       setImapCheck({ok:false,message:"IMAP port must be an integer between 1 and 65535."});
 
@@ -3926,9 +3946,8 @@ export default function App(){
 
     try{
 
-      setImapCheck({checking:true,message:"Connecting to IMAP server..."});
-
-      const result=await api("/api/inbox/test",{method:"POST",body:JSON.stringify({
+      setImapCheck({checking:true,message:gmailApi?"Checking Gmail inbox access...":"Connecting to IMAP server..."});
+      const result=await api("/api/inbox/test",{method:"POST",body:JSON.stringify(gmailApi?{}:{
 
         host:imap.host.trim()||undefined,
 
@@ -4028,7 +4047,7 @@ export default function App(){
 
     if(!smtpConfig?.configured||smtpDirty){
 
-      setDraftError("Save the SMTP configuration in Settings before sending.");
+      setDraftError("Configure the mail transport in Settings before sending.");
 
       return;
 
@@ -4064,13 +4083,13 @@ export default function App(){
 
       if(updated?.status==="sent"){
 
-        setStatus("Email sent via SMTP");
+        setStatus("Email sent successfully");
 
         setTimeout(()=>setStatus(null),2500);
 
       }else{
 
-        setDraftError(`Draft was not marked sent (current status: ${updated?.status||"unknown"}). Check SMTP settings and server logs before retrying.`);
+        setDraftError(`Draft was not marked sent (current status: ${updated?.status||"unknown"}). Check mail settings and server logs before retrying.`);
 
       }
 
@@ -4096,7 +4115,7 @@ export default function App(){
 
     if(draft.status==="sent") return "Already sent";
 
-    if(!smtpConfig?.configured) return "SMTP not configured";
+    if(!smtpConfig?.configured) return "Mail transport not configured";
 
     if(smtpDirty) return "Save SMTP changes";
 
@@ -4564,7 +4583,7 @@ export default function App(){
 
             <PageHeader title="Agents" subtitle="The pipeline runs itself: contacts go in, replies come back answered." eyebrow="Workspace"/>
 
-            <LiveAgentActivity/>
+            <LiveAgentActivity enabled={state.live_logs!==false}/>
 
             <Card title="Pipeline" subtitle="Runs on the schedule and whenever you press Run now">
 
@@ -5235,9 +5254,9 @@ export default function App(){
 
               <div className="notice-warn flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 
-                <span>{smtpConfig?.configured ? "Save and test the SMTP connection in Settings to enable sending." : "Add SMTP settings in Settings to enable sending."}</span>
+                <span>{smtpConfig?.configured ? "Test the mail connection in Settings to enable sending." : "Configure the mail transport in Settings to enable sending."}</span>
 
-                <button type="button" onClick={()=>setView("settings")} className="shrink-0 font-semibold underline underline-offset-2">Open SMTP settings</button>
+                <button type="button" onClick={()=>setView("settings")} className="shrink-0 font-semibold underline underline-offset-2">Open mail settings</button>
 
               </div>
 
@@ -5367,7 +5386,7 @@ export default function App(){
 
               {!inbox.configured ? (
 
-                <EmptyState icon={Mail} title="IMAP is not configured" description="Add the mailbox in Settings → Inbox (IMAP), or set IMAP_HOST, IMAP_USER and IMAP_PASS in the environment."/>
+                <EmptyState icon={Mail} title="Inbox is not configured" description={imapConfig?.transport==="gmail_api"?"Add the Gmail OAuth credentials to the backend deployment environment.":"Add the mailbox in Settings → Inbox (IMAP), or set IMAP_HOST, IMAP_USER and IMAP_PASS in the environment."}/>
 
               ) : inbox.messages.length === 0 ? (
 
@@ -5777,6 +5796,24 @@ export default function App(){
 
             </Card>
 
+            {smtpConfig?.transport==="gmail_api" ? (
+            <Card title="Gmail API sending" subtitle="OAuth credentials are supplied by the backend environment">
+              <div className="space-y-3">
+                {smtpError&&<div className="notice-error">{smtpError}</div>}
+                <p className="text-[12px] text-ink-500">
+                  Add GMAIL_OAUTH_CLIENT_ID, GMAIL_OAUTH_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, and GMAIL_USER_EMAIL to the backend deployment. OAuth secrets are never displayed here.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={checkSmtp} disabled={smtpCheck?.checking} className={btnGhost}>
+                    {smtpCheck?.checking?"Checking...":"Test Gmail connection"}
+                  </button>
+                </div>
+                {smtpCheck&&smtpCheck.message&&(
+                  <p className={"text-[12px] "+(smtpCheck.ok?"text-brand-700":"text-danger-600")}>{smtpCheck.message}</p>
+                )}
+              </div>
+            </Card>
+            ) : (
             <Card title="SMTP configuration" subtitle="Credentials used for every send">
 
               <div className="space-y-3">
@@ -5844,7 +5881,26 @@ export default function App(){
               </div>
 
             </Card>
+            )}
 
+            {imapConfig?.transport==="gmail_api" ? (
+            <Card title="Gmail API inbox" subtitle="Read-only inbox access for reply sync">
+              <div className="space-y-3">
+                {imapError&&<div className="notice-error">{imapError}</div>}
+                <p className="text-[12px] text-ink-500">
+                  Inbox access uses the same OAuth credentials as sending. Authorize both gmail.send and gmail.readonly scopes, then add the credentials to the backend deployment environment.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={checkImap} disabled={imapCheck?.checking} className={btnGhost}>
+                    {imapCheck?.checking?"Checking...":"Test Gmail inbox access"}
+                  </button>
+                </div>
+                {imapCheck&&imapCheck.message&&(
+                  <p className={"text-[12px] "+(imapCheck.ok?"text-brand-700":"text-danger-600")}>{imapCheck.message}</p>
+                )}
+              </div>
+            </Card>
+            ) : (
             <Card title="Inbox (IMAP)" subtitle="Mailbox polled for replies; read state is never changed">
 
               <div className="space-y-3">
@@ -5912,6 +5968,7 @@ export default function App(){
               </div>
 
             </Card>
+            )}
 
             <Card title="Run goal" subtitle="What the next agent run should optimize for">
 
@@ -6950,7 +7007,7 @@ export default function App(){
 
                   <div className="notice-warn mb-4">
 
-                    <p className="text-[12px]">This will send actual emails via SMTP. Only eligible contacts will receive emails.</p>
+                    <p className="text-[12px]">This will send actual emails through the configured mail transport. Only eligible contacts will receive emails.</p>
 
                   </div>
 
@@ -6958,7 +7015,7 @@ export default function App(){
 
                   <div className="notice-error mb-4">
 
-                    <p className="text-[12px]">SMTP is not configured. Add it in Settings → SMTP configuration, then save.</p>
+                    <p className="text-[12px]">Mail is not configured. Set up the selected mail transport in Settings.</p>
 
                   </div>
 

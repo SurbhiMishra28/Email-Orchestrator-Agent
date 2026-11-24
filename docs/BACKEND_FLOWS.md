@@ -5,8 +5,9 @@ which tables it writes and which external service it touches. This is the
 implementation-level companion to [FLOWS.md](FLOWS.md), which describes the
 product behaviour; here the focus is module wiring and call order.
 
-Entry point: `main.py` (or `app.main:app`). One FastAPI process serves the JSON
-API under `/api`, the SPA at `/`, and `/ws/live-logs`.
+Entry point: `app.main:app` (served locally by uvicorn, and on Vercel through the
+`api/index.py` adapter). One FastAPI process serves the JSON API under `/api`,
+the SPA at `/`, and `/ws/live-logs`.
 
 ## 1. Layer map
 

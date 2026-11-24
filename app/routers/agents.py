@@ -14,9 +14,11 @@ from app.db import SessionLocal, Contact, Template, Draft, SMTPConfig, Settings,
 from app.deps import current_tenant_id
 from app.services.limits import check_tenant_send_allowed
 from app.services.mailer import (
+    active_transport,
     MailDeliveryError,
     MailNotConfigured,
     resolve_smtp_config,
+    sender_address,
     send_email,
 )
 from app.services.usage import EMAILS_SENT, record_usage
@@ -154,7 +156,7 @@ async def send_email_endpoint(
         if not agent.is_configured():
             raise HTTPException(
                 status_code=503,
-                detail="SMTP is not configured. Please configure SMTP settings first."
+                detail="Mail delivery is not configured. Check the selected transport settings."
             )
 
         recipient = (request.to_email or "").strip().lower()
@@ -185,7 +187,7 @@ async def send_email_endpoint(
                 detail=f"Contact {request.to_email} is blacklisted after a bounce",
             )
 
-        problem = blocked_reason(recipient, getattr(smtp_config, "sender", None))
+        problem = blocked_reason(recipient, sender_address(smtp_config))
         if problem:
             raise HTTPException(status_code=422, detail=problem)
 
@@ -221,7 +223,7 @@ async def send_email_endpoint(
             draft.status = "failed"
             draft.error_message = str(exc)
             db.commit()
-            raise HTTPException(status_code=503, detail=f"SMTP not configured: {exc}")
+            raise HTTPException(status_code=503, detail=f"Mail transport not configured: {exc}")
         except MailDeliveryError as exc:
             draft.status = "failed"
             draft.error_message = str(exc)
@@ -249,14 +251,9 @@ async def send_email_endpoint(
 def test_smtp_connection(tenant_id: int = Depends(current_tenant_id)):
     """Test the mailbox configured for this tenant.
 
-    When ``RESEND_API_KEY`` is set the app sends through Resend's REST API over
-    HTTPS, which is the only path that works on hosts blocking SMTP ports
-    (Render free tier). The endpoint reports that transport rather than the
-    SMTP socket probe, which would time out on such hosts and report a false
-    negative.
+    Reports the connection check for the active transport, including HTTPS
+    providers used on hosts that block SMTP ports.
     """
-    from app.config import settings as app_settings
-
     db = SessionLocal()
     try:
         view = resolve_smtp_config(db, tenant_id)
@@ -272,7 +269,7 @@ def test_smtp_connection(tenant_id: int = Depends(current_tenant_id)):
             "port": view.port,
             "authentication_configured": view.authentication_configured,
             "source": view.source,
-            "transport": "resend" if app_settings.RESEND_API_KEY else "smtp",
+            "transport": active_transport(),
         }
     finally:
         db.close()

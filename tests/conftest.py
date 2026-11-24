@@ -43,6 +43,12 @@ os.environ["BLOCK_PLACEHOLDER_RECIPIENTS"] = "false"
 # email (and collect real bounces) from that account.
 os.environ["MAIL_SUPPRESS_SEND"] = "true"
 
+# The developer's .env also carries a RESEND_API_KEY, and for a long time a
+# present key silently overrode SMTP. Tests that opt out of dry-run mode build a
+# real message, so with the key in play they would call the Resend API and fail
+# on a network/DNS error instead of exercising the mailer. Pin the transport.
+os.environ["MAIL_TRANSPORT"] = "smtp"
+
 
 def _ensure_test_database() -> None:
     """Create the throwaway database if the server does not have it yet."""
@@ -71,6 +77,26 @@ from app.db import Base, engine  # noqa: E402
 from app.main import app  # noqa: E402
 
 _ensure_test_database()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _no_background_scheduler():
+    """Stop APScheduler from firing in the middle of a test.
+
+    The suite runs for minutes, and the lifespan starts an inbox poll and an
+    autopilot timer whenever ``ENABLE_BACKGROUND_JOBS`` is true. A timer that
+    drains the queue while another test is capturing sends shows up as a
+    surprise recipient in a test that never asked for one, which is very hard to
+    attribute from the assertion alone.
+
+    The worker handoff itself is still tested with the flag on; only the timers
+    are suppressed, and every path the suite covers is driven explicitly.
+    """
+    from app import main as app_main
+
+    app_main.scheduler.start = lambda *args, **kwargs: None
+    app_main.scheduler.shutdown = lambda *args, **kwargs: None
+    yield
 
 
 @pytest.fixture(scope="session")

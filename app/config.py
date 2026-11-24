@@ -11,11 +11,24 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 def _platform_public_url() -> str:
     """Return the public origin a hosting platform assigned, if any.
 
-    Render, Railway and Fly each expose the deployed URL under a different
-    variable. Reading them here means tracking links and CORS work on a fresh
-    deploy without anyone copying a URL into the environment by hand, which is
-    the mistake that silently produces click links pointing at localhost.
+    Render, Railway, Fly and Vercel each expose the deployed URL under a
+    different variable. Reading them here means tracking links and CORS work on
+    a fresh deploy without anyone copying a URL into the environment by hand,
+    which is the mistake that silently produces click links pointing at
+    localhost.
+
+    Vercel is checked first because ``VERCEL_URL`` is a host without a scheme
+    (``my-app.vercel.app``) and ``VERCEL_PROJECT_PRODUCTION_URL`` is the stable
+    production alias that survives preview deployments.
     """
+    production_url = os.getenv("VERCEL_PROJECT_PRODUCTION_URL", "").strip()
+    if production_url:
+        return _with_scheme(production_url)
+
+    vercel_url = os.getenv("VERCEL_URL", "").strip()
+    if vercel_url:
+        return _with_scheme(vercel_url)
+
     render_url = os.getenv("RENDER_EXTERNAL_URL", "").strip()
     if render_url:
         return render_url.rstrip("/")
@@ -32,6 +45,13 @@ def _platform_public_url() -> str:
         return f"https://{fly_host}.fly.dev"
 
     return ""
+
+
+def _with_scheme(host: str) -> str:
+    """Prefix a bare platform hostname with https:// and drop any trailing slash."""
+    if not host.startswith(("http://", "https://")):
+        host = f"https://{host}"
+    return host.rstrip("/")
 
 
 _PLATFORM_PUBLIC_URL = _platform_public_url()
@@ -87,6 +107,13 @@ class Settings:
     IMAP_PASSWORD: str = os.getenv("IMAP_PASS") or os.getenv("IMAP_PASSWORD", "")
     IMAP_POLL_MINUTES: int = int(os.getenv("IMAP_POLL_MINUTES", "10"))
 
+    # Gmail API OAuth credentials. These are deployment secrets and are never
+    # stored in tenant configuration rows or returned by status endpoints.
+    GMAIL_OAUTH_CLIENT_ID: str = os.getenv("GMAIL_OAUTH_CLIENT_ID", "")
+    GMAIL_OAUTH_CLIENT_SECRET: str = os.getenv("GMAIL_OAUTH_CLIENT_SECRET", "")
+    GMAIL_REFRESH_TOKEN: str = os.getenv("GMAIL_REFRESH_TOKEN", "")
+    GMAIL_USER_EMAIL: str = os.getenv("GMAIL_USER_EMAIL", "")
+
     # Follow-up drafting (never sends on its own)
     FOLLOWUPS_ENABLED: bool = os.getenv("FOLLOWUPS_ENABLED", "true").lower() == "true"
 
@@ -140,7 +167,9 @@ class Settings:
     
     # NVIDIA API
     NVIDIA_API_KEY: Optional[str] = os.getenv("NVIDIA_API_KEY")
-    NVIDIA_MODEL: str = os.getenv("NVIDIA_MODEL", "nvidia/nllama-3.1-nemotron-70b-instruct")
+    NVIDIA_MODEL: str = os.getenv(
+        "NVIDIA_MODEL", "nvidia/nemotron-3.5-super-vl-120b-a12b"
+    )
     
     # Frontend
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:8000")
@@ -157,6 +186,57 @@ class Settings:
     # only the transport changes. Leave blank to send over SMTP.
     RESEND_API_KEY: Optional[str] = os.getenv("RESEND_API_KEY")
     RESEND_FROM: str = os.getenv("RESEND_FROM", "")
+
+    # Which outbound transport to use: "smtp", "resend", "gmail_api", or "auto".
+    #
+    # ``auto`` keeps the original behaviour (Resend whenever a key is present)
+    # and is the default for compatibility. It is the wrong choice for an
+    # account whose Resend domains are unverified: Resend rejects a gmail.com
+    # From address with a 403, so every send fails even though a working SMTP
+    # mailbox is configured. Setting the transport explicitly makes delivery
+    # depend on this setting rather than on whether a key happens to be present.
+    MAIL_TRANSPORT: str = (
+        os.getenv("MAIL_TRANSPORT", "auto") or "auto"
+    ).strip().lower()
+
+    # External cron entrypoint (``POST /api/cron/tick``). The dashboard URL is
+    # public and the app has no login screen, so the cron route authenticates
+    # with this shared secret instead of a bearer token. Blank disables the
+    # route entirely rather than leaving it open.
+    CRON_SECRET: str = os.getenv("CRON_SECRET", "")
+    # Wall-clock budget for one cron tick's sending, so the request returns
+    # before the scheduler's own HTTP timeout.
+    CRON_MAX_SECONDS: int = int(os.getenv("CRON_MAX_SECONDS", "50"))
+
+    # HTTP Basic auth gate for the whole dashboard and API.
+    #
+    # The app has no login screen of its own, and a public deployment URL is
+    # therefore an open door to the address book and the sending path. When both
+    # values are set every request must present them; when either is blank the
+    # gate is disabled (local development and the test suite). The browser
+    # prompts once per session, and ``/health``, the recipient-facing tracking
+    # links and the secret-authenticated cron route are exempt.
+    BASIC_AUTH_USER: str = os.getenv("BASIC_AUTH_USER", "")
+    BASIC_AUTH_PASSWORD: str = os.getenv("BASIC_AUTH_PASSWORD", "")
+
+    # Run ``init_db()`` and the workspace bootstrap at startup. Serverless
+    # instances start constantly, and issuing schema checks on every cold start
+    # is slow and racy, so a Vercel deployment sets this to false and runs
+    # ``python scripts/init_db.py`` once against the real database instead.
+    AUTO_INIT_DB: bool = os.getenv("AUTO_INIT_DB", "true").lower() == "true"
+
+    # The live-log WebSocket needs a long-lived connection, which serverless
+    # hosts cannot provide. When false the route is not registered and the UI
+    # shows a static log instead of reconnecting forever.
+    ENABLE_LIVE_LOGS: bool = (
+        os.getenv("ENABLE_LIVE_LOGS", "true").lower() == "true"
+    )
+
+    # Upper bound on how long one request-driven queue drain may spend sending.
+    # Pacing allows one message per minute, so this is deliberately small: the
+    # remainder is picked up by the next cron tick rather than holding a
+    # serverless invocation open until its timeout.
+    SYNC_DRAIN_SECONDS: int = int(os.getenv("SYNC_DRAIN_SECONDS", "25"))
 
     # This app is a single-user tool: it runs one implicit workspace and serves
     # every request as that workspace, with no sign-in screen. The value is fixed

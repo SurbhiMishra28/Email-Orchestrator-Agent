@@ -154,3 +154,26 @@ def test_imap_is_not_shared_with_a_registered_tenant(db, environment, single_use
     _tenants(db, 1, 60)
 
     assert inbox.resolve_imap_config(db, 60).configured is False
+
+
+def test_gmail_api_resolves_for_the_local_workspace_only(db, single_user, monkeypatch):
+    from app.config import settings
+
+    _tenants(db, 1, 60)
+    monkeypatch.setattr(settings, "MAIL_TRANSPORT", "gmail_api")
+    monkeypatch.setattr(settings, "GMAIL_OAUTH_CLIENT_ID", "client-id")
+    monkeypatch.setattr(settings, "GMAIL_OAUTH_CLIENT_SECRET", "client-secret")
+    monkeypatch.setattr(settings, "GMAIL_REFRESH_TOKEN", "refresh-token")
+    monkeypatch.setattr(settings, "GMAIL_USER_EMAIL", "operator@gmail.com")
+
+    smtp = mailer.resolve_smtp_config(db, 1)
+    inbox_view = inbox.resolve_imap_config(db, 1)
+
+    assert smtp.configured is True
+    assert smtp.sender == "operator@gmail.com"
+    assert smtp.source == "environment"
+    assert inbox_view.configured is True
+    assert inbox_view.api_mode is True
+
+    assert mailer.is_configured(mailer.resolve_smtp_config(db, 60)) is False
+    assert inbox.resolve_imap_config(db, 60).configured is False

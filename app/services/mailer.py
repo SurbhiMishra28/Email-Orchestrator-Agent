@@ -1,7 +1,7 @@
-"""SMTP delivery helpers shared by drafts, the queue and settings.
+"""Mail delivery helpers shared by drafts, the queue and settings.
 
 Every real send goes through :func:`send_email` so a draft can never be
-marked "sent" without a configured, reachable SMTP server.
+marked "sent" without a configured and reachable mail transport.
 
 Resolution order
 ----------------
@@ -18,20 +18,20 @@ so the credentials in ``.env`` stay with the workspace that owns them.
 
 Outbound transport
 ------------------
-SMTP is the default and works everywhere SMTP is reachable. When
-``RESEND_API_KEY`` is set the app talks to Resend's REST API over HTTPS instead.
-That matters on hosts that block SMTP ports -- Render's free tier blocks 25/465/
-587, so a Gmail mailbox cannot leave the box there. Resend speaks the same
-message body and returns the same message-id shape, so callers see no
-difference; only the transport changes.
+SMTP is the default. Resend and the Gmail API are also available over HTTPS.
+
+``MAIL_TRANSPORT`` selects ``smtp``, ``resend``, ``gmail_api`` or ``auto``.
+The historical ``auto`` mode selects Resend when a key is present; choose
+``gmail_api`` explicitly to use Gmail OAuth for sending and inbox sync.
 """
+import base64
 import json
 import smtplib
 import ssl
 import time
 import uuid
 from email.message import EmailMessage
-from email.utils import formataddr, formatdate, make_msgid
+from email.utils import formataddr, formatdate, make_msgid, parseaddr
 from typing import Dict, Optional, Tuple
 
 import httpx
@@ -192,6 +192,20 @@ def resolve_smtp_config(db, tenant_id: Optional[int]) -> SMTPConfigView:
     environment for the local tenant only, which is what keeps a fresh install
     (or a row reset in Settings) sending instead of reporting "not configured".
     """
+    if active_transport() == "gmail_api":
+        from app.services.google_mail import config_from_settings
+
+        gmail = config_from_settings()
+        if not environment_fallback_allowed(db, tenant_id):
+            return SMTPConfigView()
+        return SMTPConfigView(
+            host="gmail.googleapis.com" if gmail.configured else "",
+            port=443,
+            user=gmail.user_email,
+            sender=gmail.user_email,
+            source="environment",
+        )
+
     from app.db import SMTPConfig
 
     query = db.query(SMTPConfig)
@@ -274,9 +288,69 @@ def _connection_parts(smtp_config) -> Tuple[str, int, Optional[str], Optional[st
 
 
 def is_configured(smtp_config) -> bool:
-    """True when a host and sender address are available."""
+    """True when the selected transport has the credentials it needs."""
+    if active_transport() == "gmail_api":
+        from app.services.google_mail import config_from_settings
+
+        gmail = config_from_settings()
+        return bool(
+            gmail.configured
+            and getattr(smtp_config, "source", "") == "environment"
+            and (getattr(smtp_config, "sender", "") or "").lower()
+            == gmail.user_email.lower()
+        )
     host, _port, _user, _password, sender = _connection_parts(smtp_config)
     return bool(host and sender)
+
+
+def sender_address(smtp_config=None) -> str:
+    """Return the From address for the active transport."""
+    if active_transport() == "gmail_api":
+        from app.services.google_mail import config_from_settings
+
+        gmail = config_from_settings()
+        if (
+            gmail.configured
+            and smtp_config is not None
+            and getattr(smtp_config, "source", "") == "environment"
+            and (getattr(smtp_config, "sender", "") or "").lower()
+            == gmail.user_email.lower()
+        ):
+            return gmail.user_email
+        return ""
+    return _connection_parts(smtp_config)[4] if smtp_config is not None else ""
+
+
+def active_transport() -> str:
+    """Return the outbound transport this process will actually use.
+
+    Explicit ``smtp``, ``resend`` and ``gmail_api`` values are honoured.
+    ``auto`` (the default) picks Resend only when a key is present, which is the
+    historical behavior.
+    An unknown value falls back to ``auto`` rather than silently disabling
+    sending.
+    """
+    configured = (getattr(app_settings, "MAIL_TRANSPORT", "auto") or "auto").lower()
+    if configured == "smtp":
+        return "smtp"
+    if configured in {"gmail", "gmail_api"}:
+        return "gmail_api"
+    if configured == "resend":
+        return "resend" if app_settings.RESEND_API_KEY else "smtp"
+    return "resend" if app_settings.RESEND_API_KEY else "smtp"
+
+
+def resend_sender(smtp_config=None) -> str:
+    """The From address Resend may use, which must be a verified identity.
+
+    ``RESEND_FROM`` wins because that is the value verified in the Resend
+    dashboard. Falling back to the SMTP mailbox produces the 403 "domain is not
+    verified" error for any consumer domain (gmail.com and friends).
+    """
+    configured = (getattr(app_settings, "RESEND_FROM", "") or "").strip()
+    if configured:
+        return parseaddr(configured)[1] or configured
+    return _connection_parts(smtp_config)[4] if smtp_config is not None else ""
 
 
 def send_email(smtp_config, recipient: str, subject: str, body: str, from_name: Optional[str] = None, from_email: Optional[str] = None, html_body: Optional[str] = None) -> str:
@@ -288,21 +362,34 @@ def send_email(smtp_config, recipient: str, subject: str, body: str, from_name: 
 
     Returns the message-id of the sent email.
     """
-    host, port, user, password, sender = _connection_parts(smtp_config)
+    transport = active_transport()
+    gmail_config = None
+    if transport == "gmail_api":
+        from app.services.google_mail import config_from_settings
 
-    configured = (
-        getattr(smtp_config, "configured", None)
-        if getattr(smtp_config, "configured", None) is not None
-        else is_configured(smtp_config)
-    )
-    if not configured or not host:
-        raise MailNotConfigured(
-            "SMTP is not configured. Add and test SMTP settings before sending."
+        gmail_config = config_from_settings()
+        if not gmail_config.configured or not is_configured(smtp_config):
+            raise MailNotConfigured(
+                "Gmail API is not configured for this workspace. Check the "
+                "Gmail OAuth environment variables and workspace settings."
+            )
+        host, port, user, password = "", 443, gmail_config.user_email, None
+        sender = gmail_config.user_email
+        configured = True
+    else:
+        host, port, user, password, sender = _connection_parts(smtp_config)
+        configured = (
+            getattr(smtp_config, "configured", None)
+            if getattr(smtp_config, "configured", None) is not None
+            else is_configured(smtp_config)
         )
+        if not configured or not host:
+            raise MailNotConfigured(
+                "SMTP is not configured. Add and test SMTP settings before sending."
+            )
+
     if not sender:
-        raise MailNotConfigured(
-            "SMTP sender address is missing. Set a sender in Settings before sending."
-        )
+        raise MailNotConfigured("The sender address is missing from the mail configuration.")
     if not recipient:
         raise MailDeliveryError("The recipient email address is missing.")
 
@@ -313,14 +400,20 @@ def send_email(smtp_config, recipient: str, subject: str, body: str, from_name: 
 
     # Use override values if provided, otherwise fall back to configured values
     final_sender = from_email or sender
+    if transport == "gmail_api" and final_sender.lower() != sender.lower():
+        raise MailDeliveryError(
+            "Gmail API can only send from the Gmail account authorized by OAuth."
+        )
     display_name = from_name or app_settings.SENDER_NAME or ""
     display_name = display_name.strip()
 
-    # Resend REST API over HTTPS. Used when RESEND_API_KEY is set, which is the
-    # only way to send from hosts that block SMTP ports (Render free tier).
-    if app_settings.RESEND_API_KEY:
+    # Resend REST API over HTTPS, used when the transport is Resend. The From
+    # address sent through Resend must be an identity verified in its dashboard,
+    # so ``RESEND_FROM`` is used unless the caller overrode it explicitly.
+    if transport == "resend":
+        resend_from = from_email or resend_sender(smtp_config) or final_sender
         return _send_via_resend(
-            final_sender=final_sender,
+            final_sender=resend_from,
             display_name=display_name,
             recipient=recipient,
             subject=sanitize_subject(subject),
@@ -343,6 +436,18 @@ def send_email(smtp_config, recipient: str, subject: str, body: str, from_name: 
     message.set_content(body or "")
     if html_body:
         message.add_alternative(html_body, subtype="html")
+
+    if transport == "gmail_api":
+        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii").rstrip("=")
+        from app.services.google_mail import GmailAPIError, send_raw_message
+
+        try:
+            result = send_raw_message(gmail_config, raw_message)
+        except GmailAPIError as exc:
+            raise MailDeliveryError(f"Gmail API send failed: {exc}") from exc
+        if not result.get("id"):
+            raise MailDeliveryError("Gmail API returned no message id")
+        return str(message["Message-ID"])
 
     try:
         server = _open_server(host, port)
@@ -427,6 +532,11 @@ def test_connection(
     password: Optional[str] = None,
 ) -> dict:
     """Check connectivity and, when credentials are supplied, authentication."""
+    if active_transport() == "gmail_api":
+        from app.services.google_mail import test_connection as test_gmail_connection
+
+        return test_gmail_connection()
+
     host = (host or "").strip()
     if not host:
         return {"ok": False, "message": "SMTP host is required"}

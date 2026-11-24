@@ -135,6 +135,7 @@ class SMTPConfigOut(SMTPConfigBase):
     # ``database`` when the tenant saved its own mailbox, ``environment`` when
     # the local single-user deployment supplied it.
     source: str = "database"
+    transport: str = "smtp"
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -154,6 +155,7 @@ class IMAPConfigOut(BaseModel):
     folder: str = "INBOX"
     configured: bool = False
     source: str = "database"
+    transport: str = "imap"
 
     model_config = ConfigDict(from_attributes=True)
 

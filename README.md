@@ -1,18 +1,23 @@
 # MailMatrix - Email Orchestrator
 
 A React dashboard backed by a Python/FastAPI service. LangChain powers the optional
-NVIDIA-compatible chat model and agent tools; MySQL/MariaDB is the primary database 
-(SQLite fallback available for development without database).
+NVIDIA-compatible chat model and agent tools. MySQL/MariaDB is the local development
+database; PostgreSQL (Neon) is the production database on Vercel, and SQLite is a
+development fallback.
+
+Deployment, environment variables and the cron-driven scheduler are covered in
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 **Agent Name**: MailMAtrix
 **Logo**: Purple gradient envelope with "MA" text
 
 The orchestrator coordinates agents for contact personalization, email drafting,
-SMTP sending, reply classification, follow-ups, and IMAP inbox sync. Without an
-LLM key, built-in email templates are used. Sending is disabled until SMTP is
-configured. Calendly booking links are supported; invitees create calendar events
-by booking through Calendly. Google/Microsoft calendar event creation and
-long-term agent memory are not configured.
+SMTP or Gmail API sending, reply classification, follow-ups, and IMAP or Gmail
+API inbox sync. Without an LLM key, built-in email templates are used. Sending is
+disabled until a mail transport is configured. Calendly booking links are
+supported; invitees create calendar events by booking through Calendly.
+Google/Microsoft calendar event creation and long-term agent memory are not
+configured.
 
 ## Key Features
 
@@ -23,6 +28,8 @@ long-term agent memory are not configured.
 - **Rate Limits**: Warm-up cap (5-50 emails/day based on tenure), daily cap, domain cap
 - **Scheduling**: Follow-ups are automatically queued for days 3 and 5, and stop after a reply or day 8
 - **IMAP Sync**: Read-only inbox polling for reply processing
+- **Gmail API**: OAuth-based HTTPS sending and read-only inbox sync for hosts
+  that block SMTP, without requiring a custom domain
 - **Mail Tracking**: The dashboard shows sent mail, follow-up status, replies, and automatic reply outcomes
 
 ## Quick Start
@@ -53,6 +60,11 @@ IMAP_HOST=imap.gmail.com
 IMAP_USER=your-email@gmail.com
 IMAP_PASS=your-app-password
 ```
+
+Vercel blocks outbound port 25 but leaves 465 and 587 open, so Gmail SMTP works
+there. If you move to a host that blocks SMTP entirely, use Gmail API by setting
+`MAIL_TRANSPORT=gmail_api` and the OAuth variables documented in the
+[Gmail API setup guide](docs/SETUP_GUIDE.md).
 
 ### 2. Start the Server
 

@@ -23,7 +23,7 @@ router = APIRouter()
 # happened the pacing rule pauses the next one, and waiting that out would hold
 # the HTTP request open; anything still queued is handed to the background
 # worker instead, so a click never costs a 60-second wait.
-SYNC_DRAIN_SECONDS = 25
+SYNC_DRAIN_SECONDS = app_settings.SYNC_DRAIN_SECONDS
 
 
 # Request body model for run-all endpoint
@@ -197,13 +197,16 @@ async def run_orchestration_all(
 
         if app_settings.ENABLE_BACKGROUND_JOBS:
             result = await drain_queue(
-                tenant_id=tenant_id, max_seconds=SYNC_DRAIN_SECONDS
+                tenant_id=tenant_id, max_seconds=app_settings.SYNC_DRAIN_SECONDS
             )
         else:
             # No background worker exists on this host (serverless), so a
-            # handoff would drop the remaining sends. Finish them inline and
-            # let the function timeout be the only bound.
-            result = await drain_queue(tenant_id=tenant_id)
+            # handoff would drop the remaining sends. Drain a bounded window
+            # inline and let the next cron tick pick up the rest; an unbounded
+            # drain would run until the platform's function timeout.
+            result = await drain_queue(
+                tenant_id=tenant_id, max_seconds=app_settings.SYNC_DRAIN_SECONDS
+            )
 
         # Only this batch matters here: a draft left over from an older run must
         # not be reported as "queued" by a selection-scoped send.
@@ -275,6 +278,10 @@ async def run_orchestration_async(
     Same work as ``/run-all``, but the request returns immediately so a large
     batch never holds an HTTP connection open. Poll ``/jobs/{job_id}`` for the
     outcome;     ``services/limits.py`` still gates every individual send.
+
+    On a host with no background worker (serverless) there is nothing to poll:
+    the pass runs inline for a bounded window and the result is returned
+    directly, because handing it to a worker would abandon the queue.
     """
     from app.services.send_worker import drain_queue, get_worker
 
@@ -320,9 +327,12 @@ async def run_orchestration_async(
                     "drafts_created": 0,
                     "result": {"processed": 0, "sent": 0, "failed": 0, "skipped": 0, "details": []},
                 }
-            # Already on the background worker, so drain the whole queue: the
-            # pacing gaps are waited out here instead of by the caller.
-            result = await drain_queue(tenant_id=tenant_id)
+            # The queue is already running here, so drain rather than sending a
+            # single paced message. Bounded so an inline (serverless) run still
+            # returns before the platform's function timeout.
+            result = await drain_queue(
+                tenant_id=tenant_id, max_seconds=app_settings.SYNC_DRAIN_SECONDS
+            )
 
             if campaign is not None:
                 campaign.status = "sent"
@@ -351,6 +361,11 @@ async def run_orchestration_async(
             }
         finally:
             worker_db.close()
+
+    if not app_settings.ENABLE_BACKGROUND_JOBS:
+        # No worker to hand off to: run the pass inline and return its result
+        # rather than a job id that would never be polled.
+        return await runner()
 
     job = get_worker().submit(tenant_id, runner)
     return job.to_dict()

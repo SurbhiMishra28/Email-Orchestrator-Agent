@@ -25,19 +25,41 @@ logger = logging.getLogger(__name__)
 DATABASE_URL = os.getenv("DATABASE_URL") or "sqlite:///./email_orchestrator.db"
 
 # Managed providers hand out ``mysql://`` URLs (Render, Railway, PlanetScale)
-# and ``postgres://`` ones, but SQLAlchemy needs the driver named explicitly or
-# it imports MySQLdb/psycopg2, which are not installed. Normalise the scheme so
-# a copied connection string works without hand-editing.
+# and ``postgres://`` ones (Neon, Supabase, Railway), but SQLAlchemy needs the
+# driver named explicitly or it imports MySQLdb/psycopg2, which are not
+# installed. Normalise the scheme so a copied connection string works without
+# hand-editing.
 _DIALECT_ALIASES = {
     "mysql://": "mysql+pymysql://",
     "mysql2://": "mysql+pymysql://",
     "mariadb://": "mysql+pymysql://",
+    "postgres://": "postgresql+psycopg://",
+    "postgresql://": "postgresql+psycopg://",
 }
-for _alias, _driver_url in _DIALECT_ALIASES.items():
-    if DATABASE_URL.startswith(_alias):
-        DATABASE_URL = _driver_url + DATABASE_URL[len(_alias):]
-        logger.info("Rewrote DATABASE_URL scheme %s to %s", _alias, _driver_url)
-        break
+
+
+def normalize_database_url(url: str) -> str:
+    """Return ``url`` with its scheme mapped to an installed driver.
+
+    Also appends ``sslmode=require`` for PostgreSQL: ``sslmode`` is a libpq
+    keyword, so it belongs in the query string where psycopg will find it. The
+    default is ``prefer``, which silently downgrades to plaintext when the server
+    does not present a certificate -- the wrong default for a managed database
+    reached over the public internet.
+
+    Kept as a pure function so the rewrite can be tested without importing the
+    module (and therefore without opening a connection).
+    """
+    for alias, driver_url in _DIALECT_ALIASES.items():
+        if url.startswith(alias):
+            url = driver_url + url[len(alias):]
+            break
+
+    if url.startswith("postgresql") and "sslmode=" not in url:
+        separator = "&" if "?" in url else "?"
+        url = f"{url}{separator}sslmode=require"
+
+    return url
 
 
 def _describe_database_url(url: str) -> str:
@@ -54,12 +76,23 @@ def _describe_database_url(url: str) -> str:
     return f"{scheme}://{credentials}@{location}"
 
 
-HOSTED_PLATFORM = bool(
-    os.getenv("RENDER")
-    or os.getenv("RAILWAY_ENVIRONMENT")
-    or os.getenv("FLY_APP_NAME")
-    or os.getenv("RENDER_EXTERNAL_URL")
-)
+def is_hosted_platform(environ) -> bool:
+    """True when ``environ`` belongs to a managed host with no local database.
+
+    Each platform exports a different marker. Vercel is included because a
+    function has neither a local MySQL server nor a writable disk, so a loopback
+    ``DATABASE_URL`` copied from a developer's ``.env`` can never work there.
+    """
+    return bool(
+        environ.get("RENDER")
+        or environ.get("RAILWAY_ENVIRONMENT")
+        or environ.get("FLY_APP_NAME")
+        or environ.get("RENDER_EXTERNAL_URL")
+        or environ.get("VERCEL")
+    )
+
+
+HOSTED_PLATFORM = is_hosted_platform(os.environ)
 
 _LOOPBACK_MARKERS = ("@localhost", "@127.0.0.1", "@::1", "@mysql://localhost")
 # Render mounts a disk at /var/data; Railway and Fly do not, so they fall back
@@ -104,7 +137,7 @@ def _resolve_database_url(url: str) -> str:
     return fallback
 
 
-DATABASE_URL = _resolve_database_url(DATABASE_URL)
+DATABASE_URL = _resolve_database_url(normalize_database_url(DATABASE_URL))
 
 logger.info("Database backend: %s", _describe_database_url(DATABASE_URL))
 if DATABASE_URL.startswith("sqlite") and HOSTED_PLATFORM:
@@ -113,7 +146,7 @@ if DATABASE_URL.startswith("sqlite") and HOSTED_PLATFORM:
     logger.warning(
         "Using SQLite on a hosted platform (%s). Data survives a restart only "
         "while the file lives on a persistent disk; point DATABASE_URL at a "
-        "MySQL/MariaDB server for a durable database.",
+        "MySQL/MariaDB (or Postgres) server for a durable database.",
         _describe_database_url(DATABASE_URL),
     )
 
@@ -122,12 +155,33 @@ connect_args = (
     if DATABASE_URL.startswith("sqlite")
     else {}
 )
+
+# Each serverless instance opens its own connection pool, so a generous default
+# pool multiplied by the number of warm instances exhausts a managed database's
+# connection limit. Neon and friends also close idle connections, which
+# ``pool_pre_ping`` already tolerates; recycling well inside the server's idle
+# timeout avoids accumulating dead sockets.
+engine_kwargs = {}
+if DATABASE_URL.startswith("postgresql"):
+    engine_kwargs = {"pool_size": 1, "max_overflow": 5, "pool_recycle": 1800}
+
 engine = create_engine(
     DATABASE_URL,
     echo=False,
     pool_pre_ping=True,
     connect_args=connect_args,
+    **engine_kwargs,
 )
+
+
+def _sql_false() -> str:
+    """The dialect's boolean false literal, for additive column DDL."""
+    return "FALSE" if engine.dialect.name == "postgresql" else "0"
+
+
+def _sql_datetime_type() -> str:
+    """The dialect's timestamp type, for additive column DDL."""
+    return "TIMESTAMP" if engine.dialect.name == "postgresql" else "DATETIME"
 
 
 if DATABASE_URL.startswith("sqlite"):
@@ -817,7 +871,7 @@ def _ensure_columns():
                     connection.execute(
                         text(
                             "ALTER TABLE smtp_config ADD COLUMN "
-                            "authentication_configured BOOLEAN DEFAULT 0"
+                            f"authentication_configured BOOLEAN DEFAULT {_sql_false()}"
                         )
                     )
                 logger.info("Added missing smtp_config.authentication_configured column")
@@ -828,27 +882,41 @@ def _ensure_columns():
             if "processed" not in columns:
                 with engine.begin() as connection:
                     connection.execute(
-                        text("ALTER TABLE inbox_messages ADD COLUMN processed BOOLEAN DEFAULT 0")
+                        text(
+                            "ALTER TABLE inbox_messages ADD COLUMN processed "
+                            f"BOOLEAN DEFAULT {_sql_false()}"
+                        )
                     )
                 logger.info("Added missing inbox_messages.processed column")
             if "processed_at" not in columns:
                 with engine.begin() as connection:
                     connection.execute(
-                        text("ALTER TABLE inbox_messages ADD COLUMN processed_at DATETIME NULL")
+                        text(
+                            "ALTER TABLE inbox_messages ADD COLUMN processed_at "
+                            f"{_sql_datetime_type()} NULL"
+                        )
                     )
                 logger.info("Added missing inbox_messages.processed_at column")
         
         # Check for replies_processed table (created by new model)
         if "replies_processed" not in table_names:
+            # ``AUTOINCREMENT`` is MySQL/SQLite syntax; PostgreSQL uses SERIAL.
+            # This only runs when the ORM's create_all did not create the table
+            # (a database created by a much older revision), so it must speak
+            # the dialect of the database in front of it.
+            if engine.dialect.name == "postgresql":
+                primary_key = "id SERIAL PRIMARY KEY"
+            else:
+                primary_key = "id INTEGER PRIMARY KEY AUTOINCREMENT"
             with engine.begin() as connection:
                 connection.execute(
                     text(
                         "CREATE TABLE replies_processed ("
-                        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                        f"{primary_key}, "
                         "tenant_id INTEGER NULL, "
                         "message_uid VARCHAR(100) NOT NULL, "
                         "contact_id INTEGER NULL, "
-                        "processed_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                        f"processed_at {_sql_datetime_type()} DEFAULT CURRENT_TIMESTAMP, "
                         "CONSTRAINT uq_replies_processed_tenant_uid "
                         "UNIQUE (tenant_id, message_uid)"
                         ")"
@@ -882,7 +950,7 @@ def _ensure_columns():
                 missing_settings_cols.append("calendly_url VARCHAR(500) DEFAULT ''")
             if "tracking_enabled" not in columns:
                 missing_settings_cols.append(
-                    "tracking_enabled BOOLEAN DEFAULT 0"
+                    f"tracking_enabled BOOLEAN DEFAULT {_sql_false()}"
                 )
 
             if missing_settings_cols:
@@ -904,7 +972,7 @@ def _ensure_columns():
                     if dialect_name == "mysql":
                         connection.execute(text("ALTER TABLE contacts ADD COLUMN tags JSON DEFAULT '[]'"))
                     elif dialect_name == "postgresql":
-                        connection.execute(text("ALTER TABLE contacts ADD COLUMN tags JSONB DEFAULT '[]'"))
+                        connection.execute(text("ALTER TABLE contacts ADD COLUMN tags JSONB DEFAULT '[]'::jsonb"))
                     else:
                         connection.execute(text("ALTER TABLE contacts ADD COLUMN tags TEXT DEFAULT '[]'"))
                 logger.info("Added missing contacts.tags column")
@@ -944,7 +1012,7 @@ def _ensure_columns():
                     connection.execute(
                         text(
                             "ALTER TABLE contact_list_members "
-                            "ADD COLUMN unsubscribed BOOLEAN DEFAULT 0"
+                            f"ADD COLUMN unsubscribed BOOLEAN DEFAULT {_sql_false()}"
                         )
                     )
                 logger.info("Added missing contact_list_members.unsubscribed column")
@@ -956,7 +1024,7 @@ def _ensure_columns():
                     connection.execute(
                         text(
                             "ALTER TABLE contacts "
-                            "ADD COLUMN email_blacklisted BOOLEAN DEFAULT 0"
+                            f"ADD COLUMN email_blacklisted BOOLEAN DEFAULT {_sql_false()}"
                         )
                     )
                 logger.info("Added missing contacts.email_blacklisted column")
@@ -1018,7 +1086,9 @@ def _ensure_uid_uniqueness(inspector, table_names):
 
         with engine.begin() as connection:
             if legacy_unique:
-                if dialect == "sqlite":
+                if dialect in ("sqlite", "postgresql"):
+                    # Both speak ``DROP INDEX name``; MySQL requires the
+                    # index to be named inside the ALTER TABLE.
                     connection.execute(text(f"DROP INDEX {old_index}"))
                 else:
                     connection.execute(text(f"ALTER TABLE {table} DROP INDEX {old_index}"))

@@ -26,7 +26,13 @@ except ImportError:  # optional dependency
 from app.db import SessionLocal, Contact, Draft, Template, Log, ToolUse, Settings, Event, SMTPConfig
 from app.live_logs import instrument_agent
 from app.services.limits import check_send_allowed
-from app.services.mailer import MailDeliveryError, MailNotConfigured, is_configured, send_email
+from app.services.mailer import (
+    MailDeliveryError,
+    MailNotConfigured,
+    is_configured,
+    sender_address,
+    send_email,
+)
 from app.services.recipients import blocked_reason
 from app.services.usage import EMAILS_SENT, REPLIES_RECEIVED, record_usage
 
@@ -339,7 +345,7 @@ class QueueManager:
             if not is_configured(smtp_config):
                 results["skipped"] = len(drafts)
                 results["details"].append(
-                    {"status": "skipped", "reason": "SMTP is not configured"}
+                    {"status": "skipped", "reason": "Mail transport is not configured"}
                 )
                 self._alive = True
                 return results
@@ -379,9 +385,7 @@ class QueueManager:
                 # relay accepts it, so "sent" would be recorded for mail that
                 # never arrived. Fail the draft instead: it must not be retried
                 # and the contact must never be mailed again.
-                problem = blocked_reason(
-                    contact.email, getattr(smtp_config, "sender", None)
-                )
+                problem = blocked_reason(contact.email, sender_address(smtp_config))
                 if problem:
                     draft.status = "failed"
                     draft.error_message = problem
@@ -1064,6 +1068,14 @@ class SenderAgent:
         Returns:
             Tuple of (is_valid, error_message)
         """
+        from app.services.mailer import active_transport
+
+        if active_transport() == "gmail_api":
+            return (
+                (True, "")
+                if self.is_configured()
+                else (False, "Gmail API OAuth is not configured")
+            )
         if not self.smtp_config.host:
             return False, "SMTP host not configured"
         if not self.smtp_config.user:
@@ -1079,15 +1091,22 @@ class SenderAgent:
     def test_connection(self, timeout: int = 10) -> Tuple[bool, str]:
         """Test the configured transport and, when credentials exist, auth.
 
-        When ``RESEND_API_KEY`` is set the app sends through Resend's REST API
+        When the active transport is Resend the app sends through its REST API
         over HTTPS, which is the only path that works on hosts blocking SMTP
         ports (Render free tier). That path is tested here instead of the SMTP
         socket probe, which would time out on such hosts and report a false
         negative.
         """
-        from app.config import settings as app_settings
+        from app.services.mailer import active_transport
 
-        if app_settings.RESEND_API_KEY:
+        if active_transport() == "gmail_api":
+            if not self.is_configured():
+                return False, "Gmail API is not configured for this workspace"
+            from app.services.google_mail import test_connection
+
+            result = test_connection()
+            return bool(result.get("ok")), str(result.get("message") or "")
+        if active_transport() == "resend":
             return self._test_resend()
 
         from app.services.mailer import test_connection
@@ -1180,7 +1199,9 @@ class SenderAgent:
         from app.services.mailer import send_email
         
         if not from_email:
-            from_email = self.smtp_config.sender or self.smtp_config.user
+            from app.services.mailer import sender_address
+
+            from_email = sender_address(self.smtp_config) or self.smtp_config.user
         
         if not from_name:
             from_name = "Email Orchestrator"

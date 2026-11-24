@@ -46,8 +46,16 @@ def _tenant_id(headers):
     from jose import jwt
 
     from app.auth import ALGORITHM, SECRET_KEY
+    from app.db import User
 
-    return int(jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])["sub"])
+    # ``sub`` is the user id, not the tenant id; resolve the tenant through the
+    # user row so the assertion does not depend on the two ids coinciding.
+    user_id = int(jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])["sub"])
+    db = SessionLocal()
+    try:
+        return db.query(User).filter(User.id == user_id).one().tenant_id
+    finally:
+        db.close()
 
 
 def _seed_contacts_and_template(client, headers, count=3):

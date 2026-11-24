@@ -96,6 +96,42 @@ CORS_ORIGINS=http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:5173,h
 3. Generate new app password for "Mail"
 4. Use this password as `SMTP_PASS`
 
+### Gmail API for hosts that block SMTP
+
+Use the Gmail API transport when the hosting plan blocks outbound SMTP. It sends
+and reads mail over HTTPS and does not require a custom domain. Google does not
+charge for Gmail API use within its quotas; hosting charges and Google API
+quotas still apply.
+
+(Vercel is not such a host: it blocks only port 25, so Gmail SMTP over 587 works
+there. This section matters on platforms that block 587 as well.)
+
+1. In Google Cloud Console, create a project, enable the Gmail API, and configure
+   the OAuth consent screen. Add your Gmail account as a test user if the app is
+   in Testing mode.
+2. Create an OAuth client ID for a Desktop app. Set `GMAIL_OAUTH_CLIENT_ID` and
+   `GMAIL_OAUTH_CLIENT_SECRET` in your local environment (or `.env`).
+3. Run `python scripts/get_gmail_refresh_token.py`, sign in to the intended Gmail
+   account, and copy the printed refresh token. Treat it as a password.
+4. Add these variables to the backend service's deployment settings:
+
+   ```env
+   MAIL_TRANSPORT=gmail_api
+   GMAIL_OAUTH_CLIENT_ID=your-oauth-client-id
+   GMAIL_OAUTH_CLIENT_SECRET=your-oauth-client-secret
+   GMAIL_REFRESH_TOKEN=your-oauth-refresh-token
+   GMAIL_USER_EMAIL=your-email@gmail.com
+   ```
+
+   The OAuth grant must include `gmail.send` and `gmail.readonly`. Do not add
+   these secrets to source control or expose them in frontend variables.
+5. Redeploy, then use **Test Gmail connection** and **Test Gmail inbox access**
+   in Settings.
+
+OAuth apps left in Google's External / Testing status can have refresh tokens
+expire after seven days for Gmail scopes, requiring reauthorization. Review
+Google's OAuth verification requirements before distributing this app to others.
+
 ### 4. Install Backend Dependencies
 ```bash
 python -m venv venv

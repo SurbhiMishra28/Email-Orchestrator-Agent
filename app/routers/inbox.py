@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.db import IMAPConfig, InboxMessage, Log, SessionLocal
 from app.deps import current_tenant_id
 from app.models.schemas import IMAPConfigBase, IMAPConfigOut
+from app.services.mailer import active_transport, environment_fallback_allowed
 from app.services.inbox import (
     IMAPConfigView,
     InboxError,
@@ -37,6 +38,7 @@ def list_inbox(limit: int = 50, tenant_id: int = Depends(current_tenant_id)):
         return {
             "configured": view.configured,
             "source": view.source,
+            "transport": active_transport() if active_transport() == "gmail_api" else "imap",
             "messages": [
                 {
                     "id": m.id,
@@ -65,6 +67,7 @@ def get_inbox_status(tenant_id: int = Depends(current_tenant_id)):
             folder=view.folder,
             configured=view.configured,
             source=view.source,
+            transport=active_transport() if active_transport() == "gmail_api" else "imap",
         )
     finally:
         db.close()
@@ -133,38 +136,53 @@ def test_inbox_config(
         user=(config.user if config else None) or resolved.user,
         password=(config.password if config else None) or resolved.password,
         folder=(config.folder if config else None) or resolved.folder,
+        source=resolved.source,
+        api_mode=resolved.api_mode,
     )
 
-    result = test_connection(candidate)
+    if active_transport() == "gmail_api" and not candidate.api_mode:
+        result = {
+            "ok": False,
+            "message": "Gmail API is not configured for this workspace.",
+        }
+    else:
+        result = test_connection(candidate)
     result["configured"] = candidate.configured
     result["source"] = resolved.source
     result["host"] = candidate.host
     result["port"] = candidate.port
+    result["transport"] = active_transport() if active_transport() == "gmail_api" else "imap"
     return result
 
 
 @router.get("/defaults")
 def inbox_defaults(tenant_id: int = Depends(current_tenant_id)):
     """Describe the environment mailbox without leaking its password."""
-    env = environment_config()
+    db = SessionLocal()
+    try:
+        allowed = environment_fallback_allowed(db, tenant_id)
+    finally:
+        db.close()
+    env = environment_config() if allowed else IMAPConfigView()
     return {
-        "available": bool(env.host),
+        "available": env.configured,
         "host": env.host or None,
         "port": env.port,
         "user": env.user or None,
         "folder": env.folder,
+        "transport": active_transport() if active_transport() == "gmail_api" else "imap",
     }
 
 
 @router.post("/sync")
 def sync(limit: int = 25, tenant_id: int = Depends(current_tenant_id)):
-    """Fetch the newest messages from IMAP and store ones not seen before."""
+    """Fetch recent messages from the configured inbox and store new ones."""
     db = SessionLocal()
     try:
         if not resolve_imap_config(db, tenant_id).configured:
             raise HTTPException(
                 status_code=400,
-                detail="IMAP is not configured. Add inbox settings in Settings first.",
+                detail="Inbox is not configured. Check the selected mail transport settings.",
             )
         try:
             result = sync_inbox(max(1, min(limit, 100)), tenant_id=tenant_id, db=db)

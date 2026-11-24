@@ -17,6 +17,7 @@ from app.services.mailer import (
     MailNotConfigured,
     is_configured,
     resolve_smtp_config,
+    sender_address,
     send_email,
 )
 from app.services.provisioning import INTRO_CATEGORIES
@@ -248,7 +249,7 @@ def send_draft(draft_id: int, tenant_id: int = Depends(current_tenant_id)):
         # relay would accept it and the draft would be marked sent for mail
         # that never arrives.
         problem = blocked_reason(
-            contact.email, getattr(smtp_config, "sender", None)
+            contact.email, sender_address(smtp_config)
         )
         if problem:
             contact.eligible_to_email = False
@@ -258,7 +259,7 @@ def send_draft(draft_id: int, tenant_id: int = Depends(current_tenant_id)):
 
         if not is_configured(smtp_config):
             reason = (
-                "SMTP is not configured. Add and test SMTP settings before sending."
+                "Mail transport is not configured. Check the selected transport settings."
             )
             _mark_blocked(db, db_draft, reason, tenant_id)
             raise HTTPException(status_code=409, detail=reason)

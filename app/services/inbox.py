@@ -1,15 +1,13 @@
-"""IMAP inbox sync.
+"""Inbox sync using either Gmail API or IMAP.
 
 Fetches the newest messages with BODY.PEEK so nothing is marked read in the
 user's mailbox, parses a short plain-text snippet and stores it locally.
 
 Resolution
 ----------
-IMAP settings are stored per tenant in ``imap_config`` so two workspaces do not
-share a mailbox. A blank row falls back to the deployment's ``IMAP_*``
-environment variables for the local single-user tenant only -- the same
-boundary ``app.services.mailer`` applies to SMTP, because those variables hold
-the operator's own credentials.
+IMAP settings are stored per tenant in ``imap_config``. When ``gmail_api`` is
+the selected transport, the local single-user tenant instead uses the OAuth
+credentials from the process environment.
 """
 import email
 import imaplib
@@ -22,7 +20,7 @@ from typing import List, Optional
 
 from app.config import settings
 from app.db import IMAPConfig, InboxMessage, Log, SessionLocal
-from app.services.mailer import environment_fallback_allowed
+from app.services.mailer import active_transport, environment_fallback_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +46,7 @@ class IMAPConfigView:
         password: Optional[str] = None,
         folder: Optional[str] = "INBOX",
         source: str = "database",
+        api_mode: bool = False,
     ):
         self.host = (host or "").strip()
         try:
@@ -58,6 +57,7 @@ class IMAPConfigView:
         self.password = password or ""
         self.folder = (folder or "INBOX").strip() or "INBOX"
         self.source = source
+        self.api_mode = api_mode
 
     @classmethod
     def from_row(cls, row, source: str = "database") -> "IMAPConfigView":
@@ -74,6 +74,10 @@ class IMAPConfigView:
 
     @property
     def configured(self) -> bool:
+        if self.api_mode:
+            from app.services.google_mail import config_from_settings
+
+            return config_from_settings().configured
         return bool(self.host and self.user and self.password)
 
     def merged_with(self, fallback: "IMAPConfigView") -> "IMAPConfigView":
@@ -95,10 +99,21 @@ class IMAPConfigView:
             "folder": self.folder,
             "configured": self.configured,
             "source": self.source,
+            "transport": "gmail_api" if self.api_mode else "imap",
         }
 
 
 def environment_config() -> IMAPConfigView:
+    if active_transport() == "gmail_api":
+        from app.services.google_mail import config_from_settings
+
+        gmail = config_from_settings()
+        return IMAPConfigView(
+            port=443,
+            user=gmail.user_email,
+            source="environment",
+            api_mode=True,
+        )
     return IMAPConfigView(
         host=settings.IMAP_HOST,
         port=settings.IMAP_PORT,
@@ -115,6 +130,11 @@ def resolve_imap_config(db, tenant_id: Optional[int]) -> IMAPConfigView:
     A stored row wins; its blanks are filled from the environment for the local
     single-user tenant only.
     """
+    if active_transport() == "gmail_api":
+        if environment_fallback_allowed(db, tenant_id):
+            return environment_config()
+        return IMAPConfigView()
+
     query = db.query(IMAPConfig)
     if tenant_id is not None:
         query = query.filter(IMAPConfig.tenant_id == tenant_id)
@@ -199,6 +219,10 @@ def _connect(config: IMAPConfigView, timeout: int = 25) -> imaplib.IMAP4_SSL:
 
 def test_connection(config: IMAPConfigView) -> dict:
     """Verify host reachability, credentials and that the folder opens."""
+    if config.api_mode:
+        from app.services.google_mail import test_connection as test_gmail_connection
+
+        return test_gmail_connection()
     if not config.host:
         return {"ok": False, "message": "IMAP host is required"}
     if not config.user or not config.password:
@@ -239,9 +263,12 @@ def fetch_recent(
         finally:
             db.close()
 
+    if config.api_mode:
+        return fetch_gmail_recent(limit, known_ids=set())
+
     if not config.configured:
         raise InboxNotConfigured(
-            "IMAP is not configured. Add and test inbox settings before syncing."
+            "Inbox is not configured. Add and test the selected mail transport before syncing."
         )
 
     client = None
@@ -296,6 +323,89 @@ def fetch_recent(
                 pass
 
 
+def fetch_gmail_recent(limit: int, known_ids: set) -> List[dict]:
+    """Fetch new inbox messages using Gmail message IDs as stable UIDs."""
+    from app.services.google_mail import (
+        GmailAPIError,
+        config_from_settings,
+        get_message_metadata,
+        list_messages,
+    )
+
+    gmail = config_from_settings()
+    if not gmail.configured:
+        raise InboxNotConfigured(
+            "Gmail API OAuth is not configured. Add the Gmail OAuth environment variables."
+        )
+
+    ids = []
+    page_token = None
+    page_limit = 500 if known_ids else max(1, min(limit, 500))
+    try:
+        for page_number in range(100):
+            page = list_messages(
+                gmail,
+                max_results=page_limit,
+                page_token=page_token,
+            )
+            found_known = False
+            for item in page.get("messages", []):
+                message_id = str(item.get("id") or "")
+                if not message_id:
+                    continue
+                if message_id in known_ids:
+                    found_known = True
+                    break
+                ids.append(message_id)
+            if found_known:
+                break
+            page_token = page.get("nextPageToken")
+            if not known_ids or not page_token:
+                break
+            if page_number == 99:
+                raise InboxError(
+                    "Gmail inbox has more than 50,000 unsynced messages; "
+                    "sync again after reducing the backlog."
+                )
+
+        # Gmail lists newest first. On the first sync, keep the latest messages.
+        # Later, process the oldest unseen batch first so the next sync can
+        # continue toward the known-message boundary.
+        if known_ids:
+            ids = ids[-max(1, limit):]
+        else:
+            ids = ids[:max(1, limit)]
+        messages = []
+        for message_id in reversed(ids):
+            message = get_message_metadata(gmail, message_id)
+            payload = message.get("payload") or {}
+            headers = {
+                (header.get("name") or "").lower(): header.get("value") or ""
+                for header in payload.get("headers", [])
+            }
+            try:
+                received_at = datetime.fromtimestamp(
+                    int(message.get("internalDate")) / 1000,
+                    tz=timezone.utc,
+                )
+            except (TypeError, ValueError, OSError):
+                received_at = datetime.now(timezone.utc)
+            messages.append(
+                {
+                    "uid": message_id,
+                    "sender": _decode(headers.get("from"))[:320],
+                    "subject": _decode(headers.get("subject"))[:500] or "(no subject)",
+                    "snippet": " ".join((message.get("snippet") or "").split())[
+                        :MAX_SNIPPET
+                    ],
+                    "received_at": received_at,
+                }
+            )
+        return messages
+    except GmailAPIError as exc:
+        raise InboxError(f"Gmail API inbox fetch failed: {exc}") from exc
+
+
 def sync_inbox(limit: int = 25, tenant_id: Optional[int] = None, db=None) -> dict:
     """Fetch messages and persist the ones not seen before."""
     owns_session = db is None
@@ -307,16 +417,19 @@ def sync_inbox(limit: int = 25, tenant_id: Optional[int] = None, db=None) -> dic
         if tenant_id is not None:
             known_query = known_query.filter(InboxMessage.tenant_id == tenant_id)
         known_uids = known_query.all()
-        numeric_uids = [
-            int(row[0]) for row in known_uids
-            if row[0] and str(row[0]).isdigit()
-        ]
-        fetched = fetch_recent(
-            limit,
-            after_uid=max(numeric_uids) if numeric_uids else None,
-            tenant_id=tenant_id,
-            config=config,
-        )
+        if config.api_mode:
+            fetched = fetch_gmail_recent(limit, {str(row[0]) for row in known_uids})
+        else:
+            numeric_uids = [
+                int(row[0]) for row in known_uids
+                if row[0] and str(row[0]).isdigit()
+            ]
+            fetched = fetch_recent(
+                limit,
+                after_uid=max(numeric_uids) if numeric_uids else None,
+                tenant_id=tenant_id,
+                config=config,
+            )
         for item in fetched:
             exists_query = db.query(InboxMessage).filter(
                 InboxMessage.uid == item["uid"]

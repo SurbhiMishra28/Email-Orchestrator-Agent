@@ -35,13 +35,23 @@ the SPA at `/`, the API under `/api`, and the OpenAPI docs at `/docs`.
 |---|---|
 | `main.py` | FastAPI app, lifespan provisioning, SPA mount, analytics, rate limiting |
 | `config.py` | Settings including the `LOCAL_*` implicit-workspace identity |
-| `db.py` | SQLAlchemy models and session factory |
+| `db.py` | SQLAlchemy models, session factory and dialect normalisation |
 | `auth.py` | Password hashing, JWT issue/verify, local-user provisioning |
+| `security.py` | HTTP Basic auth gate for the dashboard and API |
 | `deps.py` | `current_tenant_id` and auth dependencies |
 | `agents.py` | Agent classes and the queue manager |
 | `live_logs.py` | Agent instrumentation and the `/ws/live-logs` broadcaster |
 | `routers/` | One module per resource area (see endpoint list) |
 | `services/` | Business logic: limits, usage, tracking, follow-ups, verification, send worker |
+
+### Entrypoints (`api/`)
+
+| Path | Purpose |
+|---|---|
+| `index.py` | Vercel Python function adapter; re-exports `app.main:app` |
+
+Vercel builds `frontend/` and serves `dist/` from its CDN, then routes `/api/*`
+and `/health` to this function. See [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ### Frontend (`frontend/`)
 

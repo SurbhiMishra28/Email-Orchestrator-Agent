@@ -37,6 +37,12 @@ router.include_router(campaigns.router, prefix="/campaigns", tags=["campaigns"],
 from app.routers import auth as auth_router
 router.include_router(auth_router.router, prefix="/auth", tags=["auth"])
 
+# External cron entrypoint. Public at the router level because an external
+# scheduler has no bearer token; the route authenticates with CRON_SECRET and
+# answers 404 when that secret is unset.
+from app.routers import cron as cron_router
+router.include_router(cron_router.router, prefix="/cron", tags=["cron"])
+
 # Public engagement tracking: a recipient's mail client has no bearer token, so
 # these endpoints authenticate the request through a signed token instead.
 from app.routers import track as track_router

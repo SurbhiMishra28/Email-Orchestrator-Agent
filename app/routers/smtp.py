@@ -6,7 +6,9 @@ from app.deps import current_tenant_id
 from app.models.schemas import SMTPConfigBase, SMTPConfigOut
 from app.services.mailer import (
     SMTPConfigView,
+    active_transport,
     environment_config,
+    is_configured,
     resolve_smtp_config,
     test_connection,
 )
@@ -49,9 +51,13 @@ def get_smtp_status(tenant_id: int = Depends(current_tenant_id)):
             user=view.user or None,
             password=None,  # Never return the password
             sender=view.sender or None,
-            configured=view.configured,
-            authentication_configured=view.authentication_configured,
+            configured=is_configured(view),
+            authentication_configured=(
+                view.authentication_configured
+                or (active_transport() == "gmail_api" and is_configured(view))
+            ),
             source=view.source,
+            transport=active_transport(),
         )
     finally:
         db.close()
@@ -114,21 +120,35 @@ def test_smtp_config(
     finally:
         db.close()
 
-    candidate = SMTPConfigView(
-        host=config.host or resolved.host,
-        port=config.port or resolved.port,
-        user=config.user or resolved.user,
-        password=config.password or resolved.password,
-        sender=config.sender or resolved.sender,
-    )
+    if active_transport() == "gmail_api":
+        candidate = resolved
+    else:
+        candidate = SMTPConfigView(
+            host=config.host or resolved.host,
+            port=config.port or resolved.port,
+            user=config.user or resolved.user,
+            password=config.password or resolved.password,
+            sender=config.sender or resolved.sender,
+            source=resolved.source,
+        )
 
-    result = test_connection(
-        candidate.host, candidate.port, candidate.user or None, candidate.password or None
-    )
-    result["configured"] = candidate.configured
+    if active_transport() == "gmail_api" and not is_configured(candidate):
+        result = {
+            "ok": False,
+            "message": "Gmail API is not configured for this workspace.",
+        }
+    else:
+        result = test_connection(
+            candidate.host,
+            candidate.port,
+            candidate.user or None,
+            candidate.password or None,
+        )
+    result["configured"] = is_configured(candidate)
     result["source"] = resolved.source
     result["host"] = candidate.host
     result["port"] = candidate.port
+    result["transport"] = active_transport()
     return result
 
 
@@ -147,4 +167,5 @@ def smtp_defaults(tenant_id: int = Depends(current_tenant_id)):
         "user": env.user or None,
         "sender": env.sender or None,
         "authentication_configured": env.authentication_configured,
+        "transport": active_transport(),
     }
