@@ -6,6 +6,8 @@ import { Mail, Users, FileText, Inbox, Settings, Play, BarChart3, Activity, Send
 
 const BRAND_NAME = "MailMatrix";
 
+import { basicAuthHeader, getBasicAuth, requestCredentials, setBasicAuth } from "./auth.js";
+
 // Brevo-style opening screen: the wordmark dominates, then the app takes over.
 function Splash(){
   return (
@@ -24,16 +26,28 @@ const KNOWN_VIEWS = [
 
 const api = async (path, opts = {}) => {
 
+  const authHeader = basicAuthHeader();
+
   const response = await fetch(path, {
 
     ...opts,
 
     headers: {
       "Content-Type": "application/json",
+      ...(authHeader ? { Authorization: authHeader } : {}),
       ...opts.headers,
     },
 
   });
+
+  if (response.status === 401) {
+    // Credentials are missing, wrong, or were cleared. Drop them and let the
+    // shell ask again rather than surfacing "Request failed (401)".
+    requestCredentials();
+    const err = new Error("Request failed (401)");
+    err.status = 401;
+    throw err;
+  }
 
   const body = await response.text();
 
