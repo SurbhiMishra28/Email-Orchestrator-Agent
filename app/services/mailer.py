@@ -316,6 +316,29 @@ def send_email(smtp_config, recipient: str, subject: str, body: str, from_name: 
     display_name = from_name or app_settings.SENDER_NAME or ""
     display_name = display_name.strip()
 
+    # Gmail API over HTTPS, used when the OAuth settings are present and the
+    # mailbox resolved to the Gmail marker host.
+    from app.services import gmail_api
+
+    if gmail_api.is_gmail_host(host):
+        message = EmailMessage()
+        # Gmail always sends as the authenticated mailbox, so use that address.
+        gmail_sender = app_settings.GMAIL_USER
+        message["From"] = formataddr((display_name, gmail_sender)) if display_name else gmail_sender
+        message["To"] = recipient
+        message["Subject"] = sanitize_subject(subject)
+        message["Message-ID"] = make_msgid(domain=gmail_sender.rpartition("@")[2] or None)
+        message["Date"] = formatdate(localtime=False)
+        message["List-Unsubscribe"] = f"<mailto:{gmail_sender}?subject=unsubscribe>"
+        message.set_content(body or "")
+        if html_body:
+            message.add_alternative(html_body, subtype="html")
+        try:
+            gmail_api.send_raw(message.as_bytes())
+        except gmail_api.GmailError as exc:
+            raise MailDeliveryError(str(exc)) from exc
+        return message["Message-ID"]
+
     # Resend REST API over HTTPS. Used when RESEND_API_KEY is set, which is the
     # only way to send from hosts that block SMTP ports (Render free tier).
     if app_settings.RESEND_API_KEY:

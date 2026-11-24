@@ -199,6 +199,10 @@ def _connect(config: IMAPConfigView, timeout: int = 25) -> imaplib.IMAP4_SSL:
 
 def test_connection(config: IMAPConfigView) -> dict:
     """Verify host reachability, credentials and that the folder opens."""
+    from app.services import gmail_api
+
+    if gmail_api.is_gmail_host(config.host):
+        return gmail_api.test_connection()
     if not config.host:
         return {"ok": False, "message": "IMAP host is required"}
     if not config.user or not config.password:
@@ -243,6 +247,14 @@ def fetch_recent(
         raise InboxNotConfigured(
             "IMAP is not configured. Add and test inbox settings before syncing."
         )
+
+    from app.services import gmail_api
+
+    if gmail_api.is_gmail_host(config.host):
+        try:
+            return gmail_api.fetch_recent(limit)
+        except gmail_api.GmailError as exc:
+            raise InboxError(str(exc)) from exc
 
     client = None
     try:

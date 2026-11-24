@@ -68,6 +68,21 @@ class Settings:
     # Database
     DATABASE_URL: Optional[str] = os.getenv("DATABASE_URL")
     
+    # Gmail API (OAuth2 over HTTPS). When all four are set the app sends and reads
+    # mail through the Gmail API instead of SMTP/IMAP, which works on hosts that
+    # block mail ports. The SMTP/IMAP defaults below then point at a marker host so
+    # the rest of the app treats the mailbox as configured.
+    GMAIL_CLIENT_ID: str = os.getenv("GMAIL_CLIENT_ID", "").strip()
+    GMAIL_CLIENT_SECRET: str = os.getenv("GMAIL_CLIENT_SECRET", "").strip()
+    GMAIL_REFRESH_TOKEN: str = os.getenv("GMAIL_REFRESH_TOKEN", "").strip()
+    GMAIL_USER: str = os.getenv("GMAIL_USER", "").strip()
+    GMAIL_API_ENABLED: bool = bool(
+        os.getenv("GMAIL_CLIENT_ID", "").strip()
+        and os.getenv("GMAIL_CLIENT_SECRET", "").strip()
+        and os.getenv("GMAIL_REFRESH_TOKEN", "").strip()
+        and os.getenv("GMAIL_USER", "").strip()
+    )
+
     # SMTP defaults (SMTP_* is the documented name, DEFAULT_SMTP_* the legacy alias)
     DEFAULT_SMTP_HOST: str = os.getenv("SMTP_HOST") or os.getenv("DEFAULT_SMTP_HOST", "")
     DEFAULT_SMTP_PORT: int = int(os.getenv("SMTP_PORT") or os.getenv("DEFAULT_SMTP_PORT", "587"))
@@ -86,6 +101,20 @@ class Settings:
     IMAP_USER: str = os.getenv("IMAP_USER", "")
     IMAP_PASSWORD: str = os.getenv("IMAP_PASS") or os.getenv("IMAP_PASSWORD", "")
     IMAP_POLL_MINUTES: int = int(os.getenv("IMAP_POLL_MINUTES", "10"))
+
+    def __init__(self) -> None:
+        # Gmail API stands in for SMTP/IMAP unless those were set explicitly.
+        if self.GMAIL_API_ENABLED:
+            marker = "gmail.googleapis.com"
+            if not self.DEFAULT_SMTP_HOST:
+                self.DEFAULT_SMTP_HOST = marker
+                self.DEFAULT_SMTP_USER = self.DEFAULT_SMTP_USER or self.GMAIL_USER
+                self.DEFAULT_SMTP_PASSWORD = self.DEFAULT_SMTP_PASSWORD or "gmail-oauth"
+                self.DEFAULT_SMTP_SENDER = self.DEFAULT_SMTP_SENDER or self.GMAIL_USER
+            if not self.IMAP_HOST:
+                self.IMAP_HOST = marker
+                self.IMAP_USER = self.IMAP_USER or self.GMAIL_USER
+                self.IMAP_PASSWORD = self.IMAP_PASSWORD or "gmail-oauth"
 
     # Follow-up drafting (never sends on its own)
     FOLLOWUPS_ENABLED: bool = os.getenv("FOLLOWUPS_ENABLED", "true").lower() == "true"

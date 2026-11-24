@@ -1090,6 +1090,12 @@ class SenderAgent:
         if app_settings.RESEND_API_KEY:
             return self._test_resend()
 
+        from app.services import gmail_api
+
+        if gmail_api.is_gmail_host(getattr(self.smtp_config, "host", "")):
+            result = gmail_api.test_connection()
+            return bool(result["ok"]), str(result["message"])
+
         from app.services.mailer import test_connection
 
         host = (getattr(self.smtp_config, "host", "") or "").strip()
