@@ -5,7 +5,7 @@
   "functions": {
     "api/index.py": {
       "maxDuration": 60,
-      "includeFiles": "app/**"
+      "includeFiles": ["app/**", "frontend/dist/**"]
     }
   }
 }

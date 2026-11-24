@@ -1200,27 +1200,19 @@ class SPAStaticFiles(StaticFiles):
 
 
 # Serve the built frontend when this process serves static files itself
-# (local development and any long-lived host). On Vercel the SPA is built and
-# served from the CDN instead: the function ships only ``app/``, so this mount
-# would find no dist directory and, if it did, would turn every asset request
-# into a function invocation.
-if os.getenv("VERCEL"):
-    logger.info(
-        "Running on Vercel: static frontend is served by the CDN, not mounted here"
-    )
-elif os.path.exists(frontend_dist):
+# (local development and any long-lived host).
+#
+# Vercel is included here on purpose. Its Python runtime routes every request
+# that is not a build output through the function, so the SPA has to be served
+# by FastAPI rather than the CDN; ``vercel.json`` ships ``frontend/dist`` in the
+# function bundle so the directory below exists at runtime.
+if os.path.exists(frontend_dist):
     try:
         app.mount("/", SPAStaticFiles(directory=frontend_dist, html=True), name="frontend-dist")
     except (RuntimeError, OSError):
         pass
-if (
-    not os.getenv("VERCEL")
-    and os.path.exists(frontend_public)
-    and not os.path.exists(frontend_dist)
-):
-    # Fallback to serving index.html from public (development mode). Skipped on
-    # Vercel, where the CDN serves the built SPA and a "/" route here would only
-    # shadow it with a "frontend not built" message.
+if os.path.exists(frontend_public) and not os.path.exists(frontend_dist):
+    # Fallback to serving index.html from public (development mode).
     @app.get("/", include_in_schema=False)
     def serve_index():
         """Serve the frontend index.html at root."""
