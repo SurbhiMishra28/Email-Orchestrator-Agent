@@ -1779,12 +1779,12 @@ Best regards,
         contact = self.db.query(Contact).filter(Contact.id == self.contact_id).first()
         if not contact or not contact.eligible_to_email:
             return None
-        
+
         template = self.RESPONSE_TEMPLATES[reply_type]
-        
+
         # Generate subject
         subject = f"{template['subject_prefix']} {original_subject.replace('Re:', '').strip()}"
-        
+
         # Generate body
         variables = {
             "first_name": (contact.name or "there").split()[0] if contact.name else "there",
@@ -1797,12 +1797,32 @@ Best regards,
             "additional_info": "I'd be happy to provide more details on our services. Let's discuss this during our call.",
             "availability_options": "Monday-Friday, 9am-5pm EST",
             "calendar_link": self._generate_calendar_link(),
+            "subject": original_subject.replace("Re:", "").strip(),
         }
-        
-        # Expand template variables
+
+        # Prefer the tenant's editable reply template (category "reply") so the
+        # dashboard can change the wording without a redeploy. Fall back to the
+        # hardcoded body when no active reply template exists, which keeps the
+        # auto-responder working on workspaces that never seeded one.
         from jinja2 import Template as JinjaTemplate
-        body = JinjaTemplate(template["body"]).render(**variables)
-        
+
+        db_template = (
+            self.db.query(Template)
+            .filter(
+                Template.tenant_id == contact.tenant_id,
+                Template.category == "reply",
+                Template.is_active == True,  # noqa: E712 - SQLAlchemy boolean
+            )
+            .order_by(Template.id.asc())
+            .first()
+        )
+        if db_template is not None and (db_template.body_template or "").strip():
+            body = JinjaTemplate(db_template.body_template).render(**variables)
+            if (db_template.subject_template or "").strip():
+                subject = JinjaTemplate(db_template.subject_template).render(**variables)
+        else:
+            body = JinjaTemplate(template["body"]).render(**variables)
+
         return {
             "subject": subject,
             "body": body,

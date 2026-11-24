@@ -17,6 +17,20 @@ DEFAULT_INTRO_BODY = (
     "{{ sender_name or 'Best regards' }}"
 )
 
+# Seeded reply template. The auto-responder answers classified inbound replies;
+# without a row in this category there is nothing for the UI to show and nothing
+# for the reply agent to fall back to, so a fresh workspace answers with the
+# hardcoded Python template instead of an editable one.
+DEFAULT_REPLY_SUBJECT = "Re: {{ subject }}"
+DEFAULT_REPLY_BODY = (
+    "Hi {{ first_name or 'there' }},\n\n"
+    "Thanks for getting back to me. {{ business_offer }}\n\n"
+    "{% if calendly_url %}You can grab a time that suits you here: "
+    "{{ calendly_url }}{% else %}Let me know a couple of times that work for you "
+    "and I'll send an invite.{% endif %}\n\n"
+    "{{ sender_name or 'Best regards' }}"
+)
+
 # Legacy category spellings (init_templates.py) mapped to the canonical ones the
 # pipeline looks up. Without this, a deployment seeded by that script has
 # templates that no send path ever matches.
@@ -144,6 +158,13 @@ def provision_tenant_defaults(db, tenant_id: int, inherit_environment: bool = No
                         "Hi {{first_name}},\n\nJust wanted to follow up on my "
                         "previous email..."
                     ),
+                ),
+                Template(
+                    tenant_id=tenant_id,
+                    name="Reply",
+                    category="reply",
+                    subject_template=DEFAULT_REPLY_SUBJECT,
+                    body_template=DEFAULT_REPLY_BODY,
                 ),
             ]
         )

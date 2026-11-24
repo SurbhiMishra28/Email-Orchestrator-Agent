@@ -2672,6 +2672,10 @@ export default function App(){
 
   const [editingTemplate, setEditingTemplate] = useState(null);
 
+  const [templateComposer, setTemplateComposer] = useState(false);
+
+  const [templateError, setTemplateError] = useState(null);
+
 
 
   // Load templates
@@ -2781,6 +2785,72 @@ export default function App(){
     await loadTemplates();
 
     return result;
+
+  };
+
+
+
+  // Open the template editor, pre-filled when editing an existing template.
+
+  const openTemplateComposer = (template) => {
+
+    setEditingTemplate(template || null);
+
+    setTemplateError(null);
+
+    setTemplateForm(template ? {
+
+      name: template.name || "",
+
+      category: template.category || "intro",
+
+      subject_template: template.subject_template || "",
+
+      body_template: template.body_template || "",
+
+      variables: template.variables || {},
+
+      tags: template.tags || [],
+
+      is_active: template.is_active !== false,
+
+    } : { name: "", category: "intro", subject_template: "", body_template: "", variables: {}, tags: [], is_active: true });
+
+    setTemplateComposer(true);
+
+  };
+
+
+
+  // Persist the template from the editor modal.
+
+  const submitTemplate = async () => {
+
+    setTemplateError(null);
+
+    if (!templateForm.name.trim()) { setTemplateError("Give the template a name."); return; }
+
+    try {
+
+      if (editingTemplate && editingTemplate.id) {
+
+        await updateTemplate(editingTemplate.id);
+
+      } else {
+
+        await createTemplate();
+
+      }
+
+      setTemplateComposer(false);
+
+      setEditingTemplate(null);
+
+    } catch (e) {
+
+      setTemplateError(e?.message || String(e));
+
+    }
 
   };
 
@@ -4525,7 +4595,7 @@ export default function App(){
 
               <PageHeader title="Templates" subtitle="Reusable subjects and bodies with merge variables." eyebrow="Workspace">
 
-                <button onClick={()=>{setEditingTemplate(null);setTemplateForm({name:"",category:"intro",subject_template:"",body_template:"",variables:{},tags:[],is_active:true});setComposing(true);}} className="btn-primary"><PenLine className="h-3.5 w-3.5"/>New template</button>
+                <button onClick={()=>openTemplateComposer(null)} className="btn-primary"><PenLine className="h-3.5 w-3.5"/>New template</button>
 
               </PageHeader>
 
@@ -4557,7 +4627,7 @@ export default function App(){
 
                       <div className="flex shrink-0 items-center gap-0.5">
 
-                        <button onClick={()=>handleEditTemplate(template)} className="icon-btn" title="Edit template"><Pencil className="h-4 w-4"/></button>
+                        <button onClick={()=>openTemplateComposer(template)} className="icon-btn" title="Edit template"><Pencil className="h-4 w-4"/></button>
 
                         <button onClick={()=>duplicateTemplate(template.id)} className="icon-btn" title="Duplicate template"><Copy className="h-4 w-4"/></button>
 
@@ -6003,6 +6073,92 @@ export default function App(){
         )}
 
         
+
+        {templateComposer&&(
+
+          <div className="modal-backdrop">
+
+            <div className="modal">
+
+              <div className="modal-head">
+
+                <h3 className="modal-title">{editingTemplate && editingTemplate.id ? "Edit template" : "New template"}</h3>
+
+                <button onClick={()=>{setTemplateComposer(false);setEditingTemplate(null);setTemplateError(null);}} className="icon-btn" aria-label="Close"><XCircle className="h-5 w-5"/></button>
+
+              </div>
+
+              <div className="modal-body">
+
+                <label className="field-label">
+
+                  Name
+
+                  <input type="text" className={inputCls+" mt-1"} value={templateForm.name} onChange={e=>setTemplateForm({...templateForm,name:e.target.value})}/>
+
+                </label>
+
+                <label className="field-label">
+
+                  Category
+
+                  <select className={inputCls+" mt-1"} value={templateForm.category} onChange={e=>setTemplateForm({...templateForm,category:e.target.value})}>
+
+                    <option value="intro">intro</option>
+
+                    <option value="followup">followup</option>
+
+                    <option value="reply">reply</option>
+
+                    <option value="outreach">outreach</option>
+
+                    <option value="nurture">nurture</option>
+
+                  </select>
+
+                </label>
+
+                <label className="field-label">
+
+                  Subject
+
+                  <input type="text" className={inputCls+" mt-1"} value={templateForm.subject_template} onChange={e=>setTemplateForm({...templateForm,subject_template:e.target.value})}/>
+
+                </label>
+
+                <label className="field-label">
+
+                  Body
+
+                  <textarea rows={9} className={inputCls+" mt-1 resize-none font-mono text-[12.5px]"} value={templateForm.body_template} onChange={e=>setTemplateForm({...templateForm,body_template:e.target.value})}/>
+
+                </label>
+
+                <label className="mt-1 flex items-center gap-2 text-[13px] text-ink-600">
+
+                  <input type="checkbox" checked={templateForm.is_active} onChange={e=>setTemplateForm({...templateForm,is_active:e.target.checked})}/>
+
+                  Active
+
+                </label>
+
+                {templateError&&<p className="notice-error">{templateError}</p>}
+
+                <div className="modal-foot -mx-5 -mb-4">
+
+                  <button onClick={()=>{setTemplateComposer(false);setEditingTemplate(null);setTemplateError(null);}} className={btnGhost}>Cancel</button>
+
+                  <button onClick={submitTemplate} className={btnPrimary}>{editingTemplate && editingTemplate.id ? "Save template" : "Create template"}</button>
+
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        )}
 
         {composing&&(
 

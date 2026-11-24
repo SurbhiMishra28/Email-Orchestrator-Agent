@@ -86,5 +86,9 @@ def test_starter_templates_are_still_created_for_a_new_tenant(
 
     from app.db import Template
 
-    names = {row.name for row in db.query(Template).filter(Template.tenant_id == 9)}
-    assert names == {"Intro Email", "Follow-up"}
+    rows = db.query(Template).filter(Template.tenant_id == 9).all()
+    names = {row.name for row in rows}
+    assert names == {"Intro Email", "Follow-up", "Reply"}
+    # The auto-responder needs a reply template in the "reply" category, so a
+    # fresh workspace must be seeded with one.
+    assert {row.category for row in rows} == {"intro", "followup", "reply"}
