@@ -1204,14 +1204,22 @@ class SPAStaticFiles(StaticFiles):
 #
 # Vercel is included here on purpose. Its Python runtime routes every request
 # that is not a build output through the function, so the SPA has to be served
-# by FastAPI rather than the CDN; ``vercel.json`` ships ``frontend/dist`` in the
-# function bundle so the directory below exists at runtime.
-if os.path.exists(frontend_dist):
+# by FastAPI rather than the CDN. ``vercel.json`` builds the SPA into
+# ``app/static`` so the single ``app/**`` include glob ships it inside the
+# function bundle.
+app_static = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+static_dir = (
+    app_static
+    if os.path.exists(app_static)
+    else (frontend_dist if os.path.exists(frontend_dist) else None)
+)
+if static_dir:
     try:
-        app.mount("/", SPAStaticFiles(directory=frontend_dist, html=True), name="frontend-dist")
+        app.mount("/", SPAStaticFiles(directory=static_dir, html=True), name="frontend-static")
+        logger.info("Serving the built frontend from %s", static_dir)
     except (RuntimeError, OSError):
         pass
-if os.path.exists(frontend_public) and not os.path.exists(frontend_dist):
+if not static_dir and os.path.exists(frontend_public):
     # Fallback to serving index.html from public (development mode).
     @app.get("/", include_in_schema=False)
     def serve_index():

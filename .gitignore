@@ -47,3 +47,6 @@ server.log
 .neon
 .env*
 !.env.example
+
+# Built SPA copied into the function bundle by vercel.json
+app/static/
