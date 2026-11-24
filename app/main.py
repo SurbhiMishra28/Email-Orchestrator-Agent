@@ -504,7 +504,12 @@ async def lifespan(app: FastAPI):
         )
     else:
         try:
-            init_db()
+            # DDL goes through the direct endpoint when the platform exposes one
+            # (Neon's DATABASE_URL_UNPOOLED). The pooled endpoint multiplexes
+            # transactions and cannot be used for schema work.
+            from app.db import direct_engine
+
+            init_db(engine_override=direct_engine())
         except SQLAlchemyError as exc:
             database_ready = False
             logger.error(

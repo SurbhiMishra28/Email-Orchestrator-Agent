@@ -150,28 +150,48 @@ if DATABASE_URL.startswith("sqlite") and HOSTED_PLATFORM:
         _describe_database_url(DATABASE_URL),
     )
 
-connect_args = (
-    {"check_same_thread": False, "timeout": 30}
-    if DATABASE_URL.startswith("sqlite")
-    else {}
-)
+def make_engine(url: str):
+    """Build an engine for ``url`` with the settings this app needs everywhere.
 
-# Each serverless instance opens its own connection pool, so a generous default
-# pool multiplied by the number of warm instances exhausts a managed database's
-# connection limit. Neon and friends also close idle connections, which
-# ``pool_pre_ping`` already tolerates; recycling well inside the server's idle
-# timeout avoids accumulating dead sockets.
-engine_kwargs = {}
-if DATABASE_URL.startswith("postgresql"):
-    engine_kwargs = {"pool_size": 1, "max_overflow": 5, "pool_recycle": 1800}
+    Each serverless instance opens its own connection pool, so a generous
+    default pool multiplied by the number of warm instances exhausts a managed
+    database's connection limit. Neon and friends also close idle connections,
+    which ``pool_pre_ping`` already tolerates; recycling well inside the
+    server's idle timeout avoids accumulating dead sockets.
+    """
+    connect_args = (
+        {"check_same_thread": False, "timeout": 30} if url.startswith("sqlite") else {}
+    )
+    engine_kwargs = {}
+    if url.startswith("postgresql"):
+        engine_kwargs = {"pool_size": 1, "max_overflow": 5, "pool_recycle": 1800}
+    return create_engine(
+        url,
+        echo=False,
+        pool_pre_ping=True,
+        connect_args=connect_args,
+        **engine_kwargs,
+    )
 
-engine = create_engine(
-    DATABASE_URL,
-    echo=False,
-    pool_pre_ping=True,
-    connect_args=connect_args,
-    **engine_kwargs,
-)
+
+engine = make_engine(DATABASE_URL)
+
+
+def direct_engine():
+    """An engine for schema migrations and other session-level work.
+
+    Neon exposes two strings for the same database: the pooled one
+    (``-pooler``, PgBouncer in transaction mode) for application traffic, and a
+    direct one for migrations, dumps and anything relying on ``SET`` or session
+    state. Running DDL over the pooled endpoint fails in ways that never mention
+    pooling -- a dropped ``search_path``, or a read-only transaction inherited
+    from an earlier client -- so migrations use ``DATABASE_URL_UNPOOLED`` when
+    the platform supplies it.
+    """
+    unpooled = (os.getenv("DATABASE_URL_UNPOOLED") or "").strip()
+    if not unpooled:
+        return engine
+    return make_engine(normalize_database_url(unpooled))
 
 
 def _sql_false() -> str:
@@ -758,10 +778,28 @@ class VerificationJob(Base):
 
 
 # Create tables
-def init_db():
-    """Initialize database tables and add columns that create_all cannot."""
-    Base.metadata.create_all(bind=engine)
-    _ensure_columns()
+def init_db(engine_override=None):
+    """Initialize database tables and add columns that create_all cannot.
+
+    ``engine_override`` exists for the migration entrypoint: schema work must run
+    on the direct Neon endpoint rather than the pooled one the app queries
+    through. The override is bound for the duration of the call and restored
+    afterwards, so the application's engine is never left pointing somewhere
+    unexpected.
+    """
+    global engine
+    if engine_override is None:
+        Base.metadata.create_all(bind=engine)
+        _ensure_columns()
+        return
+
+    original = engine
+    engine = engine_override
+    try:
+        Base.metadata.create_all(bind=engine)
+        _ensure_columns()
+    finally:
+        engine = original
 
 
 def _ensure_tenant_columns(inspector, table_names):

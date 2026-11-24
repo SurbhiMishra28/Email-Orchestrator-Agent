@@ -21,7 +21,12 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from app.config import settings as app_settings  # noqa: E402
-from app.db import DATABASE_URL, _describe_database_url, init_db  # noqa: E402
+from app.db import (  # noqa: E402
+    DATABASE_URL,
+    _describe_database_url,
+    direct_engine,
+    init_db,
+)
 from app.main import _bootstrap_database  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -38,8 +43,18 @@ def main() -> int:
         )
         return 2
 
+    # DDL runs on the direct endpoint when Neon supplies one. The pooled
+    # endpoint multiplexes transactions and cannot be used for migrations.
+    target = direct_engine()
+    print(
+        "Schema engine:",
+        _describe_database_url(
+            str(target.url.render_as_string(hide_password=True))
+        ),
+    )
+
     try:
-        init_db()
+        init_db(engine_override=target)
     except Exception as exc:
         print(f"Schema creation failed: {exc}", file=sys.stderr)
         return 1

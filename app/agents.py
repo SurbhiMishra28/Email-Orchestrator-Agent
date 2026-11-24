@@ -73,25 +73,105 @@ def _render_footer(template, variables: Dict[str, Any]) -> str:
     return (variables.get("footer_text") or "").strip()
 
 
-def get_llm_client():
-    """Get NVIDIA LLM client if API key is configured."""
+def neon_gateway_configured() -> bool:
+    """True when the Neon AI Gateway has both a host and a token."""
     from app.config import settings as app_settings
-    api_key = app_settings.NVIDIA_API_KEY
-    model = app_settings.NVIDIA_MODEL
-    
-    if not api_key:
-        return None
-    if ChatNVIDIA is None:
-        logger.warning(
-            "langchain-nvidia-ai-endpoints is not installed; using the template engine."
-        )
+
+    return bool(
+        (app_settings.NEON_AI_GATEWAY_BASE_URL or "").strip()
+        and (app_settings.NEON_AI_GATEWAY_TOKEN or "").strip()
+    )
+
+
+def get_neon_gateway_client():
+    """An OpenAI-compatible client for the Neon AI Gateway, or None.
+
+    ``NEON_AI_GATEWAY_BASE_URL`` is the bare branch host, so the OpenAI dialect
+    path is appended here; ``ChatOpenAI`` then adds ``/chat/completions``.
+
+    Returns None (rather than raising) when the gateway is not configured, so
+    callers can fall back. When ``LLM_PROVIDER=neon`` that fallback is skipped
+    explicitly -- a configured-but-broken gateway should not silently degrade to
+    templates.
+    """
+    from app.config import settings as app_settings
+
+    if not neon_gateway_configured():
         return None
 
     try:
-        return ChatNVIDIA(model=model, api_key=api_key, temperature=0.7)
-    except Exception as e:
-        logger.warning(f"Could not initialize NVIDIA LLM: {e}")
+        from langchain_openai import ChatOpenAI
+    except ImportError:
+        logger.warning(
+            "langchain-openai is not installed; the Neon AI Gateway is unavailable."
+        )
         return None
+
+    base_url = app_settings.NEON_AI_GATEWAY_BASE_URL.rstrip("/")
+    try:
+        return ChatOpenAI(
+            model=app_settings.NEON_AI_GATEWAY_MODEL,
+            api_key=app_settings.NEON_AI_GATEWAY_TOKEN,
+            base_url=f"{base_url}/v1",
+            temperature=0.7,
+            timeout=60,
+        )
+    except Exception as e:
+        logger.warning(f"Could not initialize the Neon AI Gateway client: {e}")
+        return None
+
+
+def get_llm_client():
+    """Get the configured LLM client, or None when no provider is available.
+
+    ``LLM_PROVIDER`` selects the backend:
+
+    * ``auto``   -- NVIDIA when a key is configured, otherwise the Neon AI
+      Gateway. NVIDIA stays first because it is the provider this app was built
+      and tuned against; the gateway is the fallback, not a replacement.
+    * ``nvidia`` -- NVIDIA only.
+    * ``neon``   -- Neon AI Gateway only.
+
+    An explicit provider never silently falls through to another, so a
+    misconfigured deployment is visible instead of quietly returning templates.
+    """
+    from app.config import settings as app_settings
+
+    provider = (app_settings.LLM_PROVIDER or "auto").lower()
+
+    if provider == "neon":
+        client = get_neon_gateway_client()
+        if client is None:
+            logger.warning(
+                "LLM_PROVIDER=neon but the Neon AI Gateway is not configured "
+                "(set NEON_AI_GATEWAY_BASE_URL and NEON_AI_GATEWAY_TOKEN)."
+            )
+        return client
+
+    api_key = app_settings.NVIDIA_API_KEY
+    model = app_settings.NVIDIA_MODEL
+
+    if api_key and ChatNVIDIA is not None:
+        try:
+            return ChatNVIDIA(model=model, api_key=api_key, temperature=0.7)
+        except Exception as e:
+            logger.warning(f"Could not initialize NVIDIA LLM: {e}")
+
+    if provider == "nvidia":
+        if not api_key:
+            logger.warning("LLM_PROVIDER=nvidia but NVIDIA_API_KEY is not set.")
+        return None
+
+    # auto, with NVIDIA unavailable or uninitialised.
+    client = get_neon_gateway_client()
+    if client is None:
+        if api_key:
+            logger.warning(
+                "langchain-nvidia-ai-endpoints is not installed; "
+                "using the template engine."
+            )
+        return None
+    return client
 
 
 async def expand_template_with_ai(template: Template, contact: Contact, custom_values: Dict[str, Any] = None) -> Dict[str, str]:

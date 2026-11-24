@@ -170,6 +170,21 @@ class Settings:
     NVIDIA_MODEL: str = os.getenv(
         "NVIDIA_MODEL", "nvidia/nemotron-3.5-super-vl-120b-a12b"
     )
+
+    # Which LLM backend to use: auto | nvidia | neon.
+    #   auto   -- NVIDIA when a key is configured, otherwise the Neon AI Gateway.
+    #   nvidia -- NVIDIA only.
+    #   neon   -- Neon AI Gateway only; a missing gateway is an error, not a
+    #             silent fallback to the template engine.
+    LLM_PROVIDER: str = (os.getenv("LLM_PROVIDER", "auto") or "auto").strip().lower()
+
+    # Neon AI Gateway (OpenAI-compatible). ``neon env pull`` writes both values
+    # when ``aiGateway`` is declared in neon.ts. NEON_AI_GATEWAY_BASE_URL is the
+    # bare branch host with no path; the OpenAI dialect lives under ``/v1``.
+    # Inference also needs AI Gateway credits on the Neon plan.
+    NEON_AI_GATEWAY_BASE_URL: str = os.getenv("NEON_AI_GATEWAY_BASE_URL", "")
+    NEON_AI_GATEWAY_TOKEN: str = os.getenv("NEON_AI_GATEWAY_TOKEN", "")
+    NEON_AI_GATEWAY_MODEL: str = os.getenv("NEON_AI_GATEWAY_MODEL", "claude-haiku-4-5")
     
     # Frontend
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:8000")

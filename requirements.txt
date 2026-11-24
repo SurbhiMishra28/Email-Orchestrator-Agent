@@ -13,6 +13,8 @@ jinja2>=3.1
 # LangChain model integration and agent tools
 langchain-core>=1.0
 langchain-nvidia-ai-endpoints>=0.3
+# Neon AI Gateway speaks the OpenAI dialect; used when LLM_PROVIDER=neon.
+langchain-openai>=0.2
 # MySQL is the local development database
 pymysql>=1.1
 # PostgreSQL is the production database on Vercel (Neon). psycopg 3 is the
