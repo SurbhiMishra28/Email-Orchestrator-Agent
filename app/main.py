@@ -999,6 +999,23 @@ app.add_middleware(
 # CORS headers and the browser can report the 401 instead of a CORS error.
 security.install(app)
 
+# Cache the built SPA's content-hashed assets aggressively.
+#
+# Vite emits ``/assets/index-<hash>.js`` with the hash in the filename, so the
+# bytes for a given URL can never change. Without a cache header the browser
+# revalidates the 275 kB bundle on every load, and on a serverless host each of
+# those revalidations is a full function invocation. The HTML shell must stay
+# live because it points at the current hash.
+@app.middleware("http")
+async def static_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/assets/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif path in ("/", "/index.html"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
 
 @app.get("/health")
 @app.get("/health/")

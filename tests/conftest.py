@@ -49,6 +49,24 @@ os.environ["MAIL_SUPPRESS_SEND"] = "true"
 # on a network/DNS error instead of exercising the mailer. Pin the transport.
 os.environ["MAIL_TRANSPORT"] = "smtp"
 
+# The local .env mirrors a serverless deployment, where AUTO_INIT_DB=false
+# because schema creation runs once via scripts/init_db.py. The suite creates a
+# throwaway database per session and needs the schema built in it, so it must
+# not inherit that production setting.
+os.environ["AUTO_INIT_DB"] = "true"
+
+# DATABASE_URL_UNPOOLED is the migration endpoint for the *deployed* database.
+# Leaving it set would send this session's DDL to that database instead of the
+# throwaway one, so the suite has a single endpoint for everything.
+os.environ["DATABASE_URL_UNPOOLED"] = ""
+
+# The local .env mirrors a serverless deployment, which disables the in-process
+# scheduler, the background send worker and the live-log socket. The suite
+# asserts the behaviour of all three, so it pins them on rather than inheriting
+# whatever the deployed configuration happens to be.
+os.environ["ENABLE_BACKGROUND_JOBS"] = "true"
+os.environ["ENABLE_LIVE_LOGS"] = "true"
+
 
 def _ensure_test_database() -> None:
     """Create the throwaway database if the server does not have it yet."""

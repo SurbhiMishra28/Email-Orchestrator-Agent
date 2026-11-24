@@ -187,11 +187,33 @@ def direct_engine():
     pooling -- a dropped ``search_path``, or a read-only transaction inherited
     from an earlier client -- so migrations use ``DATABASE_URL_UNPOOLED`` when
     the platform supplies it.
+
+    The unpooled string is only trusted when it addresses the same database.
+    A stale variable from another environment would otherwise send this
+    process's DDL to a completely different server while reporting success.
     """
     unpooled = (os.getenv("DATABASE_URL_UNPOOLED") or "").strip()
     if not unpooled:
         return engine
-    return make_engine(normalize_database_url(unpooled))
+
+    unpooled = normalize_database_url(unpooled)
+
+    def _database_name(url: str) -> str:
+        tail = url.split("://", 1)[-1]
+        tail = tail.split("?", 1)[0].split("/", 1)
+        return tail[1] if len(tail) > 1 else ""
+
+    if _database_name(unpooled) != _database_name(DATABASE_URL):
+        logger.warning(
+            "Ignoring DATABASE_URL_UNPOOLED: it targets database %r but the "
+            "application uses %r. Schema work will run on the application "
+            "endpoint.",
+            _database_name(unpooled),
+            _database_name(DATABASE_URL),
+        )
+        return engine
+
+    return make_engine(unpooled)
 
 
 def _sql_false() -> str:

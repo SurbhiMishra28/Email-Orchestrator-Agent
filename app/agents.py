@@ -12,16 +12,9 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+# ``langchain_core`` messages are cheap to import and are used throughout, so
+# they stay at module scope; only the heavy provider SDKs are lazy (below).
 from langchain_core.messages import HumanMessage, SystemMessage
-
-# Import the NVIDIA client unconditionally: this module is imported before
-# ``app.config`` loads .env in some entry points (scripts, tests), so an
-# os.getenv guard here silently left ChatNVIDIA undefined and every AI
-# expansion fell back to the plain template engine.
-try:
-    from langchain_nvidia_ai_endpoints import ChatNVIDIA
-except ImportError:  # optional dependency
-    ChatNVIDIA = None
 
 from app.db import SessionLocal, Contact, Draft, Template, Log, ToolUse, Settings, Event, SMTPConfig
 from app.live_logs import instrument_agent
@@ -35,6 +28,27 @@ from app.services.mailer import (
 )
 from app.services.recipients import blocked_reason
 from app.services.usage import EMAILS_SENT, REPLIES_RECEIVED, record_usage
+
+# ``langchain_nvidia_ai_endpoints`` costs more import time than the rest of the
+# application put together, and it is only needed when a draft is actually
+# personalised. Importing it at module scope therefore taxed every cold start
+# and every request on a serverless host. It is loaded on first use and cached.
+_chat_nvidia_cls = None
+_chat_nvidia_loaded = False
+
+
+def _chat_nvidia_class():
+    """Return ChatNVIDIA, importing it on first use (or None if unavailable)."""
+    global _chat_nvidia_cls, _chat_nvidia_loaded
+    if not _chat_nvidia_loaded:
+        _chat_nvidia_loaded = True
+        try:
+            from langchain_nvidia_ai_endpoints import ChatNVIDIA
+
+            _chat_nvidia_cls = ChatNVIDIA
+        except ImportError:  # optional dependency
+            _chat_nvidia_cls = None
+    return _chat_nvidia_cls
 
 
 @dataclass
@@ -151,9 +165,11 @@ def get_llm_client():
     api_key = app_settings.NVIDIA_API_KEY
     model = app_settings.NVIDIA_MODEL
 
-    if api_key and ChatNVIDIA is not None:
+    chat_nvidia = _chat_nvidia_class()
+
+    if api_key and chat_nvidia is not None:
         try:
-            return ChatNVIDIA(model=model, api_key=api_key, temperature=0.7)
+            return chat_nvidia(model=model, api_key=api_key, temperature=0.7)
         except Exception as e:
             logger.warning(f"Could not initialize NVIDIA LLM: {e}")
 
