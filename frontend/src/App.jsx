@@ -1282,12 +1282,19 @@ function ListsView({api,notify,setSelectedList,setView}){
       {creatingFolder&&(
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink-50/80 p-4 py-10 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-card border border-ink-200 bg-ink-100 p-5 shadow-pop">
-            <h3 className="text-[15px] font-semibold text-ink-900">Create a folder</h3>
-            <p className="mt-1 text-[12.5px] text-ink-500">
-              Folders keep the sidebar tidy as your lists grow. Put related lists
-              together, then move lists into the folder from the list actions.
-            </p>
-            <label className="field-label mt-4">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                <FolderPlus className="h-5 w-5"/>
+              </span>
+              <div className="min-w-0">
+                <h3 className="text-[15px] font-semibold text-ink-900">Create a folder</h3>
+                <p className="mt-1 text-[12.5px] text-ink-500">
+                  Folders keep the sidebar tidy as your lists grow. Put related lists
+                  together, then move lists into the folder from the list actions.
+                </p>
+              </div>
+            </div>
+            <label className="field-label mt-5">
               Folder name
               <input
                 className={inputCls+" mt-1"}
@@ -1298,10 +1305,11 @@ function ListsView({api,notify,setSelectedList,setView}){
                 onKeyDown={(e)=>{ if(e.key==="Enter") addFolder(); if(e.key==="Escape") setCreatingFolder(false); }}
               />
             </label>
-            <div className="mt-5 flex justify-end gap-2">
-              <button onClick={()=>setCreatingFolder(false)} className="btn-ghost">Cancel</button>
+            <div className="mt-6 flex justify-end gap-2 border-t border-ink-200 pt-4">
+              <button onClick={()=>{ setCreatingFolder(false); setNewFolderName(""); }} className="btn-ghost">Cancel</button>
               <button onClick={addFolder} disabled={!newFolderName.trim() || busy==="folder-new"} className="btn-primary">
-                <FolderPlus className="h-3.5 w-3.5"/>Create folder
+                {busy==="folder-new" ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <FolderPlus className="h-3.5 w-3.5"/>}
+                Create folder
               </button>
             </div>
           </div>
@@ -1315,14 +1323,21 @@ function ListsView({api,notify,setSelectedList,setView}){
         return (
           <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink-50/80 p-4 py-10 backdrop-blur-sm">
             <div className="w-full max-w-md rounded-card border border-danger-200 bg-ink-100 p-5 shadow-pop">
-              <h3 className="text-[15px] font-semibold text-ink-900">Delete "{folder.name}"?</h3>
-              <p className="mt-1 text-[12.5px] text-ink-500">
-                {inside > 0
-                  ? `This folder holds ${inside} list${inside === 1 ? "" : "s"}. Deleting the folder also deletes ${inside === 1 ? "that list" : "those lists"} and their memberships. Contacts themselves are not deleted.`
-                  : "This folder is empty. Deleting it does not touch any list."}
-              </p>
-              <div className="mt-5 flex justify-end gap-2">
-                <button onClick={()=>setConfirmFolder(null)} className="btn-ghost">Cancel</button>
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-danger-50 text-danger-600">
+                <Trash2 className="h-5 w-5"/>
+              </span>
+              <div className="min-w-0">
+                <h3 className="text-[15px] font-semibold text-ink-900">Delete "{folder.name}"?</h3>
+                <p className="mt-1 text-[12.5px] text-ink-500">
+                  {inside > 0
+                    ? `This folder holds ${inside} list${inside === 1 ? "" : "s"}. Deleting the folder also deletes ${inside === 1 ? "that list" : "those lists"} and their memberships. Contacts themselves are not deleted.`
+                    : "This folder is empty. Deleting it does not touch any list."}
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2 border-t border-ink-200 pt-4">
+              <button onClick={()=>setConfirmFolder(null)} className="btn-ghost">Cancel</button>
                 <button
                   onClick={()=>removeFolder(folder)}
                   disabled={busy==="folder-"+folder.id}
@@ -1339,11 +1354,18 @@ function ListsView({api,notify,setSelectedList,setView}){
       {creating&&(
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink-50/80 p-4 py-10 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-card border border-ink-200 bg-ink-100 p-5 shadow-pop">
-            <h3 className="text-[15px] font-semibold text-ink-900">Create a list</h3>
-            <p className="mt-1 text-[12.5px] text-ink-500">
-              Lists group contacts so you can target them in a campaign. The new list is immediately available in Contacts.
-            </p>
-            <label className="field-label mt-4">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                <Layers className="h-5 w-5"/>
+              </span>
+              <div className="min-w-0">
+                <h3 className="text-[15px] font-semibold text-ink-900">Create a list</h3>
+                <p className="mt-1 text-[12.5px] text-ink-500">
+                  Lists group contacts so you can target them in a campaign. The new list is immediately available in Contacts.
+                </p>
+              </div>
+            </div>
+            <label className="field-label mt-5">
               Name
               <input
                 className={inputCls+" mt-1"}
@@ -1361,10 +1383,11 @@ function ListsView({api,notify,setSelectedList,setView}){
                 {folders.map(f=><option key={f.id} value={String(f.id)}>{f.name}</option>)}
               </select>
             </label>
-            <div className="mt-5 flex justify-end gap-2">
+            <div className="mt-6 flex justify-end gap-2 border-t border-ink-200 pt-4">
               <button onClick={()=>{ setCreating(false); setNewList({name:"",folder_id:""}); }} className="btn-ghost">Cancel</button>
               <button onClick={createList} disabled={!newList.name.trim() || busy==="list-new"} className="btn-primary">
-                <Plus className="h-3.5 w-3.5"/>Create list
+                {busy==="list-new" ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <Plus className="h-3.5 w-3.5"/>}
+                Create list
               </button>
             </div>
           </div>
