@@ -169,9 +169,30 @@ def test_campaign_stats_and_summary_shape(client):
     assert summary_body["supported_channels"] == ["email"]
 
 
-def test_non_email_channels_are_refused_at_send_time(client):
+def test_non_email_channels_are_refused_at_create(client):
+    """Email is the only channel; SMS/WhatsApp are rejected up front."""
     headers = dict(client.headers)
-    campaign = _campaign(client, headers, channel="sms")
+    response = client.post(
+        "/api/campaigns",
+        json={"name": "SMS campaign", "channel": "sms"},
+        headers=headers,
+    )
+    assert response.status_code == 422, response.text
+    assert "email" in response.json()["detail"].lower()
+
+
+def test_non_email_channels_are_refused_at_send_time(client):
+    """A legacy non-email campaign (created before email-only) is refused at send."""
+    headers = dict(client.headers)
+    campaign = _campaign(client, headers)
+    # Force the channel past create-time validation to simulate a legacy row.
+    db = SessionLocal()
+    try:
+        row = db.query(Campaign).filter(Campaign.id == campaign["id"]).one()
+        row.channel = "sms"
+        db.commit()
+    finally:
+        db.close()
 
     response = client.post(
         "/api/queue/run-all", json={"campaign_id": campaign["id"]}, headers=headers

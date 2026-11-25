@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 import { Mail, Users, FileText, Inbox, Settings, Play, BarChart3, Activity, Send, AlertCircle, Upload, Pencil, Sparkles, PenLine, Brain, Copy, Trash2, Shield, CheckCircle, XCircle, AlertTriangle, Loader2, RefreshCw, Filter, Search, Plus, Info, Check, TrendingUp, MoreHorizontal, Folder, FolderPlus, MoveRight, SlidersHorizontal, Menu, X } from "lucide-react";
 
@@ -22,6 +22,7 @@ function Splash(){
 const KNOWN_VIEWS = [
   "overview", "agents", "contacts", "drafts", "templates", "inbox",
   "verifications", "automation", "team", "settings", "campaigns", "experiments",
+  "history",
 ];
 
 const api = async (path, opts = {}) => {
@@ -585,6 +586,145 @@ function ErrorDisplay({err,onRetry}){
 
 
 
+
+function EmailHistoryView({state,api,reload,notify}){
+
+  const [filter,setFilter]=useState("all");
+
+  const [busyId,setBusyId]=useState(null);
+
+  const contacts=state.contacts||[];
+
+  const contactById=useMemo(()=>Object.fromEntries(contacts.map(c=>[c.id,c])),[contacts]);
+
+  // Sent and failed messages are the history. Drafts still in the queue are not
+  // history yet, so they are excluded on purpose.
+  const sent=(state.drafts||[]).filter(d=>d.status==="sent"||d.status==="failed");
+
+  // Reply events tell us whether the recipient answered and how it was classified.
+  const replyByContact=useMemo(()=>{
+    const map={};
+    for(const e of (state.events||[])){
+      if(e.type==="reply_event" && e.event_type==="reply_received" && e.contact_id!=null){
+        map[e.contact_id]={reply_type:(e.data||{}).reply_type||null, at:e.timestamp};
+      }
+    }
+    return map;
+  },[state.events]);
+
+  const rows=sent.map(d=>{
+    const contact=contactById[d.contact_id]||{};
+    const tags=contact.tags||[];
+    const reply=replyByContact[d.contact_id];
+    const interested=tags.includes("interested");
+    const notInterested=tags.includes("not_interested");
+    return {draft:d,contact,tags,reply,interested,notInterested};
+  }).filter(r=>{
+    if(filter==="all") return true;
+    if(filter==="interested") return r.interested;
+    if(filter==="not_interested") return r.notInterested;
+    if(filter==="replied") return !!r.reply;
+    if(filter==="no_reply") return !r.reply;
+    return true;
+  });
+
+  const setTag=async(contact,tag,on)=>{
+    if(!contact.id){ notify("Contact is missing for this email"); return; }
+    setBusyId(contact.id);
+    try{
+      // interested and not_interested are mutually exclusive.
+      if(on && tag==="interested" && (contact.tags||[]).includes("not_interested")){
+        await api(`/api/contacts/${contact.id}/tags/not_interested`,{method:"DELETE"});
+      }
+      if(on && tag==="not_interested" && (contact.tags||[]).includes("interested")){
+        await api(`/api/contacts/${contact.id}/tags/interested`,{method:"DELETE"});
+      }
+      if(on){
+        await api(`/api/contacts/${contact.id}/tags`,{method:"POST",body:JSON.stringify({tags:[tag]})});
+      }else{
+        await api(`/api/contacts/${contact.id}/tags/${tag}`,{method:"DELETE"});
+      }
+      notify(on?`Marked ${tag.replace("_"," ")}`:`Removed ${tag.replace("_"," ")}`);
+      await reload();
+    }catch(e){ notify(e?.message||String(e)); }
+    finally{ setBusyId(null); }
+  };
+
+  const stats={
+    total:sent.length,
+    replied:rows.filter(r=>r.reply).length,
+    interested:rows.filter(r=>r.interested).length,
+  };
+
+  return (
+    <div className="space-y-4">
+      <PageHeader title="Email history" subtitle="Every message that left your mailbox, with who replied and who is interested." eyebrow="Campaigns">
+        <button onClick={reload} className="btn-secondary"><RefreshCw className="h-3.5 w-3.5"/>Refresh</button>
+      </PageHeader>
+
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+        <StatCard label="Sent" value={stats.total} icon={Send} color="green" hint="All time"/>
+        <StatCard label="Replied" value={stats.replied} icon={Mail} color="blue" hint="Got a response"/>
+        <StatCard label="Interested" value={stats.interested} icon={CheckCircle} color="green" hint="Tagged interested"/>
+      </div>
+
+      <Card title="History" className="overflow-hidden">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <select className="select w-full sm:w-56" value={filter} onChange={e=>setFilter(e.target.value)}>
+            <option value="all">All</option>
+            <option value="replied">Replied</option>
+            <option value="no_reply">No reply</option>
+            <option value="interested">Interested</option>
+            <option value="not_interested">Not interested</option>
+          </select>
+        </div>
+
+        <div className="-mx-5 -mb-4 overflow-x-auto">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th className="w-64 min-w-64">To</th>
+                <th className="w-40 min-w-40">Subject</th>
+                <th className="w-32 min-w-32">Status</th>
+                <th className="w-28 min-w-28">Reply</th>
+                <th className="w-40 min-w-40">Sent</th>
+                <th className="w-44 min-w-44">Manage</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length===0&&(
+                <tr><td colSpan={6} className="table-empty">No sent emails yet. Add a contact and press Run.</td></tr>
+              )}
+              {rows.map(({draft,contact,reply,interested,notInterested})=>(
+                <tr key={draft.id}>
+                  <td className="max-w-64 truncate">
+                    <div className="font-medium text-ink-900">{contact.name||contact.email||"Unknown"}</div>
+                    <div className="truncate text-[12px] text-ink-500">{contact.email||""}</div>
+                  </td>
+                  <td className="max-w-40 truncate text-[13px]">{draft.subject}</td>
+                  <td>{getStatusBadge(draft.status)}</td>
+                  <td>{reply?<Pill v={reply.reply_type||"replied"}/>:<span className="text-[12px] text-ink-400">No reply</span>}</td>
+                  <td className="whitespace-nowrap text-[12px] text-ink-500">{draft.sent_at?new Date(draft.sent_at).toLocaleString():"-"}</td>
+                  <td>
+                    <div className="flex items-center gap-0.5">
+                      <button disabled={busyId===contact.id} onClick={()=>setTag(contact,"interested",!interested)} className={"icon-btn "+(interested?"text-brand-600":"")} title={interested?"Remove interested":"Mark interested"}>
+                        <CheckCircle className="h-4 w-4"/>
+                      </button>
+                      <button disabled={busyId===contact.id} onClick={()=>setTag(contact,"not_interested",!notInterested)} className={"icon-btn "+(notInterested?"text-danger-600":"")} title={notInterested?"Remove not interested":"Mark not interested"}>
+                        <XCircle className="h-4 w-4"/>
+                      </button>
+                      <span className={"ml-1 text-[11px] "+(reply?"text-brand-600":"text-ink-400")}>{reply?"Follow-up due":"—"}</span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
 
 function AutomationView({api}){
 
@@ -4233,6 +4373,8 @@ export default function App(){
 
     {group:"Campaigns",id:"drafts",icon:FileText,label:"Drafts",badge:state.drafts?.filter(d=>d.status==="draft").length||null},
 
+    {group:"Campaigns",id:"history",icon:Mail,label:"Email history"},
+
     {group:"Campaigns",id:"experiments",icon:Sparkles,label:"Experiments"},
 
     {group:"Deliverability",id:"inbox",icon:Inbox,label:"Inbox"},
@@ -5166,34 +5308,23 @@ export default function App(){
               <div className="mx-5 mt-3 notice-error">{campaignError}</div>
             )}
 
-            {/* Channel picker: Brevo asks which channel the campaign uses */}
+            {/* Channel picker: email only. SMS, push and WhatsApp need providers
+                this app does not ship, so they are not offered. */}
             <div className="border-b border-ink-200 bg-ink-50 px-5 py-3 max-md:px-4">
-              <p className="mb-2.5 text-[12.5px] font-medium text-ink-600">What kind of campaign do you want to create?</p>
+              <p className="mb-2.5 text-[12.5px] font-medium text-ink-600">Channel</p>
               <div className="flex flex-wrap items-center gap-2">
-                {[
-                  { id: "email", label: "Email", icon: Mail, ready: true },
-                  { id: "sms", label: "SMS", icon: Send, ready: false },
-                  { id: "push", label: "Push", icon: Activity, ready: false },
-                  { id: "whatsapp", label: "WhatsApp", icon: Inbox, ready: false },
-                ].map(option => (
-                  <button
-                    key={option.id}
-                    onClick={() => setCampaignChannel(option.id)}
-                    disabled={!option.ready}
-                    title={option.ready ? undefined : "Not available: no provider is configured for this channel"}
-                    className={
-                      "flex items-center gap-2 rounded-[9px] border px-3 py-1.5 text-[12.5px] font-medium transition-colors " +
-                      (campaignChannel === option.id
-                        ? "border-brand-600 bg-brand-50 text-brand-700"
-                        : "border-ink-200 bg-ink-100 text-ink-600 hover:bg-ink-200/60") +
-                      (option.ready ? "" : " cursor-not-allowed opacity-50")
-                    }
-                  >
-                    <option.icon className="h-3.5 w-3.5"/>{option.label}
-                    {!option.ready && <span className="text-[10px] uppercase tracking-wide text-ink-400">soon</span>}
-                  </button>
-                ))}
-                <span className="ml-1 text-[11.5px] text-ink-400">AI email generation coming soon</span>
+                <button
+                  onClick={() => setCampaignChannel("email")}
+                  title="Email campaign"
+                  className={
+                    "flex items-center gap-2 rounded-[9px] border px-3 py-1.5 text-[12.5px] font-medium transition-colors " +
+                    (campaignChannel === "email"
+                      ? "border-brand-600 bg-brand-50 text-brand-700"
+                      : "border-ink-200 bg-ink-100 text-ink-600 hover:bg-ink-200/60")
+                  }
+                >
+                  <Mail className="h-3.5 w-3.5"/>Email
+                </button>
               </div>
             </div>
 
@@ -5598,23 +5729,23 @@ export default function App(){
 
                     <tr>
 
-                      <th className="w-56 min-w-56">Email</th>
+                      <th>Email</th>
 
-                      <th className="w-32 min-w-32">Status</th>
+                      <th>Status</th>
 
-                      <th className="w-40 min-w-40">Domain</th>
+                      <th>Domain</th>
 
-                      <th className="w-28 min-w-28 text-center">SMTP</th>
+                      <th className="text-center">SMTP</th>
 
-                      <th className="w-28 min-w-28 text-center">MX</th>
+                      <th className="text-center">MX</th>
 
-                      <th className="w-28 min-w-28 text-center">Catch-all</th>
+                      <th className="text-center">Catch-all</th>
 
-                      <th className="w-28 min-w-28 text-center">Disposable</th>
+                      <th className="text-center">Disposable</th>
 
-                      <th className="w-44 min-w-44">Last checked</th>
+                      <th>Last checked</th>
 
-                      <th className="w-24 min-w-24">Actions</th>
+                      <th>Actions</th>
 
                     </tr>
 
@@ -5765,6 +5896,12 @@ export default function App(){
             </Card>
 
           </div>
+
+        )}
+
+        {view==="history"&&(
+
+          <EmailHistoryView state={state} api={api} reload={load} notify={setStatus}/>
 
         )}
 

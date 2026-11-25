@@ -39,9 +39,11 @@ VALID_STATUSES = {
     "paused",
     "cancelled",
 }
-VALID_CHANNELS = {"email", "sms", "push", "whatsapp"}
+# Email only. SMS, push and WhatsApp need providers this app does not ship, so
+# they are rejected rather than stored as campaigns that can never send.
+VALID_CHANNELS = {"email"}
 
-# Channels other than email need a provider this app does not ship.
+# Kept for the listing's supported_channels field.
 SUPPORTED_CHANNELS = {"email"}
 
 
