@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 import { Mail, Users, FileText, Inbox, Settings, Play, BarChart3, Activity, Send, AlertCircle, Upload, Pencil, Sparkles, PenLine, Brain, Copy, Trash2, Shield, CheckCircle, XCircle, AlertTriangle, Loader2, RefreshCw, Filter, Search, Plus, Info, Check, TrendingUp, MoreHorizontal, Folder, FolderPlus, MoveRight, SlidersHorizontal, Menu, X, Moon, Sun } from "lucide-react";
 
@@ -9,9 +9,9 @@ const BRAND_NAME = "MailMatrix";
 // Brevo shows plain locale dates in the table (18/11/2026). Invalid or missing
 // timestamps render as an em dash rather than "Invalid Date".
 function fmtDate(value) {
-  if (!value) return "—";
+  if (!value) return "-";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
+  if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleDateString();
 }
 
@@ -427,13 +427,23 @@ function AnalyticsChart({series}){
 
   const max=Math.max(1,...series.map(d=>Math.max(d.sent||0,d.replied||0)));
 
+  const total=series.reduce((sum,d)=>sum+(d.sent||0)+(d.replied||0),0);
+
   const label=(iso)=>{ const [,m,d]=iso.split("-"); return `${m}/${d}`; };
 
   return (
 
     <div>
 
-      <div className="flex items-end gap-1 h-40">
+      <div className="mb-2 flex items-center justify-between text-[11.5px] text-ink-500">
+        <span className="flex items-center gap-3">
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-brand-500/80"/>Sent</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-info-500/70"/>Replied</span>
+        </span>
+        <span className="tabular-nums">{total} total</span>
+      </div>
+
+      <div className="flex items-end gap-1 h-40 border-b border-ink-200">
 
         {series.map(day=>{
 
@@ -447,9 +457,9 @@ function AnalyticsChart({series}){
 
               <div className="w-full flex items-end justify-center gap-0.5" style={{height:"100%"}}>
 
-                <div className="w-1/2 rounded-t bg-brand-500/80" style={{height:`${Math.max(sent?4:0,(sent/max)*100)}%`}}/>
+                <div className="w-1/2 rounded-t bg-brand-500/80" style={{height:`${sent?Math.max(6,(sent/max)*100):0}%`}}/>
 
-                <div className="w-1/2 rounded-t bg-info-500/70" style={{height:`${Math.max(replied?4:0,(replied/max)*100)}%`}}/>
+                <div className="w-1/2 rounded-t bg-info-500/70" style={{height:`${replied?Math.max(6,(replied/max)*100):0}%`}}/>
 
               </div>
 
@@ -458,6 +468,8 @@ function AnalyticsChart({series}){
             </div>
 
           );
+
+        })}
 
         })}
 
@@ -988,7 +1000,7 @@ function ListsView({api,notify,setSelectedList,setView}){
                           </div>
                         </div>
                       </td>
-                      <td className="text-[12.5px] text-ink-600">{folderName(list.folder_id)||"—"}</td>
+                      <td className="text-[12.5px] text-ink-600">{folderName(list.folder_id)||"-"}</td>
                       <td className="text-center tabular-nums">{list.total_subscribers ?? list.member_count ?? 0}</td>
                       <td className="whitespace-nowrap text-[12px] text-ink-500">{fmtDate(list.created_at)}</td>
                       <td>
@@ -1224,7 +1236,7 @@ function EmailHistoryView({state,api,reload,notify}){
                       <button disabled={busyId===contact.id} onClick={()=>setTag(contact,"not_interested",!notInterested)} className={"icon-btn "+(notInterested?"text-danger-600":"")} title={notInterested?"Remove not interested":"Mark not interested"}>
                         <XCircle className="h-4 w-4"/>
                       </button>
-                      <span className={"ml-1 text-[11px] "+(reply?"text-brand-600":"text-ink-400")}>{reply?"Follow-up due":"â€”"}</span>
+                      <span className={"ml-1 text-[11px] "+(reply?"text-brand-600":"text-ink-400")}>{reply?"Follow-up due":"-"}</span>
                     </div>
                   </td>
                 </tr>
@@ -1475,7 +1487,7 @@ function AutomationView({api}){
 
                   <span className="text-ink-700">{entry.message}</span>
 
-                  <span className="shrink-0 text-[11.5px] tabular-nums text-ink-400">{entry.timestamp?new Date(entry.timestamp).toLocaleString():"â€”"}</span>
+                  <span className="shrink-0 text-[11.5px] tabular-nums text-ink-400">{entry.timestamp?new Date(entry.timestamp).toLocaleString():"-"}</span>
 
                 </li>
 
@@ -2008,7 +2020,7 @@ function ExperimentsView({api}){
 
         {loading
 
-          ? <div className="flex items-center gap-2 text-[12px] text-ink-500"><Loader2 className="h-3.5 w-3.5 animate-spin"/>Loadingâ€¦</div>
+          ? <div className="flex items-center gap-2 text-[12px] text-ink-500"><Loader2 className="h-3.5 w-3.5 animate-spin"/>Loading...</div>
 
           : tests.length===0
 
@@ -2031,7 +2043,7 @@ function ExperimentsView({api}){
                           <div className="truncate text-[13.5px] font-semibold text-ink-900">{test.name}</div>
 
                           <div className="text-[12px] text-ink-500">
-                            {test.variants.length} variant{test.variants.length===1?"":"s"} Â· <StatusPill status={test.status}/>
+                            {test.variants.length} variant{test.variants.length===1?"":"s"} - <StatusPill status={test.status}/>
                           </div>
 
                         </div>
@@ -5125,7 +5137,7 @@ export default function App(){
 
                 <StatCard label="Replies" value={analytics.replied||0} icon={Mail} color="blue" hint="All time"/>
 
-                <StatCard label="Reply rate" value={(analytics.reply_rate||0)+"%"} icon={TrendingUp} color="yellow" hint="Replies Ã· sent"/>
+                <StatCard label="Reply rate" value={(analytics.reply_rate||0)+"%"} icon={TrendingUp} color="yellow" hint="Replies / sent"/>
 
               </div>
 
@@ -5193,7 +5205,7 @@ export default function App(){
 
                 <div className="lg:col-span-2">
 
-                  <Card title="Sending â€” last 14 days" subtitle="Sent versus replied per day">
+                  <Card title="Sending - last 14 days" subtitle="Sent versus replied per day">
 
                     <AnalyticsChart series={analytics.series||[]}/>
 
@@ -5485,7 +5497,7 @@ export default function App(){
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              {/* "Load a list or a segment" — its own section, as in Brevo, so
+              {/* "Load a list or a segment" - its own section, as in Brevo, so
                   the current audience is always explicit above the table. */}
               <div className="border-b border-ink-200 bg-ink-50 px-5 py-3 max-md:px-4">
                 <div className="flex flex-wrap items-end justify-between gap-3">
@@ -5515,7 +5527,7 @@ export default function App(){
                         return (
                           <span className="chip">
                             {current.name}
-                            {current.folder_name ? ` · ${current.folder_name}` : ""}
+                            {current.folder_name ? ` - ${current.folder_name}` : ""}
                             <button
                               onClick={() => { setSelectedList("all"); setPage(1); }}
                               className="ml-0.5 text-ink-400 hover:text-ink-700"
@@ -5785,7 +5797,7 @@ export default function App(){
                           </td>
                         )}
                         {columns.phone&&(
-                          <td className="text-[12.5px] text-ink-600">{contact.phone||"—"}</td>
+                          <td className="text-[12.5px] text-ink-600">{contact.phone||"-"}</td>
                         )}
                         {columns.lastChanged&&(
                           <td className="whitespace-nowrap text-[12px] text-ink-500">{fmtDate(contact.updated_at)}</td>
@@ -6015,7 +6027,7 @@ export default function App(){
                       <td className="text-right tabular-nums text-ink-700">{campaign.delivered}</td>
                       <td className="text-right tabular-nums text-ink-700">{campaign.opened}<span className="ml-1 text-[11px] text-ink-400">{campaign.open_rate}%</span></td>
                       <td className="text-right tabular-nums text-ink-700">{campaign.clicked}<span className="ml-1 text-[11px] text-ink-400">{campaign.click_rate}%</span></td>
-                      <td className="whitespace-nowrap text-[11.5px] text-ink-500">{campaign.sent_at ? new Date(campaign.sent_at).toLocaleDateString() : "â€”"}</td>
+                      <td className="whitespace-nowrap text-[11.5px] text-ink-500">{campaign.sent_at ? new Date(campaign.sent_at).toLocaleDateString() : "-"}</td>
                       <td className="text-right">
                         <div className="relative flex items-center justify-end gap-1">
                           {["draft", "scheduled", "paused"].includes(campaign.status) && (
@@ -6183,7 +6195,7 @@ export default function App(){
 
                             ) : (
 
-                              <span className="text-[11.5px] text-ink-400" title={draftBlockReason(draft)}>{draftBlockReason(draft)||"â€”"}</span>
+                              <span className="text-[11.5px] text-ink-400" title={draftBlockReason(draft)}>{draftBlockReason(draft)||"-"}</span>
 
                             )}
 
@@ -6199,7 +6211,7 @@ export default function App(){
 
                       <tr>
 
-                        <td colSpan={4} className="table-empty">No drafts yet. Use â€œWrite emailâ€ to create one.</td>
+                        <td colSpan={4} className="table-empty">No drafts yet. Use "Write email" to create one.</td>
 
                       </tr>
 
@@ -6225,7 +6237,7 @@ export default function App(){
 
               <button onClick={syncInboxNow} disabled={inboxBusy || !inbox.configured} className="btn-ghost">
 
-                <RefreshCw className={"h-3.5 w-3.5 "+(inboxBusy ? "animate-spin" : "")}/>{inboxBusy ? "Syncingâ€¦" : "Sync now"}
+                <RefreshCw className={"h-3.5 w-3.5 "+(inboxBusy ? "animate-spin" : "")}/>{inboxBusy ? "Syncing..." : "Sync now"}
 
               </button>
 
@@ -6237,11 +6249,11 @@ export default function App(){
 
               {!inbox.configured ? (
 
-                <EmptyState icon={Mail} title="Inbox is not configured" description={imapConfig?.transport==="gmail_api"?"Add the Gmail OAuth credentials to the backend deployment environment.":"Add the mailbox in Settings â†’ Inbox (IMAP), or set IMAP_HOST, IMAP_USER and IMAP_PASS in the environment."}/>
+                <EmptyState icon={Mail} title="Inbox is not configured" description={imapConfig?.transport==="gmail_api"?"Add the Gmail OAuth credentials to the backend deployment environment.":"Add the mailbox in Settings -> Inbox (IMAP), or set IMAP_HOST, IMAP_USER and IMAP_PASS in the environment."}/>
 
               ) : inbox.messages.length === 0 ? (
 
-                <EmptyState icon={Mail} title="No messages stored yet" description="Use â€œSync nowâ€ to fetch the newest mail (nothing is marked as read)."/>
+                <EmptyState icon={Mail} title="No messages stored yet" description={'Use "Sync now" to fetch the newest mail (nothing is marked as read).'}/>
 
               ) : (
 
@@ -6675,7 +6687,7 @@ export default function App(){
 
                       Off by default. When on, outbound mail gains an HTML alternative with a
 
-                      1Ã—1 open pixel and wrapped links; the plain-text part is unchanged.
+                      1x1 open pixel and wrapped links; the plain-text part is unchanged.
 
                     </div>
 
@@ -6763,7 +6775,7 @@ export default function App(){
 
                 <label className="block"><span className="field-label">Password</span>
 
-                  <input type="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" className={inputCls} value={smtp.pass} onChange={e=>updateSmtp("pass",e.target.value)}/>
+                  <input type="password" placeholder="App password" className={inputCls} value={smtp.pass} onChange={e=>updateSmtp("pass",e.target.value)}/>
 
                 </label>
 
@@ -6850,7 +6862,7 @@ export default function App(){
 
                 <label className="block"><span className="field-label">Password</span>
 
-                  <input type="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" className={inputCls} value={imap.pass} onChange={e=>updateImap("pass",e.target.value)}/>
+                  <input type="password" placeholder="App password" className={inputCls} value={imap.pass} onChange={e=>updateImap("pass",e.target.value)}/>
 
                 </label>
 
@@ -7017,7 +7029,7 @@ export default function App(){
 
                   <select className={inputCls+" mt-1"} value={composeForm.contact_id} onChange={e=>setComposeForm({...composeForm,contact_id:e.target.value})}>
 
-                    <option value="">Select a contactâ€¦</option>
+                    <option value="">Select a contact...</option>
 
                     {state.contacts.map(c=>(<option key={c.id} value={c.id}>{c.name?`${c.name} <${c.email}>`:c.email}</option>))}
 
@@ -7145,7 +7157,7 @@ export default function App(){
 
                     <button onClick={()=>{setEditingId(null);redraft(draft);}} disabled={redraftingId===draft.id} className={btnGhost+" flex items-center gap-1"}>
 
-                      <Sparkles className="h-4 w-4"/>{redraftingId===draft.id?"Redraftingâ€¦":"Redraft"}
+                      <Sparkles className="h-4 w-4"/>{redraftingId===draft.id?"Redrafting...":"Redraft"}
 
                     </button>
 
@@ -7567,7 +7579,7 @@ export default function App(){
                 </div>
                 <div className="mt-1 text-[12px] text-ink-500">
                   Status: <span className="font-medium text-ink-700">{campaignDetail.campaign?.status}</span>
-                  {campaignDetail.campaign?.list_name ? <> Â· List: <span className="font-medium text-ink-700">{campaignDetail.campaign.list_name}</span></> : null}
+                  {campaignDetail.campaign?.list_name ? <> - List: <span className="font-medium text-ink-700">{campaignDetail.campaign.list_name}</span></> : null}
                 </div>
               </div>
               <div className="modal-foot -mx-5 -mb-4">

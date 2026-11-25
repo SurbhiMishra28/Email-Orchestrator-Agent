@@ -69,7 +69,7 @@ function LoginGate({ onSuccess }) {
         {error && <p className="mt-3 text-[12px] text-danger-600">{error}</p>}
 
         <button type="submit" disabled={busy} className="btn-primary btn mt-5 w-full">
-          {busy ? 'Signing in…' : 'Sign in'}
+          {busy ? 'Signing in...' : 'Sign in'}
         </button>
       </form>
     </div>
