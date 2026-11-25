@@ -118,6 +118,28 @@ def provision_tenant_defaults(db, tenant_id: int, inherit_environment: bool = No
     smtp_row.configured = bool(smtp_row.host and (smtp_row.sender or smtp_row.user))
     smtp_row.authentication_configured = bool(smtp_row.user and smtp_row.password)
 
+    # A sender alias matching the mailbox, so the alias list is never empty and
+    # sending has a From identity to use. The address comes from the tenant's own
+    # mailbox rather than the process environment, so a tenant that did not
+    # inherit the operator's credentials gets no alias pointing at them.
+    from app.db import EmailAlias
+
+    has_alias = (
+        db.query(EmailAlias).filter(EmailAlias.tenant_id == tenant_id).first()
+    )
+    if not has_alias:
+        alias_email = (smtp_row.sender or smtp_row.user or "").strip()
+        if alias_email:
+            db.add(
+                EmailAlias(
+                    tenant_id=tenant_id,
+                    name=app_settings.SENDER_NAME or "",
+                    email=alias_email,
+                    is_default=True,
+                    is_active=True,
+                )
+            )
+
     imap_row = db.query(IMAPConfig).filter(IMAPConfig.tenant_id == tenant_id).first()
     if not imap_row:
         imap_row = IMAPConfig(tenant_id=tenant_id)

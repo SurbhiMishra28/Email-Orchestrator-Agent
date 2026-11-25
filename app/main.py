@@ -306,6 +306,15 @@ def get_state_from_db(tenant_id: int) -> Dict[str, Any]:
         smtp_view = resolve_smtp_config(db, tenant_id)
         imap_view = resolve_imap_config(db, tenant_id)
 
+        from app.db import EmailAlias
+
+        aliases = (
+            db.query(EmailAlias)
+            .filter(EmailAlias.tenant_id == tenant_id)
+            .order_by(EmailAlias.is_default.desc(), EmailAlias.id.asc())
+            .all()
+        )
+
         contacts_out = []
         for contact in contacts:
             try:
@@ -386,6 +395,16 @@ def get_state_from_db(tenant_id: int) -> Dict[str, Any]:
                 "source": smtp_view.source,
             },
             "imap": imap_view.describe(),
+            "aliases": [
+                {
+                    "id": alias.id,
+                    "name": alias.name or "",
+                    "email": alias.email,
+                    "is_default": bool(alias.is_default),
+                    "is_active": bool(alias.is_active),
+                }
+                for alias in aliases
+            ],
         }
     except SQLAlchemyError as exc:
         logger.error("Database state fetch failed: %s", exc)

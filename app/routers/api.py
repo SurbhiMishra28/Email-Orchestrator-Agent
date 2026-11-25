@@ -14,11 +14,12 @@ router = APIRouter()
 protected = [Depends(get_current_user)]
 
 # Import and include sub-routers
-from app.routers import contacts, drafts, templates, smtp, settings, queue, replies, verifications, inbox, tracking, agents, lists, tenants, scheduling, ab_tests, campaigns
+from app.routers import contacts, drafts, templates, smtp, settings, queue, replies, verifications, inbox, tracking, agents, lists, tenants, scheduling, ab_tests, campaigns, aliases
 
 router.include_router(contacts.router, prefix="/contacts", tags=["contacts"], dependencies=protected)
 router.include_router(drafts.router, prefix="/drafts", tags=["drafts"], dependencies=protected)
 router.include_router(templates.router, prefix="/templates", tags=["templates"], dependencies=protected)
+router.include_router(aliases.router, prefix="/aliases", tags=["aliases"], dependencies=protected)
 router.include_router(smtp.router, prefix="/smtp", tags=["smtp"], dependencies=protected)
 router.include_router(settings.router, prefix="/settings", tags=["settings"], dependencies=protected)
 router.include_router(queue.router, prefix="/queue", tags=["queue"], dependencies=protected)

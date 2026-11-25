@@ -662,6 +662,31 @@ class SMTPConfig(Base):
     authentication_configured: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
+class EmailAlias(Base):
+    """A sender identity a tenant can send from.
+
+    Brevo calls these "senders": a From address plus the display name shown to
+    the recipient. One is the default and is used whenever a send does not name
+    an alias explicitly. The address is what appears in the From header, so it
+    must be a mailbox the operator actually controls -- it is not verified here,
+    because verification is the mail provider's job (SPF/DKIM on the domain).
+    """
+
+    __tablename__ = "email_aliases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), default="")
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        UTCDateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
+
 class IMAPConfig(Base):
     """Per-tenant mailbox used for reply polling.
 

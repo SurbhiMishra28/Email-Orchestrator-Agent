@@ -704,7 +704,7 @@ function EmailHistoryView({state,api,reload,notify}){
                     <div className="truncate text-[12px] text-ink-500">{contact.email||""}</div>
                   </td>
                   <td className="max-w-40 truncate text-[13px]">{draft.subject}</td>
-                  <td>{getStatusBadge(draft.status)}</td>
+                  <td><Pill v={draft.status}/></td>
                   <td>{reply?<Pill v={reply.reply_type||"replied"}/>:<span className="text-[12px] text-ink-400">No reply</span>}</td>
                   <td className="whitespace-nowrap text-[12px] text-ink-500">{draft.sent_at?new Date(draft.sent_at).toLocaleString():"-"}</td>
                   <td>
@@ -1690,6 +1690,8 @@ export default function App(){
   const [eligibilityBusyId,setEligibilityBusyId]=useState(null);
 
   const [settingsForm,setSettingsForm]=useState({goal:"",business_name:"",business_offer:"",tracking_enabled:false});
+
+  const [aliasForm,setAliasForm]=useState({name:"",email:""});
 
   const [settingsDirty,setSettingsDirty]=useState(false);
 
@@ -3975,6 +3977,32 @@ export default function App(){
 
   };
 
+  const addAlias=async()=>{
+    if(!aliasForm.email.trim()){ setStatus("Enter an alias address"); setTimeout(()=>setStatus(null),2000); return; }
+    try{
+      await api("/api/aliases",{method:"POST",body:JSON.stringify({name:aliasForm.name.trim(),email:aliasForm.email.trim()})});
+      setAliasForm({name:"",email:""});
+      setStatus("Alias added");setTimeout(()=>setStatus(null),2000);
+      await load();
+    }catch(e){ setStatus(e?.message||String(e)); setTimeout(()=>setStatus(null),3000); }
+  };
+
+  const deleteAlias=async(id)=>{
+    try{
+      await api(`/api/aliases/${id}`,{method:"DELETE"});
+      setStatus("Alias removed");setTimeout(()=>setStatus(null),2000);
+      await load();
+    }catch(e){ setStatus(e?.message||String(e)); setTimeout(()=>setStatus(null),3000); }
+  };
+
+  const setDefaultAlias=async(id)=>{
+    try{
+      await api(`/api/aliases/${id}`,{method:"PATCH",body:JSON.stringify({is_default:true})});
+      setStatus("Default alias updated");setTimeout(()=>setStatus(null),2000);
+      await load();
+    }catch(e){ setStatus(e?.message||String(e)); setTimeout(()=>setStatus(null),3000); }
+  };
+
 
 
   const composeSubmit=async()=>{
@@ -5972,6 +6000,34 @@ export default function App(){
 
               </div>
 
+            </Card>
+
+            <Card title="Sender aliases" subtitle="The From identities recipients see. The default is used when a send does not pick one.">
+              <div className="space-y-3">
+                {(state.aliases||[]).length===0&&<p className="text-[12.5px] text-ink-500">No aliases yet. Add the address your mailbox sends from.</p>}
+                <div className="space-y-2">
+                  {(state.aliases||[]).map(alias=>(
+                    <div key={alias.id} className="flex items-center justify-between gap-3 rounded-lg border border-ink-200 px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-[13px] font-medium text-ink-900">{alias.name||alias.email}</div>
+                        <div className="truncate text-[12px] text-ink-500">{alias.email}</div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {alias.is_default
+                          ? <span className="badge border-brand-200 bg-brand-50 text-brand-700">default</span>
+                          : <button onClick={()=>setDefaultAlias(alias.id)} className="btn-ghost btn-sm">Make default</button>}
+                        <button onClick={()=>deleteAlias(alias.id)} className="icon-btn hover:bg-danger-50 hover:text-danger-600" title="Delete alias"><Trash2 className="h-4 w-4"/></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input type="text" placeholder="Display name" className={inputCls} value={aliasForm.name} onChange={e=>setAliasForm({...aliasForm,name:e.target.value})}/>
+                  <input type="email" placeholder="alias@yourdomain.com" className={inputCls} value={aliasForm.email} onChange={e=>setAliasForm({...aliasForm,email:e.target.value})}/>
+                  <button onClick={addAlias} className={btnPrimary}>Add alias</button>
+                </div>
+                <p className="text-[11.5px] text-ink-400">The address must be a mailbox you control. Deliverability (SPF/DKIM) is set on the domain, not here.</p>
+              </div>
             </Card>
 
             <Card title="Engagement tracking" subtitle="Opt-in open and click tracking">
