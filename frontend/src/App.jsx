@@ -699,6 +699,21 @@ function ListsView({api,notify,setSelectedList,setView}){
 
   const [newFolderName,setNewFolderName]=useState("");
 
+  // Three-dot menu and the dialogs it opens (Brevo's list actions).
+  const [openMenu,setOpenMenu]=useState(null);
+
+  const [moveTarget,setMoveTarget]=useState(null);
+
+  const [moveFolder,setMoveFolder]=useState("");
+
+  const [importTarget,setImportTarget]=useState(null);
+
+  const [importCsv,setImportCsv]=useState("");
+
+  const [settingsTarget,setSettingsTarget]=useState(null);
+
+  const [listSettings,setListSettings]=useState({from_name:"",from_email:"",reply_to:""});
+
   const [perPage,setPerPage]=useState(20);
 
   const [page,setPage]=useState(1);
@@ -838,6 +853,52 @@ function ListsView({api,notify,setSelectedList,setView}){
     finally{ setBusy(null); }
   };
 
+  // Move a list to another folder (PATCH accepts folder_id, including null for
+  // "No folder").
+  const moveListTo=async()=>{
+    if(!moveTarget) return;
+    setBusy(moveTarget.id);
+    try{
+      const body={ folder_id: moveFolder ? Number(moveFolder) : null };
+      await api(`/api/lists/${moveTarget.id}`,{method:"PATCH",body:JSON.stringify(body)});
+      notify(`Moved "${moveTarget.name}"`);
+      setMoveTarget(null);
+      await load();
+    }catch(e){ notify(e?.message||String(e)); }
+    finally{ setBusy(null); }
+  };
+
+  // Import contacts to a list from pasted CSV (email,name header).
+  const importToList=async()=>{
+    if(!importTarget) return;
+    const csv=(importCsv||"").trim();
+    if(!csv){ notify("Paste a CSV with an email column first"); return; }
+    setBusy(importTarget.id);
+    try{
+      const result = await api(`/api/lists/${importTarget.id}/import`,{method:"POST",body:JSON.stringify({csv})});
+      const created = result?.created ?? 0;
+      notify(`Imported into "${importTarget.name}" (${created} new)`);
+      setImportTarget(null);
+      await load();
+    }catch(e){ notify(e?.message||String(e)); }
+    finally{ setBusy(null); }
+  };
+
+  const saveListSettings=async()=>{
+    if(!settingsTarget) return;
+    setBusy(settingsTarget.id);
+    try{
+      await api(`/api/lists/${settingsTarget.id}/settings`,{method:"PUT",body:JSON.stringify({
+        from_name: listSettings.from_name || null,
+        from_email: listSettings.from_email || null,
+        reply_to: listSettings.reply_to || null,
+      })});
+      notify("List settings saved");
+      setSettingsTarget(null);
+    }catch(e){ notify(e?.message||String(e)); }
+    finally{ setBusy(null); }
+  };
+
   return (
     <div className="space-y-4">
       <PageHeader title="Lists" subtitle="Folders group your lists; a list is an audience you can send a campaign to." eyebrow="Audience">
@@ -854,6 +915,23 @@ function ListsView({api,notify,setSelectedList,setView}){
       <div className="grid gap-4 lg:grid-cols-[248px_1fr]">
         {/* Folders own their lists here, with create / rename / delete. */}
         <Card title="Folders" className="h-max">
+          <div className="mb-2">
+            <select
+              className="select w-full py-1.5 text-[12.5px]"
+              value={activeFolder}
+              onChange={e=>{
+                const v=e.target.value;
+                if(v==="__new__"){ setCreatingFolder(true); setNewFolderName(""); return; }
+                setActiveFolder(v);
+              }}
+              title="Folder dropdown"
+            >
+              <option value="all">All folders</option>
+              {folders.map(f=><option key={f.id} value={String(f.id)}>{f.name}</option>)}
+              <option value="none">No folder</option>
+              <option value="__new__">Create a new folder...</option>
+            </select>
+          </div>
           <div className="space-y-1">
             <button
               onClick={()=>setActiveFolder("all")}
@@ -1011,24 +1089,46 @@ function ListsView({api,notify,setSelectedList,setView}){
                           >
                             View contacts
                           </button>
-                          <button onClick={()=>{ setEditing(list.id); setDraftName(list.name); }} className="icon-btn" title="Rename list"><Pencil className="h-4 w-4"/></button>
-                          <button onClick={()=>dup(list)} className="icon-btn" title="Duplicate list"><Copy className="h-4 w-4"/></button>
+
+                          {/* Brevo's three-dot menu: settings, duplicate,
+                              import, rename, move, delete. */}
+                          <div className="relative">
+                            <button
+                              onClick={()=>setOpenMenu(openMenu===list.id?null:list.id)}
+                              className="icon-btn"
+                              title="List actions"
+                              aria-label={`Actions for ${list.name}`}
+                            >
+                              <MoreHorizontal className="h-4 w-4"/>
+                            </button>
+                            {openMenu===list.id&&(
+                              <div className="absolute right-0 top-full z-30 mt-1 w-56 rounded-xl border border-ink-200 bg-ink-100 py-1 shadow-pop">
+                                {[
+                                  { label: "List settings", icon: SlidersHorizontal, run: ()=>setSettingsTarget(list) },
+                                  { label: "Duplicate", icon: Copy, run: ()=>dup(list) },
+                                  { label: "Import contacts to the list", icon: Upload, run: ()=>{ setImportTarget(list); setImportCsv(""); } },
+                                  { label: "Rename", icon: Pencil, run: ()=>{ setEditing(list.id); setDraftName(list.name); } },
+                                  { label: "Move", icon: MoveRight, run: ()=>{ setMoveTarget(list); setMoveFolder(list.folder_id?String(list.folder_id):""); } },
+                                  { label: "Delete list", icon: Trash2, danger: true, run: ()=>setConfirmDelete(list.id) },
+                                ].map(item=>(
+                                  <button
+                                    key={item.label}
+                                    onClick={()=>{ setOpenMenu(null); item.run(); }}
+                                    className={"flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-ink-50 "+(item.danger?"text-danger-600":"text-ink-700")}
+                                  >
+                                    <item.icon className="h-4 w-4 opacity-70"/>{item.label}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
                           {confirmDelete===list.id ? (
-                            <>
+                            <div className="flex items-center gap-0.5">
                               <button onClick={()=>remove(list)} disabled={busy===list.id} className="btn-danger btn-sm">Confirm</button>
                               <button onClick={()=>setConfirmDelete(null)} className="icon-btn" title="Cancel"><X className="h-4 w-4"/></button>
-                            </>
-                          ) : (
-                            <button
-                              onClick={()=>setConfirmDelete(list.id)}
-                              disabled={busy===list.id}
-                              className="icon-btn hover:bg-danger-50 hover:text-danger-600"
-                              title="Delete list"
-                              aria-label={`Delete ${list.name}`}
-                            >
-                              <Trash2 className="h-4 w-4"/>
-                            </button>
-                          )}
+                            </div>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -1068,6 +1168,74 @@ function ListsView({api,notify,setSelectedList,setView}){
           </div>
         </div>
       </div>
+
+      {moveTarget&&(
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink-50/80 p-4 py-10 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-card border border-ink-200 bg-ink-100 p-5 shadow-pop">
+            <h3 className="text-[15px] font-semibold text-ink-900">Move "{moveTarget.name}"</h3>
+            <p className="mt-1 text-[12.5px] text-ink-500">Choose a destination folder. The list and its contacts move together.</p>
+            <label className="field-label mt-4">
+              Folder
+              <select className={inputCls+" mt-1"} value={moveFolder} onChange={e=>setMoveFolder(e.target.value)}>
+                <option value="">No folder</option>
+                {folders.map(f=><option key={f.id} value={String(f.id)}>{f.name}</option>)}
+              </select>
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={()=>setMoveTarget(null)} className="btn-ghost">Cancel</button>
+              <button onClick={moveListTo} disabled={busy===moveTarget.id} className="btn-primary">Move list</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {importTarget&&(
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink-50/80 p-4 py-10 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-card border border-ink-200 bg-ink-100 p-5 shadow-pop">
+            <h3 className="text-[15px] font-semibold text-ink-900">Import contacts to "{importTarget.name}"</h3>
+            <p className="mt-1 text-[12.5px] text-ink-500">
+              Paste CSV with an <code className="rounded bg-ink-200 px-1">email</code> column (a <code className="rounded bg-ink-200 px-1">name</code> column is optional).
+            </p>
+            <textarea
+              rows={8}
+              className={inputCls+" mt-3 resize-none font-mono text-[12px]"}
+              placeholder={"email,name\nlead@company.com,Lead Name"}
+              value={importCsv}
+              onChange={e=>setImportCsv(e.target.value)}
+            />
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={()=>setImportTarget(null)} className="btn-ghost">Cancel</button>
+              <button onClick={importToList} disabled={busy===importTarget.id || !importCsv.trim()} className="btn-primary">
+                <Upload className="h-3.5 w-3.5"/>Import
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {settingsTarget&&(
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink-50/80 p-4 py-10 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-card border border-ink-200 bg-ink-100 p-5 shadow-pop">
+            <h3 className="text-[15px] font-semibold text-ink-900">List settings</h3>
+            <p className="mt-1 text-[12.5px] text-ink-500">
+              Sender details applied to mail sent to this list. Leave blank to use the workspace defaults.
+            </p>
+            <label className="field-label mt-4">From name
+              <input className={inputCls+" mt-1"} value={listSettings.from_name} onChange={e=>setListSettings({...listSettings,from_name:e.target.value})}/>
+            </label>
+            <label className="field-label mt-3">From email
+              <input className={inputCls+" mt-1"} value={listSettings.from_email} onChange={e=>setListSettings({...listSettings,from_email:e.target.value})}/>
+            </label>
+            <label className="field-label mt-3">Reply-to
+              <input className={inputCls+" mt-1"} value={listSettings.reply_to} onChange={e=>setListSettings({...listSettings,reply_to:e.target.value})}/>
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={()=>setSettingsTarget(null)} className="btn-ghost">Cancel</button>
+              <button onClick={saveListSettings} disabled={busy===settingsTarget.id} className="btn-primary">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {creatingFolder&&(
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink-50/80 p-4 py-10 backdrop-blur-sm">
