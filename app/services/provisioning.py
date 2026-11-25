@@ -182,4 +182,28 @@ def provision_tenant_defaults(db, tenant_id: int, inherit_environment: bool = No
             legacy_intro.subject_template = DEFAULT_INTRO_SUBJECT
             legacy_intro.body_template = DEFAULT_INTRO_BODY
 
+    # Backfill the reply template for workspaces created before it existed. The
+    # auto-responder falls back to a hardcoded body when no active reply template
+    # is present, so without this an upgraded workspace would keep answering with
+    # wording the user cannot edit in the dashboard.
+    has_reply = (
+        db.query(Template)
+        .filter(
+            Template.tenant_id == tenant_id,
+            Template.category == "reply",
+            Template.is_active == True,  # noqa: E712 - SQLAlchemy boolean
+        )
+        .first()
+    )
+    if not has_reply:
+        db.add(
+            Template(
+                tenant_id=tenant_id,
+                name="Reply",
+                category="reply",
+                subject_template=DEFAULT_REPLY_SUBJECT,
+                body_template=DEFAULT_REPLY_BODY,
+            )
+        )
+
     db.commit()

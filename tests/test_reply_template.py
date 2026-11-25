@@ -77,3 +77,29 @@ def test_reply_falls_back_to_hardcoded_template_without_db_row(monkeypatch):
     finally:
         responder.close()
         engine.dispose()
+
+
+def test_provisioning_backfills_reply_template_for_existing_tenant(monkeypatch):
+    """A workspace created before the reply template existed still gets one."""
+    from app.services import provisioning
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    db = session_factory()
+
+    # Seed an old-style workspace: intro + followup only, no reply.
+    db.add(Settings(tenant_id=1))
+    db.add(Template(tenant_id=1, name="Intro Email", category="intro",
+                    subject_template="A quick introduction", body_template="Hi"))
+    db.add(Template(tenant_id=1, name="Follow-up", category="followup",
+                    subject_template="Following up", body_template="Hi"))
+    db.commit()
+
+    provisioning.provision_tenant_defaults(db, tenant_id=1, inherit_environment=False)
+
+    rows = db.query(Template).filter(Template.tenant_id == 1).all()
+    categories = {r.category for r in rows}
+    assert "reply" in categories
+    db.close()
+    engine.dispose()
