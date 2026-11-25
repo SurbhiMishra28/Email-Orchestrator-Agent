@@ -175,6 +175,8 @@ class SettingsBase(BaseModel):
     AUTOPILOT: bool = False
     # Footer and sender signature configuration
     footer_text: str = ""
+    # Postal address appended to the footer of every outgoing message.
+    business_address: str = ""
     sender_name: str = ""
     sender_role: str = ""
     company_website: str = ""

@@ -2198,7 +2198,7 @@ export default function App(){
 
   const [eligibilityBusyId,setEligibilityBusyId]=useState(null);
 
-  const [settingsForm,setSettingsForm]=useState({goal:"",business_name:"",business_offer:"",tracking_enabled:false});
+  const [settingsForm,setSettingsForm]=useState({goal:"",business_name:"",business_offer:"",business_address:"",footer_text:"",tracking_enabled:false});
 
   const [aliasForm,setAliasForm]=useState({name:"",email:""});
 
@@ -4161,6 +4161,10 @@ export default function App(){
         business_name:state.settings.business_name||"",
 
         business_offer:state.settings.business_offer||"",
+
+        business_address:state.settings.business_address||"",
+
+        footer_text:state.settings.footer_text||"",
 
         tracking_enabled:!!state.settings.tracking_enabled,
 
@@ -6589,6 +6593,34 @@ export default function App(){
 
                   <input type="text" placeholder="What you sell, in one line" className={inputCls} value={settingsForm.business_offer} onChange={e=>updateSettingsField("business_offer",e.target.value)}/>
 
+                </label>
+
+                <label className="block">
+                  <span className="field-label">Company address</span>
+                  <textarea
+                    rows={3}
+                    placeholder={"Skora Infotech Pvt Ltd\n2nd Floor, Tower B\nNoida, Uttar Pradesh 201301, India"}
+                    className={inputCls+" resize-none"}
+                    value={settingsForm.business_address||""}
+                    onChange={e=>updateSettingsField("business_address",e.target.value)}
+                  />
+                  <span className="mt-1 block text-[11.5px] text-ink-400">
+                    Appended to the footer of every email you send, so recipients can see who is writing.
+                  </span>
+                </label>
+
+                <label className="block">
+                  <span className="field-label">Footer note (optional)</span>
+                  <textarea
+                    rows={2}
+                    placeholder="e.g. You are receiving this because you asked to hear from us."
+                    className={inputCls+" resize-none"}
+                    value={settingsForm.footer_text||""}
+                    onChange={e=>updateSettingsField("footer_text",e.target.value)}
+                  />
+                  <span className="mt-1 block text-[11.5px] text-ink-400">
+                    Your address is added automatically below this.
+                  </span>
                 </label>
 
                 <button onClick={saveSettings} disabled={savingSettings} className={btnPrimary}>

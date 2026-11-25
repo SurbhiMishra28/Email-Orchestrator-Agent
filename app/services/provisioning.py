@@ -31,6 +31,26 @@ DEFAULT_REPLY_BODY = (
     "{{ sender_name or 'Best regards' }}"
 )
 
+# Seeded follow-up template. The day-3 and day-5 nudges reuse this body, so it
+# has to stand on its own: it restates the value, answers the two objections
+# that actually stall a cold thread (timing and relevance), and offers a
+# low-friction exit. The earlier one-liner read as an accident.
+DEFAULT_FOLLOWUP_SUBJECT = "Re: {{ subject }}"
+DEFAULT_FOLLOWUP_BODY = (
+    "Hi {{ first_name or 'there' }},\n\n"
+    "I wanted to bring this back to the top of your inbox in case my last note "
+    "landed at a busy moment.\n\n"
+    "The short version: {{ business_offer }} Most teams I speak with are not "
+    "looking for a new vendor -- they are looking for one less thing to chase. "
+    "That is usually the gap worth 15 minutes.\n\n"
+    "If the timing is wrong, just say so and I will close the loop and come "
+    "back next quarter. If it is relevant, here is the easiest next step:\n"
+    "{% if calendly_url %}{{ calendly_url }}{% else %}reply with a day that "
+    "works and I will send an invite.{% endif %}\n\n"
+    "Either way, thanks for reading this far.\n\n"
+    "{{ sender_name or 'Best regards' }}"
+)
+
 # Legacy category spellings (init_templates.py) mapped to the canonical ones the
 # pipeline looks up. Without this, a deployment seeded by that script has
 # templates that no send path ever matches.
@@ -175,11 +195,8 @@ def provision_tenant_defaults(db, tenant_id: int, inherit_environment: bool = No
                     tenant_id=tenant_id,
                     name="Follow-up",
                     category="followup",
-                    subject_template="Following up",
-                    body_template=(
-                        "Hi {{first_name}},\n\nJust wanted to follow up on my "
-                        "previous email..."
-                    ),
+                    subject_template=DEFAULT_FOLLOWUP_SUBJECT,
+                    body_template=DEFAULT_FOLLOWUP_BODY,
                 ),
                 Template(
                     tenant_id=tenant_id,
@@ -203,6 +220,23 @@ def provision_tenant_defaults(db, tenant_id: int, inherit_environment: bool = No
         if legacy_intro and "[solution]" in (legacy_intro.body_template or ""):
             legacy_intro.subject_template = DEFAULT_INTRO_SUBJECT
             legacy_intro.body_template = DEFAULT_INTRO_BODY
+
+        # Replace the old one-line follow-up with the fuller body. Only the
+        # seeded stub is touched: an operator who has written their own follow-up
+        # keeps it.
+        legacy_followup = (
+            db.query(Template)
+            .filter(
+                Template.tenant_id == tenant_id,
+                Template.category == "followup",
+            )
+            .first()
+        )
+        if legacy_followup and "Just wanted to follow up" in (
+            legacy_followup.body_template or ""
+        ):
+            legacy_followup.subject_template = DEFAULT_FOLLOWUP_SUBJECT
+            legacy_followup.body_template = DEFAULT_FOLLOWUP_BODY
 
     # Backfill the reply template for workspaces created before it existed. The
     # auto-responder falls back to a hardcoded body when no active reply template

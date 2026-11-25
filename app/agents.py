@@ -80,11 +80,22 @@ def _render_footer(template, variables: Dict[str, Any]) -> str:
     Templates store the footer as a Jinja2 string (``{{sender_name}}`` and
     friends), so it has to be expanded before it is appended. Appending the
     raw string shipped literal placeholders to recipients.
+
+    The company postal address is appended when the tenant has set one, unless
+    the footer already contains it. A recipient should always be able to see who
+    is writing to them, and a template footer is optional while the address is
+    a setting the operator fills in once.
     """
     footer = (getattr(template, "footer_template", "") or "").strip()
     if footer:
-        return expand_template_variables(footer, variables).strip()
-    return (variables.get("footer_text") or "").strip()
+        rendered = expand_template_variables(footer, variables).strip()
+    else:
+        rendered = (variables.get("footer_text") or "").strip()
+
+    address = (variables.get("business_address") or "").strip()
+    if address and address.lower() not in rendered.lower():
+        rendered = f"{rendered}\n\n{address}".strip() if rendered else address
+    return rendered
 
 
 def neon_gateway_configured() -> bool:
@@ -241,6 +252,9 @@ async def expand_template_with_ai(template: Template, contact: Contact, custom_v
             "business_name": settings_row.business_name if settings_row else "",
             "business_offer": settings_row.business_offer if settings_row else "",
             "footer_text": settings_row.footer_text if settings_row else "",
+            "business_address": (
+                settings_row.business_address if settings_row else ""
+            ),
             "sender_name": settings_row.sender_name if settings_row else "",
             "sender_role": settings_row.sender_role if settings_row else "",
             "company_website": settings_row.company_website if settings_row else "",
@@ -1025,11 +1039,14 @@ class PersonalizedEmailAgent:
             "business_name": settings_row.business_name if settings_row else "",
             "business_offer": settings_row.business_offer if settings_row else "",
             "footer_text": settings_row.footer_text if settings_row else "",
+            "business_address": (
+                settings_row.business_address if settings_row else ""
+            ),
             "sender_name": settings_row.sender_name if settings_row else "",
             "sender_role": settings_row.sender_role if settings_row else "",
             "company_website": settings_row.company_website if settings_row else "",
         }
-        
+
         return {
             "company": contact.company or "",
             "first_name": (contact.name or "").split()[0] if contact.name else "",
@@ -1040,6 +1057,7 @@ class PersonalizedEmailAgent:
             "business_name": settings.get("business_name", ""),
             "business_offer": settings.get("business_offer", ""),
             "footer_text": settings.get("footer_text", ""),
+            "business_address": settings.get("business_address", ""),
             "sender_name": settings.get("sender_name", ""),
             "sender_role": settings.get("sender_role", ""),
             "company_website": settings.get("company_website", ""),

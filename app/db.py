@@ -733,6 +733,9 @@ class Settings(Base):
 
     # Footer and sender signature configuration
     footer_text: Mapped[str] = mapped_column(Text, default="")
+    # Postal address of the company. Appended to the footer of every outgoing
+    # message when set, so recipients see who is writing to them.
+    business_address: Mapped[str] = mapped_column(Text, default="")
     sender_name: Mapped[str] = mapped_column(String(255), default="")
     sender_role: Mapped[str] = mapped_column(String(255), default="")
     company_website: Mapped[str] = mapped_column(String(500), default="")
@@ -1042,6 +1045,8 @@ def _ensure_columns():
                 missing_settings_cols.append(
                     f"tracking_enabled BOOLEAN DEFAULT {_sql_false()}"
                 )
+            if "business_address" not in columns:
+                missing_settings_cols.append("business_address TEXT NULL")
 
             if missing_settings_cols:
                 with engine.begin() as connection:
