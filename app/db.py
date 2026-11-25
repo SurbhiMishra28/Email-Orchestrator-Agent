@@ -1057,6 +1057,17 @@ def _ensure_columns():
                         )
                 logger.info(f"Added missing settings columns: {missing_settings_cols}")
 
+            # A column added as NULL leaves existing rows reading back None, which
+            # a ``str`` field rejects. Normalise them to '' once.
+            if "settings" in table_names:
+                with engine.begin() as connection:
+                    connection.execute(
+                        text(
+                            "UPDATE settings SET business_address = '' "
+                            "WHERE business_address IS NULL"
+                        )
+                    )
+
             # Campaign sender identity, added after aliases shipped.
             if "campaigns" in table_names:
                 columns = [col["name"] for col in inspector.get_columns("campaigns")]
