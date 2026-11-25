@@ -589,17 +589,39 @@ function ErrorDisplay({err,onRetry}){
 
 function ListRail({folders=[], lists=[], selectedList="all", folderFilter="all", listSearch="", allCount=0, eligibleCount=0, onSelect, onFolder, onSearch, onCreate, hideSearch=false}){
 
-  const countIn=(id)=>lists.filter(l=>String(l.folder_id)===String(id)).length;
+  const term = (listSearch||"").trim().toLowerCase();
 
-  const row=(key,label,count,active,extraClass="")=>(
+  // Search narrows the lists; folders with no match are hidden so the rail
+  // never shows an empty group.
+  const shown = term ? lists.filter(l=>(l.name||"").toLowerCase().includes(term)) : lists;
+
+  const countIn=(id)=>shown.filter(l=>String(l.folder_id)===String(id)).length;
+
+  const row=(key,label,count,active)=>(
     <button
       key={key}
       onClick={()=>onSelect(key)}
       title={label}
-      className={"flex w-full min-w-0 shrink-0 items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors "+(active?"bg-brand-50 font-medium text-brand-700":"text-ink-600 hover:bg-ink-50")+" "+extraClass}
+      className={"flex w-full min-w-0 shrink-0 items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors "+(active?"bg-brand-50 font-medium text-brand-700":"text-ink-600 hover:bg-ink-50")}
     >
       <span className="min-w-0 truncate">{label}</span>
       {count!=null&&<span className="shrink-0 tabular-nums text-[11px] text-ink-400">{count}</span>}
+    </button>
+  );
+
+  // A list row. Indented under its folder so the hierarchy reads like Brevo's.
+  const listRow=(list)=>(
+    <button
+      key={"list-"+list.id}
+      onClick={()=>onSelect(String(list.id))}
+      title={list.name}
+      className={"flex w-full min-w-0 shrink-0 items-center justify-between gap-2 rounded-md py-1 pl-2 pr-2.5 text-left text-[12.5px] transition-colors "+(selectedList===String(list.id)?"bg-brand-50 font-medium text-brand-700":"text-ink-600 hover:bg-ink-50")}
+    >
+      <span className="flex min-w-0 items-center gap-1.5">
+        <Inbox className="h-3.5 w-3.5 shrink-0 opacity-50"/>
+        <span className="truncate">{list.name}</span>
+      </span>
+      <span className="shrink-0 tabular-nums text-[11px] text-ink-400">{list.total_subscribers ?? list.member_count ?? 0}</span>
     </button>
   );
 
@@ -618,15 +640,37 @@ function ListRail({folders=[], lists=[], selectedList="all", folderFilter="all",
     </button>
   );
 
+  const visibleFolders = folders.filter(f=>!term || countIn(f.id)>0);
+  const noFolder = shown.filter(l=>!l.folder_id);
+
   return (
     <div className="flex gap-1 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
       {row("all","All contacts",allCount,selectedList==="all")}
       {eligibleCount!=null&&row("eligible","Eligible",eligibleCount,selectedList==="eligible")}
 
-      <div className="mt-2 shrink-0 px-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-ink-400">Folders</div>
+      <div className="mt-2 shrink-0 px-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-ink-400">Folders &amp; lists</div>
 
-      {folders.map(f=>folderRow(f.id,f.name,f.listCount ?? countIn(f.id)))}
-      {folderRow("none","No folder",lists.filter(l=>!l.folder_id).length)}
+      {visibleFolders.map(f=>(
+        <div key={"group-"+f.id} className="shrink-0">
+          {folderRow(f.id,f.name,f.listCount ?? countIn(f.id))}
+          {countIn(f.id)>0&&(
+            <div className="ml-3 border-l border-ink-200 pl-1">
+              {shown.filter(l=>String(l.folder_id)===String(f.id)).map(listRow)}
+            </div>
+          )}
+        </div>
+      ))}
+
+      {(!term || noFolder.length>0)&&(
+        <div className="shrink-0">
+          {folderRow("none","No folder",noFolder.length)}
+          {noFolder.length>0&&(
+            <div className="ml-3 border-l border-ink-200 pl-1">
+              {noFolder.map(listRow)}
+            </div>
+          )}
+        </div>
+      )}
 
       {!hideSearch&&(
         <div className="mt-2 shrink-0 px-1">
@@ -649,12 +693,12 @@ function ListRail({folders=[], lists=[], selectedList="all", folderFilter="all",
         </button>
       </div>
 
-      {lists.length===0&&<p className="shrink-0 px-2.5 py-2 text-[12px] text-ink-400">No lists match.</p>}
+      {shown.length===0&&<p className="shrink-0 px-2.5 py-2 text-[12px] text-ink-400">No lists match.</p>}
     </div>
   );
 }
 
-function ListsView({api,notify}){
+function ListsView({api,notify,setSelectedList,setView}){
 
   const [folders,setFolders]=useState([]);
 
@@ -714,7 +758,13 @@ function ListsView({api,notify}){
             listSearch=""
             allCount={lists.length}
             eligibleCount={null}
-            onSelect={(key)=>{ if(key==="all"||key==="eligible"){ setActiveFolder("all"); } }}
+            onSelect={(key)=>{
+              if(key==="all"){ setActiveFolder("all"); return; }
+              if(key==="eligible"){ setActiveFolder("all"); return; }
+              // A list row: open it in Contacts, which owns the member table.
+              setSelectedList(key);
+              setView("contacts");
+            }}
             onFolder={(id)=>setActiveFolder(id==="none"?"none":id)}
             onSearch={()=>{}}
             onCreate={()=>notify("Create lists from the Contacts page")}
@@ -2624,21 +2674,6 @@ export default function App(){
   }) || [];
 
   const filteredContactsCount = filteredContacts.length;
-
-  // Brevo shows lists newest-first and lets you narrow by folder or search.
-  const visibleLists = lists.filter(list => {
-
-    if (folderFilter === "none" && list.folder_id) return false;
-
-    if (folderFilter !== "all" && folderFilter !== "none" && String(list.folder_id || "") !== String(folderFilter)) return false;
-
-    const term = listSearch.trim().toLowerCase();
-
-    if (!term) return true;
-
-    return (list.name || "").toLowerCase().includes(term);
-
-  });
 
   // The campaigns listing honours the same search + status filters as Brevo.
   const visibleCampaigns = campaigns.filter(campaign => {
@@ -5159,7 +5194,7 @@ export default function App(){
                 <Card title="Lists" className="shrink-0 lg:w-[248px] lg:overflow-y-auto lg:border-r">
                   <ListRail
                     folders={folders}
-                    lists={visibleLists}
+                    lists={lists}
                     selectedList={selectedList}
                     folderFilter={folderFilter}
                     listSearch={listSearch}
@@ -6103,7 +6138,7 @@ export default function App(){
 
         {view==="lists"&&(
 
-          <ListsView api={api} notify={setStatus}/>
+          <ListsView api={api} notify={setStatus} setSelectedList={setSelectedList} setView={setView}/>
 
         )}
 
