@@ -22,7 +22,7 @@ function Splash(){
 const KNOWN_VIEWS = [
   "overview", "agents", "contacts", "drafts", "templates", "inbox",
   "verifications", "automation", "team", "settings", "campaigns", "experiments",
-  "history",
+  "history", "lists",
 ];
 
 const api = async (path, opts = {}) => {
@@ -586,6 +586,115 @@ function ErrorDisplay({err,onRetry}){
 
 
 
+
+function ListsView({api,notify}){
+
+  const [folders,setFolders]=useState([]);
+
+  const [lists,setLists]=useState([]);
+
+  const [loading,setLoading]=useState(true);
+
+  const [error,setError]=useState(null);
+
+  const [activeFolder,setActiveFolder]=useState("all");
+
+  const [q,setQ]=useState("");
+
+  const load=useCallback(async()=>{
+    setLoading(true);
+    try{
+      const [f,l]=await Promise.all([api("/api/lists/folders"),api("/api/lists")]);
+      setFolders(Array.isArray(f?.folders)?f.folders:[]);
+      setLists(Array.isArray(l)?l:[]);
+      setError(null);
+    }catch(e){ setError(e?.message||String(e)); }
+    finally{ setLoading(false); }
+  },[api]);
+
+  useEffect(()=>{ load(); },[load]);
+
+  const filtered=lists.filter(l=>{
+    const inFolder = activeFolder==="all" || (activeFolder==="none" ? !l.folder_id : String(l.folder_id)===String(activeFolder));
+    const match = !q || (l.name||"").toLowerCase().includes(q.toLowerCase());
+    return inFolder && match;
+  });
+
+  const folderName=(id)=>folders.find(f=>String(f.id)===String(id))?.name;
+
+  const counts=(list)=>[
+    {label:"Subscribed",value:list.total_subscribers ?? list.member_count ?? 0},
+    {label:"Unsubscribed",value:list.unsubscribed_count ?? 0},
+    {label:"Blocklisted",value:list.total_blacklisted ?? 0},
+  ];
+
+  return (
+    <div className="space-y-4">
+      <PageHeader title="Lists" subtitle="Folders group your lists; a list is an audience you can send a campaign to." eyebrow="Audience">
+        <button onClick={load} className="btn-secondary"><RefreshCw className={"h-3.5 w-3.5 "+(loading?"animate-spin":"")}/>Refresh</button>
+      </PageHeader>
+
+      {error&&<div className="notice-error">{error}</div>}
+
+      <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
+        {/* Folder rail, Brevo-style */}
+        <Card title="Folders" className="h-max">
+          <div className="space-y-1">
+            <button onClick={()=>setActiveFolder("all")} className={"flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[13px] "+(activeFolder==="all"?"bg-brand-50 font-medium text-brand-700":"text-ink-600 hover:bg-ink-50")}>
+              <span>All lists</span><span className="tabular-nums text-[11px] text-ink-400">{lists.length}</span>
+            </button>
+            {folders.map(f=>(
+              <button key={f.id} onClick={()=>setActiveFolder(String(f.id))} className={"flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[13px] "+(activeFolder===String(f.id)?"bg-brand-50 font-medium text-brand-700":"text-ink-600 hover:bg-ink-50")}>
+                <span className="truncate">{f.name}</span>
+                <span className="tabular-nums text-[11px] text-ink-400">{lists.filter(l=>String(l.folder_id)===String(f.id)).length}</span>
+              </button>
+            ))}
+            <button onClick={()=>setActiveFolder("none")} className={"flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[13px] "+(activeFolder==="none"?"bg-brand-50 font-medium text-brand-700":"text-ink-600 hover:bg-ink-50")}>
+              <span>No folder</span><span className="tabular-nums text-[11px] text-ink-400">{lists.filter(l=>!l.folder_id).length}</span>
+            </button>
+          </div>
+        </Card>
+
+        {/* List cards */}
+        <div className="space-y-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"/>
+            <input type="text" placeholder="Search lists..." className={inputCls+" pl-9"} value={q} onChange={e=>setQ(e.target.value)}/>
+          </div>
+
+          {loading&&<div className="surface p-8 text-center text-[13px] text-ink-500">Loading lists...</div>}
+
+          {!loading&&filtered.length===0&&<div className="surface p-8 text-center text-[13px] text-ink-500">No lists here yet.</div>}
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {filtered.map(list=>(
+              <article key={list.id} className="surface flex flex-col p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-[14px] font-semibold text-ink-900">{list.name}</h3>
+                    <p className="truncate text-[11.5px] text-ink-500">{folderName(list.folder_id)||"No folder"}</p>
+                  </div>
+                  <Pill v={list.status||"active"}/>
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 border-t border-ink-100 pt-3">
+                  {counts(list).map(c=>(
+                    <div key={c.label}>
+                      <div className="text-[15px] font-semibold tabular-nums text-ink-900">{c.value}</div>
+                      <div className="text-[10.5px] uppercase tracking-wide text-ink-400">{c.label}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 flex items-center gap-1.5">
+                  <button onClick={()=>{notify(`Open Contacts and pick "${list.name}" to see its members`);}} className="btn-ghost btn-sm">View contacts</button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function EmailHistoryView({state,api,reload,notify}){
 
@@ -4399,6 +4508,8 @@ export default function App(){
 
     {group:"Audience",id:"contacts",icon:Users,label:"Contacts",badge:state.contacts?.length||null},
 
+    {group:"Audience",id:"lists",icon:Inbox,label:"Lists"},
+
     {group:"Audience",id:"templates",icon:PenLine,label:"Templates"},
 
     {group:"Campaigns",id:"campaigns",icon:Send,label:"Campaigns"},
@@ -5347,24 +5458,24 @@ export default function App(){
               <div className="mx-5 mt-3 notice-error">{campaignError}</div>
             )}
 
-            {/* Channel picker: email only. SMS, push and WhatsApp need providers
-                this app does not ship, so they are not offered. */}
-            <div className="border-b border-ink-200 bg-ink-50 px-5 py-3 max-md:px-4">
-              <p className="mb-2.5 text-[12.5px] font-medium text-ink-600">Channel</p>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => setCampaignChannel("email")}
-                  title="Email campaign"
-                  className={
-                    "flex items-center gap-2 rounded-[9px] border px-3 py-1.5 text-[12.5px] font-medium transition-colors " +
-                    (campaignChannel === "email"
-                      ? "border-brand-600 bg-brand-50 text-brand-700"
-                      : "border-ink-200 bg-ink-100 text-ink-600 hover:bg-ink-200/60")
-                  }
-                >
-                  <Mail className="h-3.5 w-3.5"/>Email
-                </button>
-              </div>
+            {/* Brevo-style stats strip. The channel is always email, so the old
+                channel picker is gone; these totals summarise the table below. */}
+            <div className="grid grid-cols-2 gap-3 border-b border-ink-200 bg-ink-50 px-5 py-3 md:grid-cols-3 lg:grid-cols-6 max-md:px-4">
+              {(() => {
+                const total = campaigns.length;
+                const sent = campaigns.filter(c => c.status === "sent").length;
+                const delivered = campaigns.filter(c => c.status === "sent").reduce((s, c) => s + (c.delivered || 0), 0);
+                const opened = campaigns.filter(c => c.status === "sent").reduce((s, c) => s + (c.opened || 0), 0);
+                const clicked = campaigns.filter(c => c.status === "sent").reduce((s, c) => s + (c.clicked || 0), 0);
+                const stats = [
+                  { label: "Total", value: total, color: "blue" },
+                  { label: "Sent", value: sent, color: "green" },
+                  { label: "Delivered", value: delivered, color: "green" },
+                  { label: "Opened", value: opened, color: "blue" },
+                  { label: "Clicked", value: clicked, color: "green" },
+                ];
+                return stats.map(s => <StatCard key={s.label} label={s.label} value={s.value} icon={Mail} color={s.color}/>);
+              })()}
             </div>
 
             {/* Filters */}
@@ -5935,6 +6046,12 @@ export default function App(){
             </Card>
 
           </div>
+
+        )}
+
+        {view==="lists"&&(
+
+          <ListsView api={api} notify={setStatus}/>
 
         )}
 
