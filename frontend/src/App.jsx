@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
-import { Mail, Users, FileText, Inbox, Settings, Play, BarChart3, Activity, Send, AlertCircle, Upload, Pencil, Sparkles, PenLine, Brain, Copy, Trash2, Shield, CheckCircle, XCircle, AlertTriangle, Loader2, RefreshCw, Filter, Search, Plus, Info, Check, TrendingUp, MoreHorizontal, Folder, FolderPlus, MoveRight, SlidersHorizontal, Menu, X } from "lucide-react";
+import { Mail, Users, FileText, Inbox, Settings, Play, BarChart3, Activity, Send, AlertCircle, Upload, Pencil, Sparkles, PenLine, Brain, Copy, Trash2, Shield, CheckCircle, XCircle, AlertTriangle, Loader2, RefreshCw, Filter, Search, Plus, Info, Check, TrendingUp, MoreHorizontal, Folder, FolderPlus, MoveRight, SlidersHorizontal, Menu, X, Moon, Sun } from "lucide-react";
 
 
 
@@ -586,6 +586,63 @@ function ErrorDisplay({err,onRetry}){
 
 
 
+
+const THEMES = [
+  { id: "dark", label: "Dark", icon: Moon },
+  { id: "light", label: "Light", icon: Sun },
+  { id: "glass", label: "Glass", icon: Sparkles },
+];
+
+function ThemePicker(){
+
+  const [theme,setTheme]=useState(()=>{
+    try{ return document.documentElement.getAttribute("data-theme") || "dark"; }
+    catch{ return "dark"; }
+  });
+
+  const [open,setOpen]=useState(false);
+
+  useEffect(()=>{
+    document.documentElement.setAttribute("data-theme",theme);
+    try{ localStorage.setItem("mailmatrix.theme",theme); }catch{}
+  },[theme]);
+
+  useEffect(()=>{
+    if(!open) return;
+    const close=()=>setOpen(false);
+    window.addEventListener("click",close);
+    return ()=>window.removeEventListener("click",close);
+  },[open]);
+
+  const current=THEMES.find(t=>t.id===theme)||THEMES[0];
+
+  return (
+    <div className="relative">
+      <button
+        onClick={(e)=>{ e.stopPropagation(); setOpen(o=>!o); }}
+        className="btn-ghost btn-sm"
+        title={`Theme: ${current.label}`}
+        aria-label={`Theme: ${current.label}. Change theme`}
+      >
+        <current.icon className="h-3.5 w-3.5"/>
+        <span className="max-sm:hidden">{current.label}</span>
+      </button>
+      {open&&(
+        <div className="absolute right-0 top-full z-40 mt-1 w-40 rounded-xl border border-ink-200 bg-ink-100 p-1 shadow-pop">
+          {THEMES.map(t=>(
+            <button
+              key={t.id}
+              onClick={()=>{ setTheme(t.id); setOpen(false); }}
+              className={"flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] "+(theme===t.id?"bg-brand-500/10 font-medium text-brand-700":"text-ink-600 hover:bg-ink-200/60")}
+            >
+              <t.icon className="h-4 w-4 opacity-70"/>{t.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ListRail({folders=[], lists=[], selectedList="all", folderFilter="all", listSearch="", allCount=0, eligibleCount=0, onSelect, onFolder, onSearch, onCreate, hideSearch=false}){
 
@@ -4781,6 +4838,8 @@ export default function App(){
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
+
+            <ThemePicker/>
 
             <button onClick={run} className="btn-primary btn-sm"><Play className="h-3.5 w-3.5"/><span className="max-sm:hidden">Run now</span><span className="sm:hidden">Run</span></button>
 

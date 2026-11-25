@@ -20,6 +20,21 @@
       />
     </noscript>
     <title>MailMatrix</title>
+    <script>
+      // Apply the saved theme before first paint so a reload does not flash the
+      // dark palette before React mounts. Keeping this inline (not a module)
+      // guarantees it runs before the stylesheet-dependent render.
+      (function () {
+        try {
+          var saved = localStorage.getItem("mailmatrix.theme");
+          if (saved === "light" || saved === "glass" || saved === "dark") {
+            document.documentElement.setAttribute("data-theme", saved);
+          }
+        } catch (e) {
+          /* private mode or blocked storage: fall back to the dark default */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

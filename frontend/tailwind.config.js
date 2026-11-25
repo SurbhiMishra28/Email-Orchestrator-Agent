@@ -16,67 +16,61 @@ export default {
         ],
       },
       colors: {
-        // Pale sage CTA / accent ramp. 500 fills primary buttons, 600-700 are
-        // the readable accent text on the dark surfaces below.
+        // Every colour is a CSS variable holding space-separated RGB channels,
+        // so Tailwind's opacity modifiers (`bg-ink-100/95`) keep working and a
+        // theme swap is a variable change rather than a class rewrite.
+        // The ramps are inverted: 50 is the page floor, 900 the brightest text
+        // (dark theme) or the darkest text (light theme).
         brand: {
-          50: "#0b1713",
-          100: "#102019",
-          200: "#1b332a",
-          300: "#2a4a3d",
-          400: "#4d7d6a",
-          500: "#7fb39d",
-          600: "#9ccdb6",
-          700: "#b8dfcb",
-          800: "#d3ecdf",
-          900: "#eaf6f0",
+          50: "rgb(var(--brand-50) / <alpha-value>)",
+          100: "rgb(var(--brand-100) / <alpha-value>)",
+          200: "rgb(var(--brand-200) / <alpha-value>)",
+          300: "rgb(var(--brand-300) / <alpha-value>)",
+          400: "rgb(var(--brand-400) / <alpha-value>)",
+          500: "rgb(var(--brand-500) / <alpha-value>)",
+          600: "rgb(var(--brand-600) / <alpha-value>)",
+          700: "rgb(var(--brand-700) / <alpha-value>)",
+          800: "rgb(var(--brand-800) / <alpha-value>)",
+          900: "rgb(var(--brand-900) / <alpha-value>)",
         },
-        // The neutral ramp is inverted: 50 is the page floor and 900 is the
-        // brightest text. Every existing ink utility keeps its meaning (50 =
-        // background, 900 = primary text, 200 = hairline) without rewriting the
-        // thousands of class names that already use it.
         ink: {
-          50: "#060b09",
-          // Raised surfaces. On a near-black page the fill alone cannot carry
-          // elevation, so these stay close to the floor and the hairline
-          // (ink-200) does the separating work.
-          100: "#0f1815",
-          200: "#1e2c26",
-          300: "#2b3d36",
-          // Muted text clears WCAG AA (4.5:1) on both the page floor and the
-          // raised card tone; #6b7f77 measured 4.42:1 and failed for small text.
-          400: "#788d84",
-          500: "#8fa39b",
-          600: "#a8bcb4",
-          700: "#c4d6ce",
-          800: "#deeae4",
-          900: "#f1f7f4",
+          50: "rgb(var(--ink-50) / <alpha-value>)",
+          100: "rgb(var(--ink-100) / <alpha-value>)",
+          200: "rgb(var(--ink-200) / <alpha-value>)",
+          300: "rgb(var(--ink-300) / <alpha-value>)",
+          400: "rgb(var(--ink-400) / <alpha-value>)",
+          500: "rgb(var(--ink-500) / <alpha-value>)",
+          600: "rgb(var(--ink-600) / <alpha-value>)",
+          700: "rgb(var(--ink-700) / <alpha-value>)",
+          800: "rgb(var(--ink-800) / <alpha-value>)",
+          900: "rgb(var(--ink-900) / <alpha-value>)",
         },
-        card: "#0f1815",
+        card: "rgb(var(--card) / <alpha-value>)",
         danger: {
-          50: "#24100f",
-          100: "#351716",
-          200: "#542321",
-          500: "#d96464",
-          600: "#f08a8a",
-          700: "#f7a5a5",
-          800: "#fcc0c0",
+          50: "rgb(var(--danger-50) / <alpha-value>)",
+          100: "rgb(var(--danger-100) / <alpha-value>)",
+          200: "rgb(var(--danger-200) / <alpha-value>)",
+          500: "rgb(var(--danger-500) / <alpha-value>)",
+          600: "rgb(var(--danger-600) / <alpha-value>)",
+          700: "rgb(var(--danger-700) / <alpha-value>)",
+          800: "rgb(var(--danger-800) / <alpha-value>)",
         },
         warn: {
-          50: "#22190b",
-          100: "#2f230f",
-          200: "#4a3818",
-          500: "#d8a95c",
-          600: "#e6bd76",
-          700: "#f0cf95",
-          800: "#f7dfb3",
+          50: "rgb(var(--warn-50) / <alpha-value>)",
+          100: "rgb(var(--warn-100) / <alpha-value>)",
+          200: "rgb(var(--warn-200) / <alpha-value>)",
+          500: "rgb(var(--warn-500) / <alpha-value>)",
+          600: "rgb(var(--warn-600) / <alpha-value>)",
+          700: "rgb(var(--warn-700) / <alpha-value>)",
+          800: "rgb(var(--warn-800) / <alpha-value>)",
         },
         info: {
-          50: "#0b1a20",
-          100: "#0f2530",
-          200: "#1b3a47",
-          500: "#5f9bb0",
-          600: "#7fb8cc",
-          700: "#9ccddd",
+          50: "rgb(var(--info-50) / <alpha-value>)",
+          100: "rgb(var(--info-100) / <alpha-value>)",
+          200: "rgb(var(--info-200) / <alpha-value>)",
+          500: "rgb(var(--info-500) / <alpha-value>)",
+          600: "rgb(var(--info-600) / <alpha-value>)",
+          700: "rgb(var(--info-700) / <alpha-value>)",
         },
       },
       borderRadius: {

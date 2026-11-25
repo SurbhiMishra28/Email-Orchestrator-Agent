@@ -20,8 +20,23 @@
       />
     </noscript>
     <title>MailMatrix</title>
-    <script type="module" crossorigin src="/assets/index-nmEXe6lw.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-V12jNlH_.css">
+    <script>
+      // Apply the saved theme before first paint so a reload does not flash the
+      // dark palette before React mounts. Keeping this inline (not a module)
+      // guarantees it runs before the stylesheet-dependent render.
+      (function () {
+        try {
+          var saved = localStorage.getItem("mailmatrix.theme");
+          if (saved === "light" || saved === "glass" || saved === "dark") {
+            document.documentElement.setAttribute("data-theme", saved);
+          }
+        } catch (e) {
+          /* private mode or blocked storage: fall back to the dark default */
+        }
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-DkAp9fV2.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DqtcRe_R.css">
   </head>
   <body>
     <div id="root"></div>
