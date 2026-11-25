@@ -1101,6 +1101,10 @@ function ListsView({api,notify,setSelectedList,setView}){
                           <div className="relative">
                             <button
                               onClick={(e)=>{
+                                // Stop the click reaching the window listener that
+                                // closes the menu, otherwise the same click that
+                                // opens it closes it again immediately.
+                                e.stopPropagation();
                                 const rect = e.currentTarget.getBoundingClientRect();
                                 const width = 232;
                                 const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
@@ -1118,6 +1122,7 @@ function ListsView({api,notify,setSelectedList,setView}){
                             </button>
                             {openMenu===list.id&&menuPos&&(
                               <div
+                                onClick={(e)=>e.stopPropagation()}
                                 className="fixed z-50 w-[232px] rounded-xl border border-ink-200 bg-ink-100 py-1 shadow-pop"
                                 style={{ top: menuPos.top, left: menuPos.left }}
                               >
