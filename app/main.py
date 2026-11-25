@@ -1088,6 +1088,23 @@ def get_state(
     return state
 
 
+@app.middleware("http")
+async def _state_cache_headers(request, call_next):
+    """Let the browser reuse the state payload for a few seconds.
+
+    The SPA polls ``/api/state`` every 10s and refetches on every tab switch. On
+    serverless each of those is a fresh ~1s invocation, and the per-instance
+    cache above cannot help because consecutive requests often land on different
+    instances. A short ``max-age`` lets the browser serve those from its own
+    cache, which is the only layer shared across instances. Mutations still show
+   up immediately because the client refetches with ``?refresh=1``.
+    """
+    response = await call_next(request)
+    if request.url.path in ("/api/state", "/api/state/"):
+        response.headers["Cache-Control"] = "private, max-age=3"
+    return response
+
+
 @app.get("/api/usage")
 def get_usage(tenant_id: int = Depends(current_tenant_id)):
     """Report the caller's metered usage for today and this month."""

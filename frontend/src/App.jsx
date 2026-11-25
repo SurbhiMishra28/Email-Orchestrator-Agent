@@ -2724,11 +2724,13 @@ export default function App(){
 
   }, [selectedList, loadListMembers]);
 
-  const load=useCallback(async({quiet=false,signal}={})=>{
+  const load=useCallback(async({quiet=false,signal,refresh=true}={})=>{
 
     try{
 
-      const s=await api("/api/state",{signal});
+      // refresh=true by default: an explicit load follows a mutation, so it must
+      // bypass the short-lived cache and show the write immediately.
+      const s=await api(refresh?"/api/state?refresh=1":"/api/state",{signal});
 
       setState(normalizeState(s));
 
