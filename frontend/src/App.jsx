@@ -683,6 +683,14 @@ function ListsView({api,notify,setSelectedList,setView}){
 
   const [confirmFolder,setConfirmFolder]=useState(null);
 
+  const [perPage,setPerPage]=useState(20);
+
+  const [page,setPage]=useState(1);
+
+  const [creating,setCreating]=useState(false);
+
+  const [newList,setNewList]=useState({name:"",folder_id:""});
+
   const load=useCallback(async()=>{
     setLoading(true);
     try{
@@ -698,9 +706,17 @@ function ListsView({api,notify,setSelectedList,setView}){
 
   const filtered=lists.filter(l=>{
     const inFolder = activeFolder==="all" || (activeFolder==="none" ? !l.folder_id : String(l.folder_id)===String(activeFolder));
-    const match = !q || (l.name||"").toLowerCase().includes(q.toLowerCase());
+    // Brevo searches by name OR id ("Search a list name or ID").
+    const term = (q||"").trim().toLowerCase().replace(/^#/,"");
+    const match = !term
+      || (l.name||"").toLowerCase().includes(term)
+      || String(l.id)===term;
     return inFolder && match;
   });
+
+  const pageCount=Math.max(1, Math.ceil(filtered.length/perPage));
+  const currentPage=Math.min(page,pageCount);
+  const pageRows=filtered.slice((currentPage-1)*perPage, currentPage*perPage);
 
   const folderName=(id)=>folders.find(f=>String(f.id)===String(id))?.name;
 
@@ -786,10 +802,30 @@ function ListsView({api,notify,setSelectedList,setView}){
     finally{ setBusy(null); }
   };
 
+  // Create a list. The new list is immediately usable from Contacts (the list
+  // filter there and the "Add to list" bulk action read the same API).
+  const createList=async()=>{
+    const name=(newList.name||"").trim();
+    if(!name){ notify("Give the list a name"); return; }
+    setBusy("list-new");
+    try{
+      const body={ name };
+      if(newList.folder_id) body.folder_id = Number(newList.folder_id);
+      await api("/api/lists",{method:"POST",body:JSON.stringify(body)});
+      setCreating(false);
+      setNewList({name:"",folder_id:""});
+      notify(`Created "${name}"`);
+      await load();
+    }catch(e){ notify(e?.message||String(e)); }
+    finally{ setBusy(null); }
+  };
+
   return (
     <div className="space-y-4">
       <PageHeader title="Lists" subtitle="Folders group your lists; a list is an audience you can send a campaign to." eyebrow="Audience">
-        <button onClick={load} className="btn-secondary"><RefreshCw className={"h-3.5 w-3.5 "+(loading?"animate-spin":"")}/>Refresh</button>
+        <button onClick={()=>{ setNewList({name:"",folder_id: activeFolder!=="all"&&activeFolder!=="none" ? activeFolder : ""}); setCreating(true); }} className="btn-primary">
+          <Plus className="h-3.5 w-3.5"/>Create a list
+        </button>
       </PageHeader>
 
       {error&&<div className="notice-error">{error}</div>}
@@ -896,77 +932,166 @@ function ListsView({api,notify,setSelectedList,setView}){
           </div>
         </Card>
 
-        {/* List cards */}
-        <div className="space-y-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"/>
-            <input type="text" placeholder="Search lists..." className={inputCls+" pl-9"} value={q} onChange={e=>setQ(e.target.value)}/>
+        {/* Lists table, Brevo-style */}
+        <div className="min-w-0 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="relative min-w-0 flex-1 sm:max-w-xs">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"/>
+              <input
+                type="text"
+                placeholder="Search a list name or ID"
+                className={inputCls+" pl-9"}
+                value={q}
+                onChange={e=>{ setQ(e.target.value); setPage(1); }}
+              />
+            </div>
+            <button onClick={load} className="btn-secondary btn-sm">
+              <RefreshCw className={"h-3.5 w-3.5 "+(loading?"animate-spin":"")}/>Refresh
+            </button>
           </div>
 
-          {loading&&<div className="surface p-8 text-center text-[13px] text-ink-500">Loading lists...</div>}
-
-          {!loading&&filtered.length===0&&<div className="surface p-8 text-center text-[13px] text-ink-500">No lists here yet.</div>}
-
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {filtered.map(list=>(
-              <article key={list.id} className="surface flex flex-col p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    {editing===list.id ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          className="input py-1 text-[13px]"
-                          value={draftName}
-                          autoFocus
-                          onChange={e=>setDraftName(e.target.value)}
-                          onKeyDown={(e)=>{ if(e.key==="Enter") saveName(list); if(e.key==="Escape") setEditing(null); }}
-                        />
-                        <button onClick={()=>saveName(list)} className="icon-btn" title="Save name"><Check className="h-4 w-4"/></button>
-                        <button onClick={()=>setEditing(null)} className="icon-btn" title="Cancel"><X className="h-4 w-4"/></button>
-                      </div>
-                    ) : (
-                      <h3 className="truncate text-[14px] font-semibold text-ink-900">{list.name}</h3>
-                    )}
-                    <p className="truncate text-[11.5px] text-ink-500">{folderName(list.folder_id)||"No folder"}</p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-0.5">
-                    <button onClick={()=>{ setEditing(list.id); setDraftName(list.name); }} className="icon-btn" title="Rename list"><Pencil className="h-4 w-4"/></button>
-                    <button onClick={()=>dup(list)} className="icon-btn" title="Duplicate list"><Copy className="h-4 w-4"/></button>
-                    <button
-                      onClick={()=>remove(list)}
-                      disabled={busy===list.id}
-                      className="icon-btn hover:bg-danger-50 hover:text-danger-600"
-                      title="Delete list"
-                      aria-label={`Delete ${list.name}`}
-                    >
-                      <Trash2 className="h-4 w-4"/>
-                    </button>
-                  </div>
-                </div>
-                <div className="mt-3 grid grid-cols-3 gap-2 border-t border-ink-100 pt-3">
-                  {counts(list).map(c=>(
-                    <div key={c.label}>
-                      <div className="text-[15px] font-semibold tabular-nums text-ink-900">{c.value}</div>
-                      <div className="text-[10.5px] uppercase tracking-wide text-ink-400">{c.label}</div>
-                    </div>
+          <div className="surface overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th className="w-72 min-w-72">List name</th>
+                    <th className="w-44 min-w-44">Folder</th>
+                    <th className="w-28 min-w-28 text-center">Contacts</th>
+                    <th className="w-44 min-w-44">Creation date</th>
+                    <th className="w-56 min-w-56">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageRows.map(list=>(
+                    <tr key={list.id}>
+                      <td>
+                        <div className="flex min-w-0 items-start gap-2">
+                          <span className="mt-0.5 shrink-0 rounded bg-ink-200/70 px-1.5 py-0.5 text-[10.5px] font-medium tabular-nums text-ink-600">#{list.id}</span>
+                          <div className="min-w-0">
+                            {editing===list.id ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  className="input py-1 text-[13px]"
+                                  value={draftName}
+                                  autoFocus
+                                  onChange={e=>setDraftName(e.target.value)}
+                                  onKeyDown={(e)=>{ if(e.key==="Enter") saveName(list); if(e.key==="Escape") setEditing(null); }}
+                                />
+                                <button onClick={()=>saveName(list)} className="icon-btn" title="Save name"><Check className="h-4 w-4"/></button>
+                                <button onClick={()=>setEditing(null)} className="icon-btn" title="Cancel"><X className="h-4 w-4"/></button>
+                              </div>
+                            ) : (
+                              <div className="truncate font-medium text-ink-900">{list.name}</div>
+                            )}
+                            {list.description && <div className="truncate text-[11.5px] text-ink-500">{list.description}</div>}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="text-[12.5px] text-ink-600">{folderName(list.folder_id)||"—"}</td>
+                      <td className="text-center tabular-nums">{list.total_subscribers ?? list.member_count ?? 0}</td>
+                      <td className="whitespace-nowrap text-[12px] text-ink-500">{fmtDate(list.created_at)}</td>
+                      <td>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={()=>{ setSelectedList(String(list.id)); setView("contacts"); }}
+                            className="btn-ghost btn-sm"
+                            title="Open this list in Contacts"
+                          >
+                            View contacts
+                          </button>
+                          <button onClick={()=>{ setEditing(list.id); setDraftName(list.name); }} className="icon-btn" title="Rename list"><Pencil className="h-4 w-4"/></button>
+                          <button onClick={()=>dup(list)} className="icon-btn" title="Duplicate list"><Copy className="h-4 w-4"/></button>
+                          {confirmDelete===list.id ? (
+                            <>
+                              <button onClick={()=>remove(list)} disabled={busy===list.id} className="btn-danger btn-sm">Confirm</button>
+                              <button onClick={()=>setConfirmDelete(null)} className="icon-btn" title="Cancel"><X className="h-4 w-4"/></button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={()=>setConfirmDelete(list.id)}
+                              disabled={busy===list.id}
+                              className="icon-btn hover:bg-danger-50 hover:text-danger-600"
+                              title="Delete list"
+                              aria-label={`Delete ${list.name}`}
+                            >
+                              <Trash2 className="h-4 w-4"/>
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
                   ))}
-                </div>
-                <div className="mt-3 flex items-center justify-between gap-1.5">
-                  <button onClick={()=>{ setSelectedList(String(list.id)); setView("contacts"); }} className="btn-ghost btn-sm">View contacts</button>
-                  {confirmDelete===list.id ? (
-                    <div className="flex items-center gap-1">
-                      <button onClick={()=>remove(list)} disabled={busy===list.id} className="btn-danger btn-sm">Confirm</button>
-                      <button onClick={()=>setConfirmDelete(null)} className="btn-ghost btn-sm">Cancel</button>
-                    </div>
-                  ) : (
-                    <button onClick={()=>setConfirmDelete(list.id)} className="btn-ghost btn-sm text-danger-600 hover:bg-danger-50">Delete</button>
+                  {filtered.length===0&&(
+                    <tr>
+                      <td colSpan={5} className="table-empty">
+                        {loading ? "Loading lists..." : (q ? "No lists match your search." : "No lists yet. Create your first list to group contacts.")}
+                      </td>
+                    </tr>
                   )}
-                </div>
-              </article>
-            ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Pagination */}
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[12.5px] text-ink-600">
+            <div className="flex items-center gap-2">
+              <span>Rows per page</span>
+              <select
+                className="select w-auto py-1 text-[12.5px]"
+                value={perPage}
+                onChange={e=>{ setPerPage(Number(e.target.value)); setPage(1); }}
+              >
+                {[10,20,50,100].map(n=><option key={n} value={n}>{n}</option>)}
+              </select>
+              <span className="tabular-nums text-ink-500">
+                {filtered.length===0 ? "0" : `${(currentPage-1)*perPage+1}-${Math.min(currentPage*perPage, filtered.length)}`} of {filtered.length}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button onClick={()=>setPage(Math.max(1,currentPage-1))} disabled={currentPage<=1} className="btn-ghost btn-sm">Previous</button>
+              <span className="px-2 tabular-nums">{currentPage} of {pageCount} pages</span>
+              <button onClick={()=>setPage(Math.min(pageCount,currentPage+1))} disabled={currentPage>=pageCount} className="btn-ghost btn-sm">Next</button>
+            </div>
           </div>
         </div>
       </div>
+
+      {creating&&(
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink-50/80 p-4 py-10 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-card border border-ink-200 bg-ink-100 p-5 shadow-pop">
+            <h3 className="text-[15px] font-semibold text-ink-900">Create a list</h3>
+            <p className="mt-1 text-[12.5px] text-ink-500">
+              Lists group contacts so you can target them in a campaign. The new list is immediately available in Contacts.
+            </p>
+            <label className="field-label mt-4">
+              Name
+              <input
+                className={inputCls+" mt-1"}
+                value={newList.name}
+                autoFocus
+                placeholder="e.g. Noida prospects"
+                onChange={e=>setNewList({...newList,name:e.target.value})}
+                onKeyDown={(e)=>{ if(e.key==="Enter") createList(); }}
+              />
+            </label>
+            <label className="field-label mt-3">
+              Folder
+              <select className={inputCls+" mt-1"} value={newList.folder_id} onChange={e=>setNewList({...newList,folder_id:e.target.value})}>
+                <option value="">No folder</option>
+                {folders.map(f=><option key={f.id} value={String(f.id)}>{f.name}</option>)}
+              </select>
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={()=>{ setCreating(false); setNewList({name:"",folder_id:""}); }} className="btn-ghost">Cancel</button>
+              <button onClick={createList} disabled={!newList.name.trim() || busy==="list-new"} className="btn-primary">
+                <Plus className="h-3.5 w-3.5"/>Create list
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
