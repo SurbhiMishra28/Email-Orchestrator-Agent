@@ -928,7 +928,6 @@ function ListsView({api,notify,setSelectedList,setView}){
             >
               <option value="all">All folders</option>
               {folders.map(f=><option key={f.id} value={String(f.id)}>{f.name}</option>)}
-              <option value="none">No folder</option>
               <option value="__new__">Create a new folder...</option>
             </select>
           </div>
@@ -1002,14 +1001,6 @@ function ListsView({api,notify,setSelectedList,setView}){
               </div>
             ))}
 
-            <button
-              onClick={()=>setActiveFolder("none")}
-              className={"flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[13px] "+(activeFolder==="none"?"bg-ink-100 font-medium text-ink-900":"text-ink-600 hover:bg-ink-50")}
-            >
-              <span>No folder</span>
-              <span className="tabular-nums text-[11px] text-ink-400">{lists.filter(l=>!l.folder_id).length}</span>
-            </button>
-
             <div className="mt-2 border-t border-ink-200 pt-2">
               <button
                 onClick={()=>{ setCreatingFolder(true); setNewFolderName(""); }}
@@ -1023,7 +1014,13 @@ function ListsView({api,notify,setSelectedList,setView}){
 
         {/* Lists table, Brevo-style */}
         <div className="min-w-0 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 className="text-[15px] font-semibold text-ink-900">Lists</h2>
+              <span className="rounded-full bg-ink-200/70 px-2 py-0.5 text-[11px] font-medium tabular-nums text-ink-600">
+                {lists.length}
+              </span>
+            </div>
             <div className="relative min-w-0 flex-1 sm:max-w-xs">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"/>
               <input
@@ -1034,9 +1031,6 @@ function ListsView({api,notify,setSelectedList,setView}){
                 onChange={e=>{ setQ(e.target.value); setPage(1); }}
               />
             </div>
-            <button onClick={load} className="btn-secondary btn-sm">
-              <RefreshCw className={"h-3.5 w-3.5 "+(loading?"animate-spin":"")}/>Refresh
-            </button>
           </div>
 
           <div className="surface overflow-hidden">
@@ -1044,11 +1038,11 @@ function ListsView({api,notify,setSelectedList,setView}){
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th className="w-72 min-w-72">List name</th>
-                    <th className="w-44 min-w-44">Folder</th>
-                    <th className="w-28 min-w-28 text-center">Contacts</th>
-                    <th className="w-44 min-w-44">Creation date</th>
-                    <th className="w-56 min-w-56">Actions</th>
+                    <th className="w-[38%] min-w-64">List name</th>
+                    <th className="w-[18%] min-w-36">Folder</th>
+                    <th className="w-[12%] min-w-24 text-right">Contacts</th>
+                    <th className="w-[16%] min-w-36">Creation date</th>
+                    <th className="w-[16%] min-w-44 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1078,10 +1072,10 @@ function ListsView({api,notify,setSelectedList,setView}){
                         </div>
                       </td>
                       <td className="text-[12.5px] text-ink-600">{folderName(list.folder_id)||"-"}</td>
-                      <td className="text-center tabular-nums">{list.total_subscribers ?? list.member_count ?? 0}</td>
+                      <td className="text-right tabular-nums">{list.total_subscribers ?? list.member_count ?? 0}</td>
                       <td className="whitespace-nowrap text-[12px] text-ink-500">{fmtDate(list.created_at)}</td>
                       <td>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center justify-end gap-1">
                           <button
                             onClick={()=>{ setSelectedList(String(list.id)); setView("contacts"); }}
                             className="btn-ghost btn-sm"
@@ -1406,7 +1400,6 @@ function EmailHistoryView({state,api,reload,notify}){
   return (
     <div className="space-y-4">
       <PageHeader title="Email history" subtitle="Every message that left your mailbox, with who replied and who is interested." eyebrow="Campaigns">
-        <button onClick={reload} className="btn-secondary"><RefreshCw className="h-3.5 w-3.5"/>Refresh</button>
       </PageHeader>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
@@ -1592,8 +1585,6 @@ function AutomationView({api}){
     <div className="space-y-4">
 
       <PageHeader title="Automation" subtitle="Autopilot, scheduled jobs and recent scheduler activity." eyebrow="Operations">
-
-        <button onClick={load} disabled={busy} className={btnGhost + " btn-sm"}>Refresh</button>
 
         <button onClick={runNow} disabled={busy} className={btnPrimary + " btn-sm"}>Run a pass now</button>
 
@@ -1856,8 +1847,6 @@ function TeamView({api,currentUserId}){
     <div className="space-y-4">
 
       <PageHeader title="Team" subtitle="Invite teammates and manage who can access this workspace." eyebrow="Workspace">
-
-        <button onClick={load} disabled={loading} className={btnGhost + " btn-sm"}>Refresh</button>
 
       </PageHeader>
 
@@ -2170,8 +2159,6 @@ function ExperimentsView({api}){
     <div className="space-y-4">
 
       <PageHeader title="Experiments" subtitle="Test subject lines and bodies. Each contact is assigned by a stable hash of its id." eyebrow="Campaigns">
-
-        <button onClick={load} disabled={loading||busy} className={btnGhost + " btn-sm"}>Refresh</button>
 
       </PageHeader>
 
@@ -5339,8 +5326,6 @@ export default function App(){
 
             <button onClick={run} className="btn-primary btn-sm"><Play className="h-3.5 w-3.5"/><span className="max-sm:hidden">Run now</span><span className="sm:hidden">Run</span></button>
 
-            <button onClick={load} aria-label="Refresh dashboard" className="btn-ghost btn-sm"><RefreshCw className="h-3.5 w-3.5"/><span className="max-sm:hidden">Refresh</span></button>
-
           </div>
 
         </header>
@@ -6148,13 +6133,6 @@ export default function App(){
               <div className="flex items-center gap-2">
 
                 <button
-                  onClick={loadCampaigns}
-                  className="btn-ghost"
-                >
-                  <RefreshCw className={"h-3.5 w-3.5 " + (campaignsLoading ? "animate-spin" : "")}/>Refresh
-                </button>
-
-                <button
                   onClick={openCampaignEditor}
                   className="btn-primary"
                 >
@@ -6518,13 +6496,6 @@ export default function App(){
           <div className="space-y-4">
 
             <PageHeader title="Verifications" subtitle="Deliverability results per address, refreshed on demand." eyebrow="Deliverability">
-
-              <button onClick={loadVerifications} disabled={verificationLoading} className="btn-primary">
-
-                <RefreshCw className={"h-3.5 w-3.5 "+(verificationLoading ? "animate-spin" : "")}/>Refresh
-
-              </button>
-
             </PageHeader>
 
             <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
