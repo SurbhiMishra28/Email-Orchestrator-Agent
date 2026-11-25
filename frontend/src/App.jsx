@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
-import { Mail, Users, FileText, Inbox, Settings, Play, BarChart3, Activity, Send, AlertCircle, Upload, Pencil, Sparkles, PenLine, Brain, Copy, Trash2, Shield, CheckCircle, XCircle, AlertTriangle, Loader2, RefreshCw, Filter, Search, Plus, Info, Check, TrendingUp, MoreHorizontal, Folder, FolderPlus, MoveRight, SlidersHorizontal, Menu, X, Moon, Sun } from "lucide-react";
+import { Mail, Users, FileText, Inbox, Settings, Play, BarChart3, Activity, Send, AlertCircle, Upload, Pencil, Sparkles, PenLine, Brain, Copy, Trash2, Shield, CheckCircle, XCircle, AlertTriangle, Loader2, RefreshCw, Filter, Search, Plus, Info, Check, TrendingUp, MoreHorizontal, Folder, FolderPlus, MoveRight, SlidersHorizontal, Menu, X, Moon, Sun, Layers } from "lucide-react";
 
 
 
@@ -912,9 +912,33 @@ function ListsView({api,notify,setSelectedList,setView}){
 
       {error&&<div className="notice-error">{error}</div>}
 
-      <div className="grid gap-4 lg:grid-cols-[248px_1fr]">
+      {/* Summary strip: the three numbers that describe this section. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {[
+          { label: "Lists", value: lists.length, icon: Layers, tone: "bg-brand-50 text-brand-600" },
+          { label: "Folders", value: folders.length, icon: Folder, tone: "bg-info-50 text-info-600" },
+          {
+            label: "Contacts",
+            value: lists.reduce((sum, l) => sum + (l.total_subscribers ?? l.member_count ?? 0), 0),
+            icon: Users,
+            tone: "bg-warn-50 text-warn-600",
+          },
+        ].map((stat, i) => (
+          <div key={i} className="surface flex items-center gap-3 p-4">
+            <span className={"flex h-10 w-10 shrink-0 items-center justify-center rounded-lg " + stat.tone}>
+              <stat.icon className="h-5 w-5"/>
+            </span>
+            <div className="min-w-0">
+              <div className="text-[20px] font-semibold leading-tight tabular-nums text-ink-900">{stat.value}</div>
+              <div className="text-[11.5px] uppercase tracking-[0.06em] text-ink-400">{stat.label}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
         {/* Folders own their lists here, with create / rename / delete. */}
-        <Card title="Folders" className="h-max">
+        <Card title="Folders" className="h-max lg:sticky lg:top-4">
           <div className="mb-2">
             <select
               className="select w-full py-1.5 text-[12.5px]"
@@ -934,10 +958,13 @@ function ListsView({api,notify,setSelectedList,setView}){
           <div className="space-y-1">
             <button
               onClick={()=>setActiveFolder("all")}
-              className={"flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[13px] "+(activeFolder==="all"?"bg-brand-50 font-medium text-brand-700":"text-ink-600 hover:bg-ink-50")}
+              className={"flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors "+(activeFolder==="all"?"bg-brand-50 font-medium text-brand-700":"text-ink-600 hover:bg-ink-50")}
             >
-              <span>All lists</span>
-              <span className="tabular-nums text-[11px] text-ink-400">{lists.length}</span>
+              <span className="flex min-w-0 items-center gap-1.5">
+                <Layers className="h-3.5 w-3.5 shrink-0 opacity-60"/>
+                <span className="truncate">All lists</span>
+              </span>
+              <span className="shrink-0 rounded-full bg-ink-200/70 px-1.5 text-[10.5px] tabular-nums text-ink-600">{lists.length}</span>
             </button>
 
             {folders.map(folder=>(
@@ -1047,10 +1074,13 @@ function ListsView({api,notify,setSelectedList,setView}){
                 </thead>
                 <tbody>
                   {pageRows.map(list=>(
-                    <tr key={list.id}>
+                    <tr key={list.id} className="group transition-colors hover:bg-ink-50/70">
                       <td>
-                        <div className="flex min-w-0 items-start gap-2">
-                          <span className="mt-0.5 shrink-0 rounded bg-ink-200/70 px-1.5 py-0.5 text-[10.5px] font-medium tabular-nums text-ink-600">#{list.id}</span>
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                            <Layers className="h-4 w-4"/>
+                          </span>
+                          <span className="mt-0 shrink-0 rounded bg-ink-200/70 px-1.5 py-0.5 text-[10.5px] font-medium tabular-nums text-ink-600">#{list.id}</span>
                           <div className="min-w-0">
                             {editing===list.id ? (
                               <div className="flex items-center gap-1">
@@ -1068,6 +1098,11 @@ function ListsView({api,notify,setSelectedList,setView}){
                               <div className="truncate font-medium text-ink-900">{list.name}</div>
                             )}
                             {list.description && <div className="truncate text-[11.5px] text-ink-500">{list.description}</div>}
+                            {!list.description && (
+                              <div className="truncate text-[11.5px] text-ink-400">
+                                {list.total_subscribers ?? list.member_count ?? 0} subscribed
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -1075,14 +1110,14 @@ function ListsView({api,notify,setSelectedList,setView}){
                       <td className="text-right tabular-nums">{list.total_subscribers ?? list.member_count ?? 0}</td>
                       <td className="whitespace-nowrap text-[12px] text-ink-500">{fmtDate(list.created_at)}</td>
                       <td>
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={()=>{ setSelectedList(String(list.id)); setView("contacts"); }}
-                            className="btn-ghost btn-sm"
-                            title="Open this list in Contacts"
-                          >
-                            View contacts
-                          </button>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={()=>{ setSelectedList(String(list.id)); setView("contacts"); }}
+                        className="btn-ghost btn-sm"
+                        title="Open this list in Contacts"
+                      >
+                        View contacts
+                      </button>
 
                           {/* Brevo's three-dot menu: settings, duplicate,
                               import, rename, move, delete. */}
@@ -1130,7 +1165,31 @@ function ListsView({api,notify,setSelectedList,setView}){
                   {filtered.length===0&&(
                     <tr>
                       <td colSpan={5} className="table-empty">
-                        {loading ? "Loading lists..." : (q ? "No lists match your search." : "No lists yet. Create your first list to group contacts.")}
+                        {loading ? (
+                          <div className="flex items-center justify-center gap-2 py-6 text-[13px] text-ink-500">
+                            <Loader2 className="h-4 w-4 animate-spin"/>Loading lists...
+                          </div>
+                        ) : q ? (
+                          <div className="flex flex-col items-center gap-2 py-6">
+                            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-ink-100 text-ink-400"><Search className="h-5 w-5"/></span>
+                            <p className="text-[13px] font-medium text-ink-900">No lists match "{q}"</p>
+                            <button onClick={()=>setQ("")} className="btn-ghost btn-sm">Clear search</button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center gap-2 py-8">
+                            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-50 text-brand-600"><Layers className="h-6 w-6"/></span>
+                            <p className="text-[13.5px] font-semibold text-ink-900">No lists yet</p>
+                            <p className="max-w-xs text-center text-[12.5px] text-ink-500">
+                              A list is an audience you can send a campaign to. Create one, then add contacts to it.
+                            </p>
+                            <button
+                              onClick={()=>{ setNewList({name:"",folder_id:""}); setCreating(true); }}
+                              className="btn-primary btn-sm mt-1"
+                            >
+                              <Plus className="h-3.5 w-3.5"/>Create a list
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   )}
