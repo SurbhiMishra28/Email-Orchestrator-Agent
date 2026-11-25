@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+﻿import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 import { Mail, Users, FileText, Inbox, Settings, Play, BarChart3, Activity, Send, AlertCircle, Upload, Pencil, Sparkles, PenLine, Brain, Copy, Trash2, Shield, CheckCircle, XCircle, AlertTriangle, Loader2, RefreshCw, Filter, Search, Plus, Info, Check, TrendingUp, MoreHorizontal, Folder, FolderPlus, MoveRight, SlidersHorizontal, Menu, X, Moon, Sun } from "lucide-react";
 
@@ -644,117 +644,6 @@ function ThemePicker(){
   );
 }
 
-function ListRail({folders=[], lists=[], selectedList="all", folderFilter="all", listSearch="", allCount=0, eligibleCount=0, onSelect, onFolder, onSearch, onCreate, hideSearch=false}){
-
-  const term = (listSearch||"").trim().toLowerCase();
-
-  // Search narrows the lists; folders with no match are hidden so the rail
-  // never shows an empty group.
-  const shown = term ? lists.filter(l=>(l.name||"").toLowerCase().includes(term)) : lists;
-
-  const countIn=(id)=>shown.filter(l=>String(l.folder_id)===String(id)).length;
-
-  const row=(key,label,count,active)=>(
-    <button
-      key={key}
-      onClick={()=>onSelect(key)}
-      title={label}
-      className={"flex w-full min-w-0 shrink-0 items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors "+(active?"bg-brand-50 font-medium text-brand-700":"text-ink-600 hover:bg-ink-50")}
-    >
-      <span className="min-w-0 truncate">{label}</span>
-      {count!=null&&<span className="shrink-0 tabular-nums text-[11px] text-ink-400">{count}</span>}
-    </button>
-  );
-
-  // A list row. Indented under its folder so the hierarchy reads like Brevo's.
-  const listRow=(list)=>(
-    <button
-      key={"list-"+list.id}
-      onClick={()=>onSelect(String(list.id))}
-      title={list.name}
-      className={"flex w-full min-w-0 shrink-0 items-center justify-between gap-2 rounded-md py-1 pl-2 pr-2.5 text-left text-[12.5px] transition-colors "+(selectedList===String(list.id)?"bg-brand-50 font-medium text-brand-700":"text-ink-600 hover:bg-ink-50")}
-    >
-      <span className="flex min-w-0 items-center gap-1.5">
-        <Inbox className="h-3.5 w-3.5 shrink-0 opacity-50"/>
-        <span className="truncate">{list.name}</span>
-      </span>
-      <span className="shrink-0 tabular-nums text-[11px] text-ink-400">{list.total_subscribers ?? list.member_count ?? 0}</span>
-    </button>
-  );
-
-  const folderRow=(id,label,count)=>(
-    <button
-      key={"folder-"+id}
-      onClick={()=>onFolder(String(id))}
-      title={label}
-      className={"flex w-full min-w-0 shrink-0 items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors "+(folderFilter===String(id)?"bg-ink-100 font-medium text-ink-900":"text-ink-600 hover:bg-ink-50")}
-    >
-      <span className="flex min-w-0 items-center gap-1.5">
-        <Folder className="h-3.5 w-3.5 shrink-0 opacity-60"/>
-        <span className="truncate">{label}</span>
-      </span>
-      <span className="shrink-0 tabular-nums text-[11px] text-ink-400">{count}</span>
-    </button>
-  );
-
-  const visibleFolders = folders.filter(f=>!term || countIn(f.id)>0);
-  const noFolder = shown.filter(l=>!l.folder_id);
-
-  return (
-    <div className="flex gap-1 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
-      {row("all","All contacts",allCount,selectedList==="all")}
-      {eligibleCount!=null&&row("eligible","Eligible",eligibleCount,selectedList==="eligible")}
-
-      <div className="mt-2 shrink-0 px-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-ink-400">Folders &amp; lists</div>
-
-      {visibleFolders.map(f=>(
-        <div key={"group-"+f.id} className="shrink-0">
-          {folderRow(f.id,f.name,f.listCount ?? countIn(f.id))}
-          {countIn(f.id)>0&&(
-            <div className="ml-3 border-l border-ink-200 pl-1">
-              {shown.filter(l=>String(l.folder_id)===String(f.id)).map(listRow)}
-            </div>
-          )}
-        </div>
-      ))}
-
-      {(!term || noFolder.length>0)&&(
-        <div className="shrink-0">
-          {folderRow("none","No folder",noFolder.length)}
-          {noFolder.length>0&&(
-            <div className="ml-3 border-l border-ink-200 pl-1">
-              {noFolder.map(listRow)}
-            </div>
-          )}
-        </div>
-      )}
-
-      {!hideSearch&&(
-        <div className="mt-2 shrink-0 px-1">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-400"/>
-            <input
-              type="text"
-              placeholder="Search lists..."
-              className="input w-full py-1.5 pl-8 text-[12.5px]"
-              value={listSearch}
-              onChange={e=>onSearch(e.target.value)}
-            />
-          </div>
-        </div>
-      )}
-
-      <div className="mt-1 shrink-0 px-1">
-        <button onClick={onCreate} className="btn-ghost btn-sm w-full justify-start">
-          <Plus className="h-3.5 w-3.5"/>New list
-        </button>
-      </div>
-
-      {shown.length===0&&<p className="shrink-0 px-2.5 py-2 text-[12px] text-ink-400">No lists match.</p>}
-    </div>
-  );
-}
-
 function ListsView({api,notify,setSelectedList,setView}){
 
   const [folders,setFolders]=useState([]);
@@ -776,6 +665,14 @@ function ListsView({api,notify,setSelectedList,setView}){
   const [draftName,setDraftName]=useState("");
 
   const [confirmDelete,setConfirmDelete]=useState(null);
+
+  const [folderEdit,setFolderEdit]=useState(null);
+
+  const [folderDraft,setFolderDraft]=useState("");
+
+  const [newFolder,setNewFolder]=useState("");
+
+  const [confirmFolder,setConfirmFolder]=useState(null);
 
   const load=useCallback(async()=>{
     setLoading(true);
@@ -840,6 +737,46 @@ function ListsView({api,notify,setSelectedList,setView}){
     finally{ setBusy(null); }
   };
 
+  // Folder actions. Deleting a folder also deletes the lists inside it (the API
+  // cascades to their memberships), so the UI confirms and the title says so.
+  const removeFolder=async(folder)=>{
+    setBusy("folder-"+folder.id);
+    try{
+      await api(`/api/lists/folders/${folder.id}`,{method:"DELETE"});
+      setConfirmFolder(null);
+      notify(`Deleted folder "${folder.name}" and its lists`);
+      if(activeFolder===String(folder.id)) setActiveFolder("all");
+      await load();
+    }catch(e){ notify(e?.message||String(e)); }
+    finally{ setBusy(null); }
+  };
+
+  const renameFolder=async(folder)=>{
+    const name=(folderDraft||"").trim();
+    if(!name || name===folder.name){ setFolderEdit(null); return; }
+    setBusy("folder-"+folder.id);
+    try{
+      await api(`/api/lists/folders/${folder.id}`,{method:"PATCH",body:JSON.stringify({name})});
+      setFolderEdit(null);
+      notify("Folder renamed");
+      await load();
+    }catch(e){ notify(e?.message||String(e)); }
+    finally{ setBusy(null); }
+  };
+
+  const addFolder=async()=>{
+    const name=(newFolder||"").trim();
+    if(!name) return;
+    setBusy("folder-new");
+    try{
+      await api("/api/lists/folders",{method:"POST",body:JSON.stringify({name})});
+      setNewFolder("");
+      notify("Folder created");
+      await load();
+    }catch(e){ notify(e?.message||String(e)); }
+    finally{ setBusy(null); }
+  };
+
   return (
     <div className="space-y-4">
       <PageHeader title="Lists" subtitle="Folders group your lists; a list is an audience you can send a campaign to." eyebrow="Audience">
@@ -848,29 +785,106 @@ function ListsView({api,notify,setSelectedList,setView}){
 
       {error&&<div className="notice-error">{error}</div>}
 
-      <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
-        {/* Folder rail, shared with the Contacts page so they cannot drift */}
+      <div className="grid gap-4 lg:grid-cols-[248px_1fr]">
+        {/* Folders own their lists here, with create / rename / delete. */}
         <Card title="Folders" className="h-max">
-          <ListRail
-            folders={folders}
-            lists={lists}
-            selectedList={activeFolder === "all" || activeFolder === "none" ? "all" : String(activeFolder)}
-            folderFilter={activeFolder}
-            listSearch=""
-            allCount={lists.length}
-            eligibleCount={null}
-            onSelect={(key)=>{
-              if(key==="all"){ setActiveFolder("all"); return; }
-              if(key==="eligible"){ setActiveFolder("all"); return; }
-              // A list row: open it in Contacts, which owns the member table.
-              setSelectedList(key);
-              setView("contacts");
-            }}
-            onFolder={(id)=>setActiveFolder(id==="none"?"none":id)}
-            onSearch={()=>{}}
-            onCreate={()=>notify("Create lists from the Contacts page")}
-            hideSearch
-          />
+          <div className="space-y-1">
+            <button
+              onClick={()=>setActiveFolder("all")}
+              className={"flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[13px] "+(activeFolder==="all"?"bg-brand-50 font-medium text-brand-700":"text-ink-600 hover:bg-ink-50")}
+            >
+              <span>All lists</span>
+              <span className="tabular-nums text-[11px] text-ink-400">{lists.length}</span>
+            </button>
+
+            {folders.map(folder=>(
+              <div key={folder.id} className="group/folder flex items-center gap-0.5 rounded-md pr-1 hover:bg-ink-50">
+                {folderEdit===folder.id ? (
+                  <>
+                    <input
+                      className="input min-w-0 flex-1 py-1 text-[12.5px]"
+                      value={folderDraft}
+                      autoFocus
+                      onChange={e=>setFolderDraft(e.target.value)}
+                      onKeyDown={(e)=>{ if(e.key==="Enter") renameFolder(folder); if(e.key==="Escape") setFolderEdit(null); }}
+                    />
+                    <button onClick={()=>renameFolder(folder)} className="icon-btn h-7 w-7" title="Save folder name"><Check className="h-3.5 w-3.5"/></button>
+                    <button onClick={()=>setFolderEdit(null)} className="icon-btn h-7 w-7" title="Cancel"><X className="h-3.5 w-3.5"/></button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={()=>setActiveFolder(String(folder.id))}
+                      className={"flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] "+(activeFolder===String(folder.id)?"bg-ink-100 font-medium text-ink-900":"text-ink-600")}
+                    >
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <Folder className="h-3.5 w-3.5 shrink-0 opacity-60"/>
+                        <span className="truncate">{folder.name}</span>
+                      </span>
+                      <span className="shrink-0 tabular-nums text-[11px] text-ink-400">{folder.listCount ?? lists.filter(l=>String(l.folder_id)===String(folder.id)).length}</span>
+                    </button>
+                    <button
+                      onClick={()=>{ setFolderEdit(folder.id); setFolderDraft(folder.name); }}
+                      className="icon-btn h-7 w-7 opacity-0 group-hover/folder:opacity-100"
+                      title="Rename folder"
+                    >
+                      <Pencil className="h-3.5 w-3.5"/>
+                    </button>
+                    {confirmFolder===folder.id ? (
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <button
+                          onClick={()=>removeFolder(folder)}
+                          disabled={busy==="folder-"+folder.id}
+                          className="btn-danger btn-sm"
+                          title="Delete this folder and every list inside it"
+                        >
+                          Delete
+                        </button>
+                        <button onClick={()=>setConfirmFolder(null)} className="icon-btn h-7 w-7" title="Cancel">
+                          <X className="h-3.5 w-3.5"/>
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={()=>setConfirmFolder(folder.id)}
+                        className="icon-btn h-7 w-7 opacity-0 hover:bg-danger-50 hover:text-danger-600 group-hover/folder:opacity-100"
+                        title="Delete folder"
+                      >
+                        <Trash2 className="h-3.5 w-3.5"/>
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            ))}
+
+            <button
+              onClick={()=>setActiveFolder("none")}
+              className={"flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[13px] "+(activeFolder==="none"?"bg-ink-100 font-medium text-ink-900":"text-ink-600 hover:bg-ink-50")}
+            >
+              <span>No folder</span>
+              <span className="tabular-nums text-[11px] text-ink-400">{lists.filter(l=>!l.folder_id).length}</span>
+            </button>
+
+            <div className="mt-2 flex items-center gap-1 border-t border-ink-200 pt-2">
+              <input
+                className="input min-w-0 flex-1 py-1.5 text-[12.5px]"
+                placeholder="New folder name"
+                value={newFolder}
+                onChange={e=>setNewFolder(e.target.value)}
+                onKeyDown={(e)=>{ if(e.key==="Enter") addFolder(); }}
+              />
+              <button
+                onClick={addFolder}
+                disabled={!newFolder.trim() || busy==="folder-new"}
+                className="btn-primary btn-sm"
+                title="Create folder"
+                aria-label="Create folder"
+              >
+                <Plus className="h-3.5 w-3.5"/>
+              </button>
+            </div>
+          </div>
         </Card>
 
         {/* List cards */}
@@ -1076,7 +1090,7 @@ function EmailHistoryView({state,api,reload,notify}){
                       <button disabled={busyId===contact.id} onClick={()=>setTag(contact,"not_interested",!notInterested)} className={"icon-btn "+(notInterested?"text-danger-600":"")} title={notInterested?"Remove not interested":"Mark not interested"}>
                         <XCircle className="h-4 w-4"/>
                       </button>
-                      <span className={"ml-1 text-[11px] "+(reply?"text-brand-600":"text-ink-400")}>{reply?"Follow-up due":"—"}</span>
+                      <span className={"ml-1 text-[11px] "+(reply?"text-brand-600":"text-ink-400")}>{reply?"Follow-up due":"â€”"}</span>
                     </div>
                   </td>
                 </tr>
@@ -1327,7 +1341,7 @@ function AutomationView({api}){
 
                   <span className="text-ink-700">{entry.message}</span>
 
-                  <span className="shrink-0 text-[11.5px] tabular-nums text-ink-400">{entry.timestamp?new Date(entry.timestamp).toLocaleString():"—"}</span>
+                  <span className="shrink-0 text-[11.5px] tabular-nums text-ink-400">{entry.timestamp?new Date(entry.timestamp).toLocaleString():"â€”"}</span>
 
                 </li>
 
@@ -1860,7 +1874,7 @@ function ExperimentsView({api}){
 
         {loading
 
-          ? <div className="flex items-center gap-2 text-[12px] text-ink-500"><Loader2 className="h-3.5 w-3.5 animate-spin"/>Loading…</div>
+          ? <div className="flex items-center gap-2 text-[12px] text-ink-500"><Loader2 className="h-3.5 w-3.5 animate-spin"/>Loadingâ€¦</div>
 
           : tests.length===0
 
@@ -1883,7 +1897,7 @@ function ExperimentsView({api}){
                           <div className="truncate text-[13.5px] font-semibold text-ink-900">{test.name}</div>
 
                           <div className="text-[12px] text-ink-500">
-                            {test.variants.length} variant{test.variants.length===1?"":"s"} · <StatusPill status={test.status}/>
+                            {test.variants.length} variant{test.variants.length===1?"":"s"} Â· <StatusPill status={test.status}/>
                           </div>
 
                         </div>
@@ -4943,7 +4957,7 @@ export default function App(){
 
                 <StatCard label="Replies" value={analytics.replied||0} icon={Mail} color="blue" hint="All time"/>
 
-                <StatCard label="Reply rate" value={(analytics.reply_rate||0)+"%"} icon={TrendingUp} color="yellow" hint="Replies ÷ sent"/>
+                <StatCard label="Reply rate" value={(analytics.reply_rate||0)+"%"} icon={TrendingUp} color="yellow" hint="Replies Ã· sent"/>
 
               </div>
 
@@ -5011,7 +5025,7 @@ export default function App(){
 
                 <div className="lg:col-span-2">
 
-                  <Card title="Sending — last 14 days" subtitle="Sent versus replied per day">
+                  <Card title="Sending â€” last 14 days" subtitle="Sent versus replied per day">
 
                     <AnalyticsChart series={analytics.series||[]}/>
 
@@ -5303,18 +5317,27 @@ export default function App(){
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              {/* Contacts only. Lists live in the Lists section, exactly as in
+                  Brevo; here a list is just a filter over the address book. */}
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-200 bg-ink-50 px-5 py-2.5 max-md:px-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="flex items-center gap-1.5 text-[12.5px] text-ink-500">
-                    <Folder className="h-4 w-4 text-ink-400"/>
-                    {folderFilter === "all" ? "All folders" : folderFilter === "none" ? "No folder" : (folders.find(f => String(f.id) === folderFilter)?.name || "Folder")}
+                    <Users className="h-4 w-4 text-ink-400"/>
+                    View
                   </span>
-                  <button
-                    onClick={() => { setShowFolderModal(true); setFolderError(null); }}
-                    className="btn-ghost btn-sm"
+                  <select
+                    className="select w-auto py-1.5 text-[12.5px]"
+                    value={selectedList}
+                    onChange={e => setSelectedList(e.target.value)}
                   >
-                    <FolderPlus className="h-3.5 w-3.5"/>New folder
-                  </button>
+                    <option value="all">All contacts ({state.contacts?.length || 0})</option>
+                    <option value="eligible">Eligible</option>
+                    {lists.map(list => (
+                      <option key={list.id} value={String(list.id)}>
+                        {list.name} ({list.total_subscribers ?? list.member_count ?? 0})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-1.5 text-[12.5px] text-ink-500">
@@ -5324,72 +5347,7 @@ export default function App(){
                 </div>
               </div>
 
-              {/* Brevo-style: lists own the page. The rail navigates; the table
-                  on the right always shows the selected list. */}
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-
-                <Card title="Lists" className="shrink-0 lg:w-[248px] lg:overflow-y-auto lg:border-r">
-                  <ListRail
-                    folders={folders}
-                    lists={lists}
-                    selectedList={selectedList}
-                    folderFilter={folderFilter}
-                    listSearch={listSearch}
-                    allCount={state.contacts?.length || 0}
-                    eligibleCount={state.contacts?.filter(c=>c.eligible_to_email===true).length || 0}
-                    onSelect={setSelectedList}
-                    onFolder={setFolderFilter}
-                    onSearch={setListSearch}
-                    onCreate={() => { setNewListName(""); setNewListFolder(""); setListError(null); setShowListModal(true); }}
-                  />
-                  {listError && <p className="mt-2 px-1 text-[12px] text-danger-600">{listError}</p>}
-                </Card>
-
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-
-              {/* Selected list identity + counts, so the table is unambiguous */}
-              {selectedList !== "all" && selectedList !== "eligible" && (() => {
-                const current = lists.find(l => String(l.id) === selectedList);
-                if (!current) return null;
-                return (
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-200 bg-ink-50 px-5 py-2.5 max-md:px-4">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <h2 className="truncate text-[14px] font-semibold text-ink-900">{current.name}</h2>
-                      {current.folder_name && <Pill v={current.folder_name}/>}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => { setShowListSettings(current); setListSettingsForm({ description: current.description || "", from_name: current.from_name || "", from_email: current.from_email || "", reply_to: current.reply_to || "", header: current.header || "", footer: current.footer || "" }); setListError(null); }}
-                        className="icon-btn"
-                        title="List settings"
-                      >
-                        <SlidersHorizontal className="h-4 w-4"/>
-                      </button>
-                      <button
-                        onClick={() => duplicateList(current.id)}
-                        className="icon-btn"
-                        title="Duplicate list"
-                      >
-                        <Copy className="h-4 w-4"/>
-                      </button>
-                      <button
-                        onClick={() => { setShowRenameList(current); setRenameListName(current.name); setListError(null); }}
-                        className="icon-btn"
-                        title="Rename list"
-                      >
-                        <Pencil className="h-4 w-4"/>
-                      </button>
-                      <button
-                        onClick={() => deleteList(current.id)}
-                        className="icon-btn hover:bg-danger-50 hover:text-danger-600"
-                        title="Delete list"
-                      >
-                        <Trash2 className="h-4 w-4"/>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })()}
 
               {/* List context bar: counts and bulk actions for the open list */}
               {selectedList !== "all" && selectedList !== "eligible" && (
@@ -5638,7 +5596,6 @@ export default function App(){
                 </div>
               </div>
             </div>
-          </div>
         ) }{view==="campaigns"&&(
 
           <div className="flex h-full min-h-0 flex-col bg-ink-100">
@@ -5761,7 +5718,7 @@ export default function App(){
                       <td className="text-right tabular-nums text-ink-700">{campaign.delivered}</td>
                       <td className="text-right tabular-nums text-ink-700">{campaign.opened}<span className="ml-1 text-[11px] text-ink-400">{campaign.open_rate}%</span></td>
                       <td className="text-right tabular-nums text-ink-700">{campaign.clicked}<span className="ml-1 text-[11px] text-ink-400">{campaign.click_rate}%</span></td>
-                      <td className="whitespace-nowrap text-[11.5px] text-ink-500">{campaign.sent_at ? new Date(campaign.sent_at).toLocaleDateString() : "—"}</td>
+                      <td className="whitespace-nowrap text-[11.5px] text-ink-500">{campaign.sent_at ? new Date(campaign.sent_at).toLocaleDateString() : "â€”"}</td>
                       <td className="text-right">
                         <div className="relative flex items-center justify-end gap-1">
                           {["draft", "scheduled", "paused"].includes(campaign.status) && (
@@ -5929,7 +5886,7 @@ export default function App(){
 
                             ) : (
 
-                              <span className="text-[11.5px] text-ink-400" title={draftBlockReason(draft)}>{draftBlockReason(draft)||"—"}</span>
+                              <span className="text-[11.5px] text-ink-400" title={draftBlockReason(draft)}>{draftBlockReason(draft)||"â€”"}</span>
 
                             )}
 
@@ -5945,7 +5902,7 @@ export default function App(){
 
                       <tr>
 
-                        <td colSpan={4} className="table-empty">No drafts yet. Use “Write email” to create one.</td>
+                        <td colSpan={4} className="table-empty">No drafts yet. Use â€œWrite emailâ€ to create one.</td>
 
                       </tr>
 
@@ -5971,7 +5928,7 @@ export default function App(){
 
               <button onClick={syncInboxNow} disabled={inboxBusy || !inbox.configured} className="btn-ghost">
 
-                <RefreshCw className={"h-3.5 w-3.5 "+(inboxBusy ? "animate-spin" : "")}/>{inboxBusy ? "Syncing…" : "Sync now"}
+                <RefreshCw className={"h-3.5 w-3.5 "+(inboxBusy ? "animate-spin" : "")}/>{inboxBusy ? "Syncingâ€¦" : "Sync now"}
 
               </button>
 
@@ -5983,11 +5940,11 @@ export default function App(){
 
               {!inbox.configured ? (
 
-                <EmptyState icon={Mail} title="Inbox is not configured" description={imapConfig?.transport==="gmail_api"?"Add the Gmail OAuth credentials to the backend deployment environment.":"Add the mailbox in Settings → Inbox (IMAP), or set IMAP_HOST, IMAP_USER and IMAP_PASS in the environment."}/>
+                <EmptyState icon={Mail} title="Inbox is not configured" description={imapConfig?.transport==="gmail_api"?"Add the Gmail OAuth credentials to the backend deployment environment.":"Add the mailbox in Settings â†’ Inbox (IMAP), or set IMAP_HOST, IMAP_USER and IMAP_PASS in the environment."}/>
 
               ) : inbox.messages.length === 0 ? (
 
-                <EmptyState icon={Mail} title="No messages stored yet" description="Use “Sync now” to fetch the newest mail (nothing is marked as read)."/>
+                <EmptyState icon={Mail} title="No messages stored yet" description="Use â€œSync nowâ€ to fetch the newest mail (nothing is marked as read)."/>
 
               ) : (
 
@@ -6393,7 +6350,7 @@ export default function App(){
 
                       Off by default. When on, outbound mail gains an HTML alternative with a
 
-                      1×1 open pixel and wrapped links; the plain-text part is unchanged.
+                      1Ã—1 open pixel and wrapped links; the plain-text part is unchanged.
 
                     </div>
 
@@ -6481,7 +6438,7 @@ export default function App(){
 
                 <label className="block"><span className="field-label">Password</span>
 
-                  <input type="password" placeholder="••••••••" className={inputCls} value={smtp.pass} onChange={e=>updateSmtp("pass",e.target.value)}/>
+                  <input type="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" className={inputCls} value={smtp.pass} onChange={e=>updateSmtp("pass",e.target.value)}/>
 
                 </label>
 
@@ -6568,7 +6525,7 @@ export default function App(){
 
                 <label className="block"><span className="field-label">Password</span>
 
-                  <input type="password" placeholder="••••••••" className={inputCls} value={imap.pass} onChange={e=>updateImap("pass",e.target.value)}/>
+                  <input type="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" className={inputCls} value={imap.pass} onChange={e=>updateImap("pass",e.target.value)}/>
 
                 </label>
 
@@ -6735,7 +6692,7 @@ export default function App(){
 
                   <select className={inputCls+" mt-1"} value={composeForm.contact_id} onChange={e=>setComposeForm({...composeForm,contact_id:e.target.value})}>
 
-                    <option value="">Select a contact…</option>
+                    <option value="">Select a contactâ€¦</option>
 
                     {state.contacts.map(c=>(<option key={c.id} value={c.id}>{c.name?`${c.name} <${c.email}>`:c.email}</option>))}
 
@@ -6841,7 +6798,7 @@ export default function App(){
 
                     <button onClick={()=>{setEditingId(null);redraft(draft);}} disabled={redraftingId===draft.id} className={btnGhost+" flex items-center gap-1"}>
 
-                      <Sparkles className="h-4 w-4"/>{redraftingId===draft.id?"Redrafting…":"Redraft"}
+                      <Sparkles className="h-4 w-4"/>{redraftingId===draft.id?"Redraftingâ€¦":"Redraft"}
 
                     </button>
 
@@ -7249,7 +7206,7 @@ export default function App(){
                 </div>
                 <div className="mt-1 text-[12px] text-ink-500">
                   Status: <span className="font-medium text-ink-700">{campaignDetail.campaign?.status}</span>
-                  {campaignDetail.campaign?.list_name ? <> · List: <span className="font-medium text-ink-700">{campaignDetail.campaign.list_name}</span></> : null}
+                  {campaignDetail.campaign?.list_name ? <> Â· List: <span className="font-medium text-ink-700">{campaignDetail.campaign.list_name}</span></> : null}
                 </div>
               </div>
               <div className="modal-foot -mx-5 -mb-4">
