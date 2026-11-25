@@ -4747,7 +4747,14 @@ export default function App(){
 
                 {templates.map(template=>(
 
-                  <article key={template.id} className="surface flex flex-col transition-shadow hover:shadow-pop">
+                  <article
+                    key={template.id}
+                    onClick={()=>openTemplateComposer(template)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e)=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openTemplateComposer(template);}}}
+                    className="surface flex cursor-pointer flex-col transition-shadow hover:shadow-pop focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  >
 
                     <div className="flex items-start justify-between gap-3 border-b border-ink-100 px-4 py-3">
 
@@ -4769,11 +4776,11 @@ export default function App(){
 
                       <div className="flex shrink-0 items-center gap-0.5">
 
-                        <button onClick={()=>openTemplateComposer(template)} className="icon-btn" title="Edit template"><Pencil className="h-4 w-4"/></button>
+                        <button onClick={(e)=>{e.stopPropagation();openTemplateComposer(template);}} className="icon-btn" title="Edit template"><Pencil className="h-4 w-4"/></button>
 
-                        <button onClick={()=>duplicateTemplate(template.id)} className="icon-btn" title="Duplicate template"><Copy className="h-4 w-4"/></button>
+                        <button onClick={(e)=>{e.stopPropagation();duplicateTemplate(template.id);}} className="icon-btn" title="Duplicate template"><Copy className="h-4 w-4"/></button>
 
-                        <button onClick={()=>deleteTemplate(template.id)} className="icon-btn hover:bg-danger-50 hover:text-danger-600" title="Delete template"><Trash2 className="h-4 w-4"/></button>
+                        <button onClick={(e)=>{e.stopPropagation();deleteTemplate(template.id);}} className="icon-btn hover:bg-danger-50 hover:text-danger-600" title="Delete template"><Trash2 className="h-4 w-4"/></button>
 
                       </div>
 
