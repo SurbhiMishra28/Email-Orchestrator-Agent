@@ -6,6 +6,15 @@ import { Mail, Users, FileText, Inbox, Settings, Play, BarChart3, Activity, Send
 
 const BRAND_NAME = "MailMatrix";
 
+// Brevo shows plain locale dates in the table (18/11/2026). Invalid or missing
+// timestamps render as an em dash rather than "Invalid Date".
+function fmtDate(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString();
+}
+
 import { basicAuthHeader, getBasicAuth, requestCredentials, setBasicAuth } from "./auth.js";
 
 // Brevo-style opening screen: the wordmark dominates, then the app takes over.
@@ -2096,6 +2105,19 @@ export default function App(){
 
   const [contactsSearch, setContactsSearch] = useState("");
 
+  // Brevo-style table controls: an extra filter, column visibility and paging.
+  const [extraFilter, setExtraFilter] = useState("all");
+
+  const [columnsOpen, setColumnsOpen] = useState(false);
+
+  const [columns, setColumns] = useState({ blocklisted: true, email: true, phone: false, lastChanged: true, created: true });
+
+  const [page, setPage] = useState(1);
+
+  const [perPage, setPerPage] = useState(20);
+
+  const columnLabels = { blocklisted: "Blocklisted", email: "Email", phone: "Phone", lastChanged: "Last changed", created: "Creation date" };
+
   const [selectedContacts, setSelectedContacts] = useState(new Set());
 
   const [selectAllContacts, setSelectAllContacts] = useState(false);
@@ -2812,6 +2834,12 @@ export default function App(){
 
     }
 
+    // "Add filter", independent of the list/segment choice.
+    if (extraFilter === "subscribed" && c.eligible_to_email !== true) return false;
+    if (extraFilter === "unsubscribed" && c.eligible_to_email === true) return false;
+    if (extraFilter === "blocklisted" && !c.email_blacklisted) return false;
+    if (extraFilter === "untagged" && Array.isArray(c.tags) && c.tags.length > 0) return false;
+
     const term = contactsSearch.trim().toLowerCase();
 
     if (!term) return true;
@@ -2821,6 +2849,11 @@ export default function App(){
       || (c.company || "").toLowerCase().includes(term);
 
   }) || [];
+
+  // Pagination window over the filtered set.
+  const pageCount = Math.max(1, Math.ceil(filteredContacts.length / perPage));
+  const currentPage = Math.min(page, pageCount);
+  const pageContacts = filteredContacts.slice((currentPage - 1) * perPage, currentPage * perPage);
 
   const filteredContactsCount = filteredContacts.length;
 
@@ -5317,18 +5350,15 @@ export default function App(){
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              {/* Contacts only. Lists live in the Lists section, exactly as in
-                  Brevo; here a list is just a filter over the address book. */}
+              {/* Brevo-style toolbar: load a list or segment, add a filter,
+                  choose columns. Lists themselves live in the Lists section. */}
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-200 bg-ink-50 px-5 py-2.5 max-md:px-4">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="flex items-center gap-1.5 text-[12.5px] text-ink-500">
-                    <Users className="h-4 w-4 text-ink-400"/>
-                    View
-                  </span>
                   <select
                     className="select w-auto py-1.5 text-[12.5px]"
                     value={selectedList}
-                    onChange={e => setSelectedList(e.target.value)}
+                    onChange={e => { setSelectedList(e.target.value); setPage(1); }}
+                    title="Load a list or a segment"
                   >
                     <option value="all">All contacts ({state.contacts?.length || 0})</option>
                     <option value="eligible">Eligible</option>
@@ -5338,6 +5368,45 @@ export default function App(){
                       </option>
                     ))}
                   </select>
+
+                  <select
+                    className="select w-auto py-1.5 text-[12.5px]"
+                    value={extraFilter}
+                    onChange={e => { setExtraFilter(e.target.value); setPage(1); }}
+                    title="Add filter"
+                  >
+                    <option value="all">No filter</option>
+                    <option value="subscribed">Subscribed only</option>
+                    <option value="unsubscribed">Not subscribed</option>
+                    <option value="blocklisted">Blocklisted</option>
+                    <option value="untagged">No tags</option>
+                  </select>
+
+                  <div className="relative">
+                    <button
+                      onClick={(e)=>{ e.stopPropagation(); setColumnsOpen(o=>!o); }}
+                      className="btn-ghost btn-sm"
+                      title="Customize columns"
+                    >
+                      <SlidersHorizontal className="h-3.5 w-3.5"/>Columns
+                    </button>
+                    {columnsOpen&&(
+                      <div className="absolute left-0 top-full z-30 mt-1 w-52 rounded-xl border border-ink-200 bg-ink-100 p-1 shadow-pop">
+                        {Object.entries(columnLabels).map(([key,label])=>(
+                          <label key={key} className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] text-ink-700 hover:bg-ink-50">
+                            <input
+                              type="checkbox"
+                              className="checkbox"
+                              checked={columns[key]}
+                              disabled={key==="blocklisted" ? false : false}
+                              onChange={e=>setColumns(c=>({...c,[key]:e.target.checked}))}
+                            />
+                            {label}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-1.5 text-[12.5px] text-ink-500">
@@ -5457,7 +5526,7 @@ export default function App(){
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>
+                      <th className="w-64">
                         <button
                           onClick={toggleSelectAll}
                           className="flex items-center gap-2.5 hover:text-ink-900"
@@ -5480,14 +5549,17 @@ export default function App(){
                           Contact
                         </button>
                       </th>
-                      <th className="text-center">Subscribed</th>
-                      <th className="text-center">Blocklisted</th>
-                      <th>Email</th>
-                      <th className="text-center">Actions</th>
+                      <th className="w-28 text-center">Subscribed</th>
+                      {columns.blocklisted&&<th className="w-28 text-center">Blocklisted</th>}
+                      {columns.email&&<th className="w-64">Email</th>}
+                      {columns.phone&&<th className="w-40">Phone</th>}
+                      {columns.lastChanged&&<th className="w-40">Last changed</th>}
+                      {columns.created&&<th className="w-40">Creation date</th>}
+                      <th className="w-24 text-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredContacts.map(contact=>{
+                    {pageContacts.map(contact=>{
                       const isSelected = selectedContacts.has(contact.id);
                       return (
                       <tr key={contact.id} className={isSelected ? "bg-brand-50/50" : undefined}>
@@ -5507,8 +5579,8 @@ export default function App(){
                               {isSelected ? <Check className="h-3 w-3"/> : null}
                             </button>
                             <div className="min-w-0">
-                              <div className="truncate font-medium text-ink-900">{contact.name||"-"}</div>
-                              {contact.company && <div className="truncate text-[11.5px] text-ink-500">{contact.company}</div>}
+                              <div className="truncate font-medium text-ink-900">{contact.name||contact.email}</div>
+                              <div className="truncate text-[11.5px] text-ink-500">Email</div>
                             </div>
                           </div>
                         </td>
@@ -5522,16 +5594,29 @@ export default function App(){
                             {contact.eligible_to_email ? "Yes" : "No"}
                           </button>
                         </td>
-                        <td className="text-center">
-                          <span className={"badge " + (contact.email_blacklisted ? "border-danger-200 bg-danger-50 text-danger-700" : "border-ink-200 bg-ink-100 text-ink-500")}>
-                            {contact.email_blacklisted ? "Yes" : "No"}
-                          </span>
-                        </td>
-                        <td>
-                          <a href={"mailto:" + contact.email} className="link">
-                            {contact.email}
-                          </a>
-                        </td>
+                        {columns.blocklisted&&(
+                          <td className="text-center">
+                            <span className={"badge " + (contact.email_blacklisted ? "border-danger-200 bg-danger-50 text-danger-700" : "border-ink-200 bg-ink-100 text-ink-500")}>
+                              {contact.email_blacklisted ? "Yes" : "No"}
+                            </span>
+                          </td>
+                        )}
+                        {columns.email&&(
+                          <td>
+                            <a href={"mailto:" + contact.email} className="link">
+                              {contact.email}
+                            </a>
+                          </td>
+                        )}
+                        {columns.phone&&(
+                          <td className="text-[12.5px] text-ink-600">{contact.phone||"—"}</td>
+                        )}
+                        {columns.lastChanged&&(
+                          <td className="whitespace-nowrap text-[12px] text-ink-500">{fmtDate(contact.updated_at)}</td>
+                        )}
+                        {columns.created&&(
+                          <td className="whitespace-nowrap text-[12px] text-ink-500">{fmtDate(contact.created_at)}</td>
+                        )}
                         <td className="text-center">
                           <div className="flex items-center justify-center gap-0.5">
                             <button
@@ -5557,7 +5642,7 @@ export default function App(){
                     })}
                     {(filteredContactsCount===0 || !filteredContacts.length)&&(
                       <tr>
-                        <td colSpan={5} className="table-empty">
+                        <td colSpan={2 + Object.values(columns).filter(Boolean).length + 1} className="table-empty">
                           <div className="flex flex-col items-center gap-3 py-4">
                             <span className="flex h-11 w-11 items-center justify-center rounded-full bg-ink-100 text-ink-400"><Users className="h-5 w-5"/></span>
                             <div>
@@ -5592,6 +5677,42 @@ export default function App(){
                     )}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Pagination, Brevo-style */}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-200 bg-ink-50 px-5 py-2.5 text-[12.5px] text-ink-600 max-md:px-4">
+                <div className="flex items-center gap-2">
+                  <span>Rows per page</span>
+                  <select
+                    className="select w-auto py-1 text-[12.5px]"
+                    value={perPage}
+                    onChange={e=>{ setPerPage(Number(e.target.value)); setPage(1); }}
+                  >
+                    {[10,20,50,100].map(n=><option key={n} value={n}>{n}</option>)}
+                  </select>
+                  <span className="tabular-nums text-ink-500">
+                    {filteredContactsCount===0 ? "0" : `${(page-1)*perPage+1}-${Math.min(page*perPage, filteredContactsCount)}`} of {filteredContactsCount}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={()=>setPage(Math.max(1,currentPage-1))}
+                    disabled={currentPage<=1}
+                    className="btn-ghost btn-sm"
+                  >
+                    Previous
+                  </button>
+                  <span className="px-2 tabular-nums">
+                    {currentPage} of {pageCount}
+                  </span>
+                  <button
+                    onClick={()=>setPage(Math.min(pageCount, currentPage+1))}
+                    disabled={currentPage>=pageCount}
+                    className="btn-ghost btn-sm"
+                  >
+                    Next
+                  </button>
+                </div>
               </div>
                 </div>
               </div>
