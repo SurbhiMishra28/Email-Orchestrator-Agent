@@ -602,11 +602,13 @@ function EmailHistoryView({state,api,reload,notify}){
   const sent=(state.drafts||[]).filter(d=>d.status==="sent"||d.status==="failed");
 
   // Reply events tell us whether the recipient answered and how it was classified.
+  // The classification lives at data.classification.reply_type (not data.reply_type).
   const replyByContact=useMemo(()=>{
     const map={};
     for(const e of (state.events||[])){
       if(e.type==="reply_event" && e.event_type==="reply_received" && e.contact_id!=null){
-        map[e.contact_id]={reply_type:(e.data||{}).reply_type||null, at:e.timestamp};
+        const cls=(e.data||{}).classification||{};
+        map[e.contact_id]={reply_type:cls.reply_type||null, at:e.timestamp};
       }
     }
     return map;

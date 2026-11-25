@@ -1047,16 +1047,44 @@ def health_check():
     return payload if db_healthy else JSONResponse(status_code=503, content=payload)
 
 
+# Short-lived per-tenant cache for the dashboard state payload.
+#
+# ``/api/state`` fans out to ~8 queries plus Pydantic validation; on a managed
+# database reached over the public internet that is ~1s of round-trips. The SPA
+# refetches on every tab switch and on a 10s poll, so without a cache each of
+# those pays the full cost. A 3s TTL collapses bursts (rapid tab switches, the
+# poll landing just after a mutation) without showing stale data for long: the
+# client already refetches explicitly after every mutation.
+_STATE_CACHE: Dict[int, tuple] = {}
+_STATE_CACHE_TTL = 3.0
+
+
 @app.get("/api/state")
 @app.get("/api/state/")
-def get_state(tenant_id: int = Depends(current_tenant_id)):
-    """Get the caller's application state for the frontend."""
+def get_state(
+    refresh: bool = Query(False),
+    tenant_id: int = Depends(current_tenant_id),
+):
+    """Get the caller's application state for the frontend.
+
+    ``?refresh=1`` bypasses the short-lived cache, for callers that must see a
+    write immediately rather than within the TTL.
+    """
+    import time as _time
+
+    now = _time.monotonic()
+    if not refresh:
+        cached = _STATE_CACHE.get(tenant_id)
+        if cached and (now - cached[0]) < _STATE_CACHE_TTL:
+            return cached[1]
+
     state = get_state_from_db(tenant_id)
     if isinstance(state, dict):
         # The frontend keys its live-log socket off this flag so a host that
         # cannot hold a WebSocket (any serverless platform) renders the log as
         # static instead of reconnecting forever.
         state["live_logs"] = app_settings.ENABLE_LIVE_LOGS
+        _STATE_CACHE[tenant_id] = (now, state)
     return state
 
 
