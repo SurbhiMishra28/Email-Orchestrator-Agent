@@ -936,130 +936,85 @@ function ListsView({api,notify,setSelectedList,setView}){
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
-        {/* Folders own their lists here, with create / rename / delete. */}
-        <Card title="Folders" className="h-max lg:sticky lg:top-4">
-          <div className="mb-2">
-            <select
-              className="select w-full py-1.5 text-[12.5px]"
-              value={activeFolder}
-              onChange={e=>{
-                const v=e.target.value;
-                if(v==="__new__"){ setCreatingFolder(true); setNewFolderName(""); return; }
-                setActiveFolder(v);
-              }}
-              title="Folder dropdown"
-            >
-              <option value="all">All folders</option>
-              {folders.map(f=><option key={f.id} value={String(f.id)}>{f.name}</option>)}
-              <option value="__new__">Create a new folder...</option>
-            </select>
-          </div>
-          <div className="space-y-1">
-            <button
-              onClick={()=>setActiveFolder("all")}
-              className={"flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors "+(activeFolder==="all"?"bg-brand-50 font-medium text-brand-700":"text-ink-600 hover:bg-ink-50")}
-            >
-              <span className="flex min-w-0 items-center gap-1.5">
-                <Layers className="h-3.5 w-3.5 shrink-0 opacity-60"/>
-                <span className="truncate">All lists</span>
-              </span>
-              <span className="shrink-0 rounded-full bg-ink-200/70 px-1.5 text-[10.5px] tabular-nums text-ink-600">{lists.length}</span>
-            </button>
-
-            {folders.map(folder=>(
-              <div key={folder.id} className="group/folder flex items-center gap-0.5 rounded-md pr-1 hover:bg-ink-50">
-                {folderEdit===folder.id ? (
-                  <>
-                    <input
-                      className="input min-w-0 flex-1 py-1 text-[12.5px]"
-                      value={folderDraft}
-                      autoFocus
-                      onChange={e=>setFolderDraft(e.target.value)}
-                      onKeyDown={(e)=>{ if(e.key==="Enter") renameFolder(folder); if(e.key==="Escape") setFolderEdit(null); }}
-                    />
-                    <button onClick={()=>renameFolder(folder)} className="icon-btn h-7 w-7" title="Save folder name"><Check className="h-3.5 w-3.5"/></button>
-                    <button onClick={()=>setFolderEdit(null)} className="icon-btn h-7 w-7" title="Cancel"><X className="h-3.5 w-3.5"/></button>
-                  </>
-                ) : (
-                  <>
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
+        {/* Folders are a filter, not a permanent column: with no folder the
+            dropdown still lists every folder by name. */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-ink-200 bg-ink-50 px-5 py-2.5 max-md:px-4">
+          <select
+            className="select w-auto py-1.5 text-[12.5px]"
+            value={activeFolder}
+            onChange={e=>{
+              const v=e.target.value;
+              if(v==="__new__"){ setCreatingFolder(true); setNewFolderName(""); return; }
+              setActiveFolder(v);
+            }}
+            title="Filter by folder"
+          >
+            <option value="all">All folders</option>
+            {folders.map(f=><option key={f.id} value={String(f.id)}>{f.name} ({f.listCount ?? lists.filter(l=>String(l.folder_id)===String(f.id)).length})</option>)}
+            <option value="__new__">Create a new folder...</option>
+          </select>
+          {activeFolder!=="all"&&(() => {
+            const current = folders.find(f => String(f.id) === activeFolder);
+            if (!current) return null;
+            const inside = lists.filter(l => String(l.folder_id) === String(current.id)).length;
+            return (
+              <span className="flex items-center gap-1 rounded-md bg-ink-100 px-2 py-1 text-[12px] text-ink-600">
+                <Folder className="h-3.5 w-3.5 opacity-60"/>
+                {current.name}
+                <span className="tabular-nums text-ink-400">{inside}</span>
+                <div className="ml-1 flex items-center gap-0.5">
+                  <button
+                    onClick={()=>{ setFolderEdit(current.id); setFolderDraft(current.name); }}
+                    className="icon-btn h-6 w-6"
+                    title="Rename folder"
+                  >
+                    <Pencil className="h-3.5 w-3.5"/>
+                  </button>
+                  {confirmFolder===current.id ? (
+                    <>
+                      <button onClick={()=>removeFolder(current)} disabled={busy==="folder-"+current.id} className="btn-danger btn-sm">Delete</button>
+                      <button onClick={()=>setConfirmFolder(null)} className="icon-btn h-6 w-6" title="Cancel"><X className="h-3.5 w-3.5"/></button>
+                    </>
+                  ) : (
                     <button
-                      onClick={()=>setActiveFolder(String(folder.id))}
-                      className={"flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] "+(activeFolder===String(folder.id)?"bg-ink-100 font-medium text-ink-900":"text-ink-600")}
+                      onClick={()=>setConfirmFolder(current.id)}
+                      className="icon-btn h-6 w-6 hover:bg-danger-50 hover:text-danger-600"
+                      title={`Delete folder (also deletes ${inside} list${inside===1?"":"s"})`}
                     >
-                      <span className="flex min-w-0 items-center gap-1.5">
-                        <Folder className="h-3.5 w-3.5 shrink-0 opacity-60"/>
-                        <span className="truncate">{folder.name}</span>
-                      </span>
-                      <span className="shrink-0 tabular-nums text-[11px] text-ink-400">{folder.listCount ?? lists.filter(l=>String(l.folder_id)===String(folder.id)).length}</span>
+                      <Trash2 className="h-3.5 w-3.5"/>
                     </button>
-                    <button
-                      onClick={()=>{ setFolderEdit(folder.id); setFolderDraft(folder.name); }}
-                      className="icon-btn h-7 w-7"
-                      title="Rename folder"
-                    >
-                      <Pencil className="h-3.5 w-3.5"/>
-                    </button>
-                    {confirmFolder===folder.id ? (
-                      <div className="flex shrink-0 items-center gap-0.5">
-                        <button
-                          onClick={()=>removeFolder(folder)}
-                          disabled={busy==="folder-"+folder.id}
-                          className="btn-danger btn-sm"
-                          title="Delete this folder and every list inside it"
-                        >
-                          Delete
-                        </button>
-                        <button onClick={()=>setConfirmFolder(null)} className="icon-btn h-7 w-7" title="Cancel">
-                          <X className="h-3.5 w-3.5"/>
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={()=>setConfirmFolder(folder.id)}
-                        className="icon-btn h-7 w-7 hover:bg-danger-50 hover:text-danger-600"
-                        title="Delete folder"
-                      >
-                        <Trash2 className="h-3.5 w-3.5"/>
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            ))}
-
-            <div className="mt-2 border-t border-ink-200 pt-2">
-              <button
-                onClick={()=>{ setCreatingFolder(true); setNewFolderName(""); }}
-                className="btn-ghost btn-sm w-full justify-start"
-              >
-                <FolderPlus className="h-3.5 w-3.5"/>New folder
-              </button>
-            </div>
-          </div>
-        </Card>
-
-        {/* Lists table, Brevo-style */}
-        <div className="min-w-0 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <h2 className="text-[15px] font-semibold text-ink-900">Lists</h2>
-              <span className="rounded-full bg-ink-200/70 px-2 py-0.5 text-[11px] font-medium tabular-nums text-ink-600">
-                {lists.length}
+                  )}
+                </div>
               </span>
-            </div>
-            <div className="relative min-w-0 flex-1 sm:max-w-xs">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"/>
+            );
+          })()}
+          {folderEdit && folders.some(f=>String(f.id)===String(folderEdit)) && (
+            <span className="flex items-center gap-1">
               <input
-                type="text"
-                placeholder="Search a list name or ID"
-                className={inputCls+" pl-9"}
-                value={q}
-                onChange={e=>{ setQ(e.target.value); setPage(1); }}
+                className="input w-40 py-1 text-[12.5px]"
+                value={folderDraft}
+                autoFocus
+                onChange={e=>setFolderDraft(e.target.value)}
+                onKeyDown={(e)=>{ if(e.key==="Enter") renameFolder(folders.find(f=>String(f.id)===String(folderEdit))); if(e.key==="Escape") setFolderEdit(null); }}
               />
-            </div>
+              <button onClick={()=>renameFolder(folders.find(f=>String(f.id)===String(folderEdit)))} className="icon-btn h-7 w-7" title="Save"><Check className="h-3.5 w-3.5"/></button>
+              <button onClick={()=>setFolderEdit(null)} className="icon-btn h-7 w-7" title="Cancel"><X className="h-3.5 w-3.5"/></button>
+            </span>
+          )}
+          <div className="relative ml-auto min-w-0 flex-1 sm:max-w-xs">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"/>
+            <input
+              type="text"
+              placeholder="Search a list name or ID"
+              className={inputCls+" pl-9"}
+              value={q}
+              onChange={e=>{ setQ(e.target.value); setPage(1); }}
+            />
           </div>
+        </div>
 
+        <div className="min-h-0 flex-1 overflow-auto p-5 max-md:p-4">
           <div className="surface overflow-hidden">
             <div className="overflow-x-auto">
               <table className="data-table">
@@ -1219,8 +1174,8 @@ function ListsView({api,notify,setSelectedList,setView}){
               <button onClick={()=>setPage(Math.min(pageCount,currentPage+1))} disabled={currentPage>=pageCount} className="btn-ghost btn-sm">Next</button>
             </div>
           </div>
+          </div>
         </div>
-      </div>
 
       {moveTarget&&(
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink-50/80 p-4 py-10 backdrop-blur-sm">
