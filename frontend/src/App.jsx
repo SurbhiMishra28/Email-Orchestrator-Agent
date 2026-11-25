@@ -702,6 +702,8 @@ function ListsView({api,notify,setSelectedList,setView}){
   // Three-dot menu and the dialogs it opens (Brevo's list actions).
   const [openMenu,setOpenMenu]=useState(null);
 
+  const [menuPos,setMenuPos]=useState(null);
+
   const [moveTarget,setMoveTarget]=useState(null);
 
   const [moveFolder,setMoveFolder]=useState("");
@@ -734,6 +736,22 @@ function ListsView({api,notify,setSelectedList,setView}){
   },[api]);
 
   useEffect(()=>{ load(); },[load]);
+
+  // A fixed-position menu must be dismissed explicitly: it no longer closes
+  // because the row re-rendered, and scrolling would leave it floating.
+  useEffect(()=>{
+    if(!openMenu) return;
+    const close=()=>setOpenMenu(null);
+    const onKey=(e)=>{ if(e.key==="Escape") close(); };
+    window.addEventListener("click",close);
+    window.addEventListener("scroll",close,true);
+    window.addEventListener("keydown",onKey);
+    return ()=>{
+      window.removeEventListener("click",close);
+      window.removeEventListener("scroll",close,true);
+      window.removeEventListener("keydown",onKey);
+    };
+  },[openMenu]);
 
   const filtered=lists.filter(l=>{
     const inFolder = activeFolder==="all" || (activeFolder==="none" ? !l.folder_id : String(l.folder_id)===String(activeFolder));
@@ -1075,18 +1093,34 @@ function ListsView({api,notify,setSelectedList,setView}){
                       </button>
 
                           {/* Brevo's three-dot menu: settings, duplicate,
-                              import, rename, move, delete. */}
+                              import, rename, move, delete.
+                              Rendered with ``fixed`` positioning: the table sits
+                              inside overflow-hidden/overflow-x-auto ancestors, and
+                              an absolutely positioned dropdown is clipped by them
+                              (the menu opened but showed nothing). */}
                           <div className="relative">
                             <button
-                              onClick={()=>setOpenMenu(openMenu===list.id?null:list.id)}
+                              onClick={(e)=>{
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const width = 232;
+                                const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
+                                const top = rect.bottom + 6 > window.innerHeight - 240
+                                  ? Math.max(8, rect.top - 240)
+                                  : rect.bottom + 6;
+                                setMenuPos({ top, left });
+                                setOpenMenu(openMenu===list.id?null:list.id);
+                              }}
                               className="icon-btn"
                               title="List actions"
                               aria-label={`Actions for ${list.name}`}
                             >
                               <MoreHorizontal className="h-4 w-4"/>
                             </button>
-                            {openMenu===list.id&&(
-                              <div className="absolute right-0 top-full z-30 mt-1 w-56 rounded-xl border border-ink-200 bg-ink-100 py-1 shadow-pop">
+                            {openMenu===list.id&&menuPos&&(
+                              <div
+                                className="fixed z-50 w-[232px] rounded-xl border border-ink-200 bg-ink-100 py-1 shadow-pop"
+                                style={{ top: menuPos.top, left: menuPos.left }}
+                              >
                                 {[
                                   { label: "List settings", icon: SlidersHorizontal, run: ()=>setSettingsTarget(list) },
                                   { label: "Duplicate", icon: Copy, run: ()=>dup(list) },
