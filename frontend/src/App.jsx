@@ -5481,25 +5481,72 @@ export default function App(){
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              {/* Brevo-style toolbar: load a list or segment, add a filter,
-                  choose columns. Lists themselves live in the Lists section. */}
+              {/* "Load a list or a segment" — its own section, as in Brevo, so
+                  the current audience is always explicit above the table. */}
+              <div className="border-b border-ink-200 bg-ink-50 px-5 py-3 max-md:px-4">
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div className="min-w-0">
+                    <label className="field-label mb-1 block text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-400">
+                      Load a list or a segment
+                    </label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        className="select w-auto py-1.5 text-[12.5px]"
+                        value={selectedList}
+                        onChange={e => { setSelectedList(e.target.value); setPage(1); }}
+                      >
+                        <option value="all">All contacts ({state.contacts?.length || 0})</option>
+                        <option value="eligible">Eligible (opted in)</option>
+                        {lists.map(list => (
+                          <option key={list.id} value={String(list.id)}>
+                            {list.name} ({list.total_subscribers ?? list.member_count ?? 0})
+                          </option>
+                        ))}
+                      </select>
+
+                      {/* The active audience, stated plainly. */}
+                      {selectedList !== "all" && selectedList !== "eligible" && (() => {
+                        const current = lists.find(l => String(l.id) === selectedList);
+                        if (!current) return null;
+                        return (
+                          <span className="chip">
+                            {current.name}
+                            {current.folder_name ? ` · ${current.folder_name}` : ""}
+                            <button
+                              onClick={() => { setSelectedList("all"); setPage(1); }}
+                              className="ml-0.5 text-ink-400 hover:text-ink-700"
+                              title="Clear the list filter"
+                              aria-label="Clear the list filter"
+                            >
+                              <X className="h-3 w-3"/>
+                            </button>
+                          </span>
+                        );
+                      })()}
+                      {selectedList === "eligible" && (
+                        <span className="chip">
+                          Eligible
+                          <button
+                            onClick={() => { setSelectedList("all"); setPage(1); }}
+                            className="ml-0.5 text-ink-400 hover:text-ink-700"
+                            title="Clear the segment"
+                            aria-label="Clear the segment"
+                          >
+                            <X className="h-3 w-3"/>
+                          </button>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-[12.5px] text-ink-500">
+                    <span className="tabular-nums">{filteredContactsCount}</span> contacts
+                  </span>
+                </div>
+              </div>
+
+              {/* Brevo-style toolbar: extra filter and column chooser. */}
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-200 bg-ink-50 px-5 py-2.5 max-md:px-4">
                 <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    className="select w-auto py-1.5 text-[12.5px]"
-                    value={selectedList}
-                    onChange={e => { setSelectedList(e.target.value); setPage(1); }}
-                    title="Load a list or a segment"
-                  >
-                    <option value="all">All contacts ({state.contacts?.length || 0})</option>
-                    <option value="eligible">Eligible</option>
-                    {lists.map(list => (
-                      <option key={list.id} value={String(list.id)}>
-                        {list.name} ({list.total_subscribers ?? list.member_count ?? 0})
-                      </option>
-                    ))}
-                  </select>
-
                   <select
                     className="select w-auto py-1.5 text-[12.5px]"
                     value={extraFilter}
@@ -5537,12 +5584,6 @@ export default function App(){
                         ))}
                       </div>
                     )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5 text-[12.5px] text-ink-500">
-                    <Info className="h-3.5 w-3.5 opacity-70"/>
-                    <span className="tabular-nums">{filteredContactsCount} contacts</span>
                   </div>
                 </div>
               </div>
