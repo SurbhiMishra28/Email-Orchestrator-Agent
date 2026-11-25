@@ -769,6 +769,14 @@ function ListsView({api,notify,setSelectedList,setView}){
 
   const [q,setQ]=useState("");
 
+  const [busy,setBusy]=useState(null);
+
+  const [editing,setEditing]=useState(null);
+
+  const [draftName,setDraftName]=useState("");
+
+  const [confirmDelete,setConfirmDelete]=useState(null);
+
   const load=useCallback(async()=>{
     setLoading(true);
     try{
@@ -795,6 +803,42 @@ function ListsView({api,notify,setSelectedList,setView}){
     {label:"Unsubscribed",value:list.unsubscribed_count ?? 0},
     {label:"Blocklisted",value:list.total_blacklisted ?? 0},
   ];
+
+  // Card actions. Delete is a two-step (Delete -> Confirm) so a stray click on
+  // a card cannot destroy an audience.
+  const remove=async(list)=>{
+    setBusy(list.id);
+    try{
+      await api(`/api/lists/${list.id}`,{method:"DELETE"});
+      setConfirmDelete(null);
+      notify(`Deleted "${list.name}"`);
+      await load();
+    }catch(e){ notify(e?.message||String(e)); }
+    finally{ setBusy(null); }
+  };
+
+  const dup=async(list)=>{
+    setBusy(list.id);
+    try{
+      await api(`/api/lists/${list.id}/duplicate`,{method:"POST",body:"{}"});
+      notify(`Duplicated "${list.name}"`);
+      await load();
+    }catch(e){ notify(e?.message||String(e)); }
+    finally{ setBusy(null); }
+  };
+
+  const saveName=async(list)=>{
+    const name=(draftName||"").trim();
+    if(!name){ setEditing(null); return; }
+    setBusy(list.id);
+    try{
+      await api(`/api/lists/${list.id}`,{method:"PATCH",body:JSON.stringify({name})});
+      setEditing(null);
+      notify("List renamed");
+      await load();
+    }catch(e){ notify(e?.message||String(e)); }
+    finally{ setBusy(null); }
+  };
 
   return (
     <div className="space-y-4">
@@ -845,10 +889,36 @@ function ListsView({api,notify,setSelectedList,setView}){
               <article key={list.id} className="surface flex flex-col p-4">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <h3 className="truncate text-[14px] font-semibold text-ink-900">{list.name}</h3>
+                    {editing===list.id ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          className="input py-1 text-[13px]"
+                          value={draftName}
+                          autoFocus
+                          onChange={e=>setDraftName(e.target.value)}
+                          onKeyDown={(e)=>{ if(e.key==="Enter") saveName(list); if(e.key==="Escape") setEditing(null); }}
+                        />
+                        <button onClick={()=>saveName(list)} className="icon-btn" title="Save name"><Check className="h-4 w-4"/></button>
+                        <button onClick={()=>setEditing(null)} className="icon-btn" title="Cancel"><X className="h-4 w-4"/></button>
+                      </div>
+                    ) : (
+                      <h3 className="truncate text-[14px] font-semibold text-ink-900">{list.name}</h3>
+                    )}
                     <p className="truncate text-[11.5px] text-ink-500">{folderName(list.folder_id)||"No folder"}</p>
                   </div>
-                  <Pill v={list.status||"active"}/>
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <button onClick={()=>{ setEditing(list.id); setDraftName(list.name); }} className="icon-btn" title="Rename list"><Pencil className="h-4 w-4"/></button>
+                    <button onClick={()=>dup(list)} className="icon-btn" title="Duplicate list"><Copy className="h-4 w-4"/></button>
+                    <button
+                      onClick={()=>remove(list)}
+                      disabled={busy===list.id}
+                      className="icon-btn hover:bg-danger-50 hover:text-danger-600"
+                      title="Delete list"
+                      aria-label={`Delete ${list.name}`}
+                    >
+                      <Trash2 className="h-4 w-4"/>
+                    </button>
+                  </div>
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-2 border-t border-ink-100 pt-3">
                   {counts(list).map(c=>(
@@ -858,8 +928,16 @@ function ListsView({api,notify,setSelectedList,setView}){
                     </div>
                   ))}
                 </div>
-                <div className="mt-3 flex items-center gap-1.5">
-                  <button onClick={()=>{notify(`Open Contacts and pick "${list.name}" to see its members`);}} className="btn-ghost btn-sm">View contacts</button>
+                <div className="mt-3 flex items-center justify-between gap-1.5">
+                  <button onClick={()=>{ setSelectedList(String(list.id)); setView("contacts"); }} className="btn-ghost btn-sm">View contacts</button>
+                  {confirmDelete===list.id ? (
+                    <div className="flex items-center gap-1">
+                      <button onClick={()=>remove(list)} disabled={busy===list.id} className="btn-danger btn-sm">Confirm</button>
+                      <button onClick={()=>setConfirmDelete(null)} className="btn-ghost btn-sm">Cancel</button>
+                    </div>
+                  ) : (
+                    <button onClick={()=>setConfirmDelete(list.id)} className="btn-ghost btn-sm text-danger-600 hover:bg-danger-50">Delete</button>
+                  )}
                 </div>
               </article>
             ))}
@@ -5695,6 +5773,14 @@ export default function App(){
                               Send
                             </button>
                           )}
+                          <button
+                            onClick={() => deleteCampaign(campaign.id)}
+                            className="icon-btn hover:bg-danger-50 hover:text-danger-600"
+                            title="Delete campaign"
+                            aria-label={`Delete ${campaign.name}`}
+                          >
+                            <Trash2 className="h-4 w-4"/>
+                          </button>
                           <button
                             onClick={() => setOpenCampaignMenu(openCampaignMenu === campaign.id ? null : campaign.id)}
                             className="icon-btn"
