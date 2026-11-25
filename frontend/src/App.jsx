@@ -2063,7 +2063,7 @@ export default function App(){
 
   const [composing,setComposing]=useState(false);
 
-  const [composeForm,setComposeForm]=useState({contact_id:"",subject:"",body:""});
+  const [composeForm,setComposeForm]=useState({contact_id:"",subject:"",body:"",alias_id:""});
 
   const [editingId,setEditingId]=useState(null);
 
@@ -2575,7 +2575,7 @@ export default function App(){
 
   const [showCampaignModal, setShowCampaignModal] = useState(false);
 
-  const [campaignForm, setCampaignForm] = useState({ name: "", subject: "", preview_text: "", channel: "email", template_id: "", list_id: "", scheduled_at: "" });
+  const [campaignForm, setCampaignForm] = useState({ name: "", subject: "", preview_text: "", channel: "email", template_id: "", list_id: "", scheduled_at: "", alias_id: "" });
 
   const [campaignBusy, setCampaignBusy] = useState(false);
 
@@ -2668,6 +2668,8 @@ export default function App(){
           template_id: campaignForm.template_id ? Number(campaignForm.template_id) : undefined,
 
           list_id: campaignForm.list_id ? Number(campaignForm.list_id) : undefined,
+
+          alias_id: campaignForm.alias_id ? Number(campaignForm.alias_id) : undefined,
 
           scheduled_at: campaignForm.scheduled_at || undefined,
 
@@ -4404,11 +4406,15 @@ export default function App(){
 
     try{
 
-      await api("/api/drafts/compose",{method:"POST",body:JSON.stringify({...composeForm,contact_id:Number(composeForm.contact_id)})});
+      await api("/api/drafts/compose",{method:"POST",body:JSON.stringify({
+        ...composeForm,
+        contact_id:Number(composeForm.contact_id),
+        alias_id: composeForm.alias_id ? Number(composeForm.alias_id) : undefined,
+      })});
 
       setComposing(false);
 
-      setComposeForm({contact_id:"",subject:"",body:""});
+      setComposeForm({contact_id:"",subject:"",body:"",alias_id:""});
 
       setStatus("Draft queued, the autopilot will send it");setTimeout(()=>setStatus(null),2500);
 
@@ -6837,6 +6843,28 @@ export default function App(){
 
                 </label>
 
+                <label className="field-label">
+
+                  Sender
+
+                  <select className={inputCls+" mt-1"} value={composeForm.alias_id||""} onChange={e=>setComposeForm({...composeForm,alias_id:e.target.value})}>
+
+                    <option value="">Default alias</option>
+
+                    {(state.aliases||[]).map(alias=>(
+
+                      <option key={alias.id} value={String(alias.id)}>
+
+                        {(alias.name?alias.name+" ":"")+alias.email}{alias.is_default?" (default)":""}
+
+                      </option>
+
+                    ))}
+
+                  </select>
+
+                </label>
+
                 {draftError&&<p className="notice-error">{draftError}</p>}
 
                 <div className="modal-foot -mx-5 -mb-4">
@@ -7281,6 +7309,20 @@ export default function App(){
                     </select>
                   </label>
                 </div>
+                <label className="field-label">
+                  Sender
+                  <select className={inputCls+" mt-1"} value={campaignForm.alias_id} onChange={e=>setCampaignForm({...campaignForm,alias_id:e.target.value})}>
+                    <option value="">Default alias</option>
+                    {(state.aliases||[]).map(alias=>(
+                      <option key={alias.id} value={String(alias.id)}>
+                        {(alias.name?alias.name+" ":"")+alias.email}{alias.is_default?" (default)":""}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="mt-1 block text-[11.5px] text-ink-400">
+                    Recipients see this name and address in the From line.
+                  </span>
+                </label>
                 <label className="field-label">
                   Schedule (optional)
                   <input type="datetime-local" className={inputCls+" mt-1"} value={campaignForm.scheduled_at} onChange={e=>setCampaignForm({...campaignForm,scheduled_at:e.target.value})}/>

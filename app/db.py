@@ -425,6 +425,11 @@ class Campaign(Base):
     list_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("contact_lists.id", ondelete="SET NULL"), nullable=True
     )
+    # The sender identity chosen for this campaign, resolved from the tenant's
+    # aliases when it is created. Stored on the row so a later change to the
+    # default alias does not rewrite history.
+    from_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    from_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     scheduled_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
     sent_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
     total_recipients: Mapped[int] = mapped_column(Integer, default=0)
@@ -1046,6 +1051,20 @@ def _ensure_columns():
                             text(f"ALTER TABLE settings ADD COLUMN {col_name} {col.split(' ', 1)[1]}")
                         )
                 logger.info(f"Added missing settings columns: {missing_settings_cols}")
+
+            # Campaign sender identity, added after aliases shipped.
+            if "campaigns" in table_names:
+                columns = [col["name"] for col in inspector.get_columns("campaigns")]
+                if "from_email" not in columns:
+                    with engine.begin() as connection:
+                        connection.execute(
+                            text("ALTER TABLE campaigns ADD COLUMN from_email VARCHAR(255) NULL")
+                        )
+                if "from_name" not in columns:
+                    with engine.begin() as connection:
+                        connection.execute(
+                            text("ALTER TABLE campaigns ADD COLUMN from_name VARCHAR(255) NULL")
+                        )
 
         # Check contacts for tags column (JSON in MySQL, JSON in PostgreSQL, TEXT fallback for SQLite)
         if "contacts" in table_names:

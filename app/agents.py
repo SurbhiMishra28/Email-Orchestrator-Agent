@@ -96,14 +96,24 @@ def neon_gateway_configured() -> bool:
     )
 
 
-def default_alias(db, tenant_id) -> tuple:
-    """The tenant's default sender alias as ``(name, email)``, or ``("", "")``.
+def default_alias(db, tenant_id, draft=None) -> tuple:
+    """The sender identity to use as ``(name, email)``, or ``("", "")``.
+
+    A draft can pin its own sender in ``variables`` (``from_email`` /
+    ``from_name``), which is how a campaign's chosen alias reaches the queue.
+    Otherwise the tenant's default alias is used.
 
     Sending resolves the From identity here so the alias list in Settings is not
     decorative: without this the queue would keep using the mailbox's own
     address and "Make default" would change nothing.
     """
     from app.db import EmailAlias
+
+    if draft is not None:
+        variables = getattr(draft, "variables", None) or {}
+        pinned_email = (variables.get("from_email") or "").strip()
+        if pinned_email:
+            return (variables.get("from_name") or "").strip(), pinned_email
 
     if tenant_id is None:
         return "", ""
@@ -373,7 +383,7 @@ class EmailAgent:
                     from app.services.tracking import send_html_for_draft
 
                     alias_name, alias_email = default_alias(
-                        self.db, getattr(contact, "tenant_id", None)
+                        self.db, getattr(contact, "tenant_id", None), draft
                     )
 
                     send_email(
@@ -585,7 +595,7 @@ class QueueManager:
                     # smtplib blocks; keep the event loop responsive.
                     from app.services.tracking import send_html_for_draft
 
-                    alias_name, alias_email = default_alias(db, draft_tenant)
+                    alias_name, alias_email = default_alias(db, draft_tenant, draft)
 
                     await asyncio.to_thread(
                         send_email,

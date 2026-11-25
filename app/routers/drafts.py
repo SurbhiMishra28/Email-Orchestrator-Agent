@@ -92,12 +92,43 @@ def compose_draft(draft: DraftCreate, tenant_id: int = Depends(current_tenant_id
         if not contact:
             raise HTTPException(status_code=404, detail="Contact not found")
         
+        # Resolve the chosen sender, if any, and pin it on the draft so the
+        # queue sends from that identity rather than the tenant default.
+        variables = {}
+        alias_id = draft.alias_id if draft.alias_id is not None else draft.aliasId
+        if alias_id is not None or draft.from_email:
+            from app.db import EmailAlias
+
+            sender_email = draft.from_email
+            sender_name = draft.from_name
+            if alias_id is not None:
+                alias = (
+                    db.query(EmailAlias)
+                    .filter(
+                        EmailAlias.id == alias_id,
+                        EmailAlias.tenant_id == tenant_id,
+                        EmailAlias.is_active.is_(True),
+                    )
+                    .first()
+                )
+                if alias is None:
+                    raise HTTPException(
+                        status_code=404, detail=f"Alias {alias_id} not found"
+                    )
+                sender_email = sender_email or alias.email
+                sender_name = sender_name or alias.name
+            if sender_email:
+                variables["from_email"] = sender_email
+            if sender_name:
+                variables["from_name"] = sender_name
+
         new_draft = Draft(
             contact_id=draft.contact_id,
             subject=draft.subject,
             body=draft.body,
             status="draft",
             tenant_id=tenant_id,
+            variables=variables,
         )
         db.add(new_draft)
         record_usage(db, tenant_id, EMAILS_DRAFTED)

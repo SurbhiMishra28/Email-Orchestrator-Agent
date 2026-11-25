@@ -51,7 +51,12 @@ class DraftBase(BaseModel):
 
 
 class DraftCreate(DraftBase):
-    pass
+    # Optional sender override. When set, the queued draft is sent from this
+    # identity instead of the tenant's default alias.
+    alias_id: Optional[int] = None
+    aliasId: Optional[int] = None
+    from_email: Optional[str] = Field(default=None, max_length=255)
+    from_name: Optional[str] = Field(default=None, max_length=255)
 
 
 class DraftUpdate(BaseModel):

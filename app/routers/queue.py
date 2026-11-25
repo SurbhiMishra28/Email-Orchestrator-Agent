@@ -575,6 +575,12 @@ async def _create_drafts(
                 if campaign.subject:
                     subject = campaign.subject
                 variables["campaign_id"] = campaign.id
+                # Carry the campaign's chosen sender onto the draft so the queue
+                # sends from that alias rather than the tenant default.
+                if campaign.from_email:
+                    variables["from_email"] = campaign.from_email
+                if campaign.from_name:
+                    variables["from_name"] = campaign.from_name
 
             db.add(
                 Draft(

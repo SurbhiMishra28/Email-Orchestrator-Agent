@@ -58,6 +58,15 @@ class CampaignCreate(BaseModel):
     listId: Optional[int] = None
     scheduled_at: Optional[str] = None
     scheduledAt: Optional[str] = None
+    # Sender identity. ``alias_id`` is resolved to the alias's name/address; the
+    # explicit fields are accepted too so an API client can pin a From address
+    # that is not in the alias table.
+    alias_id: Optional[int] = None
+    aliasId: Optional[int] = None
+    from_email: Optional[str] = Field(default=None, max_length=255)
+    fromEmail: Optional[str] = Field(default=None, max_length=255)
+    from_name: Optional[str] = Field(default=None, max_length=255)
+    fromName: Optional[str] = Field(default=None, max_length=255)
 
 
 class CampaignUpdate(BaseModel):
@@ -72,6 +81,12 @@ class CampaignUpdate(BaseModel):
     status: Optional[str] = None
     scheduled_at: Optional[str] = None
     scheduledAt: Optional[str] = None
+    alias_id: Optional[int] = None
+    aliasId: Optional[int] = None
+    from_email: Optional[str] = Field(default=None, max_length=255)
+    fromEmail: Optional[str] = Field(default=None, max_length=255)
+    from_name: Optional[str] = Field(default=None, max_length=255)
+    fromName: Optional[str] = Field(default=None, max_length=255)
 
 
 class CampaignOut(BaseModel):
@@ -87,6 +102,11 @@ class CampaignOut(BaseModel):
     listId: Optional[int] = None
     list_name: Optional[str] = None
     template_name: Optional[str] = None
+    # The sender identity this campaign uses, echoed so the listing can show it.
+    from_email: Optional[str] = None
+    fromEmail: Optional[str] = None
+    from_name: Optional[str] = None
+    fromName: Optional[str] = None
     scheduled_at: Optional[datetime] = None
     sent_at: Optional[datetime] = None
     total_recipients: int = 0
@@ -152,6 +172,49 @@ def _resolve_list(db, tenant_id: int, payload) -> Optional[int]:
     if not exists:
         raise HTTPException(status_code=404, detail=f"List {list_id} not found")
     return list_id
+
+
+def _resolve_sender(db, tenant_id: int, payload) -> tuple:
+    """Resolve the campaign's sender to ``(from_email, from_name)``.
+
+    Precedence: an explicit ``from_email`` on the payload, then the named alias.
+    When neither is given the tenant's default alias is used, and if the tenant
+    has no aliases at all both come back empty so the mailer falls back to the
+    mailbox's own address rather than failing the send.
+    """
+    from app.db import EmailAlias
+
+    explicit_email = (
+        getattr(payload, "from_email", None) or getattr(payload, "fromEmail", None)
+    )
+    explicit_name = (
+        getattr(payload, "from_name", None) or getattr(payload, "fromName", None)
+    )
+
+    alias_id = (
+        getattr(payload, "alias_id", None)
+        if getattr(payload, "alias_id", None) is not None
+        else getattr(payload, "aliasId", None)
+    )
+
+    query = db.query(EmailAlias).filter(
+        EmailAlias.tenant_id == tenant_id,
+        EmailAlias.is_active.is_(True),
+    )
+    if alias_id is not None:
+        alias = query.filter(EmailAlias.id == alias_id).first()
+        if alias is None:
+            raise HTTPException(
+                status_code=404, detail=f"Alias {alias_id} not found"
+            )
+    else:
+        alias = query.filter(EmailAlias.is_default.is_(True)).first()
+
+    if explicit_email:
+        return str(explicit_email).strip(), (explicit_name or "").strip() or None
+    if alias is not None:
+        return alias.email, (explicit_name or alias.name or "").strip() or None
+    return None, (explicit_name or "").strip() or None
 
 
 def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
@@ -245,6 +308,10 @@ def _to_out(db, campaign: Campaign, tenant_id: int) -> CampaignOut:
         listId=campaign.list_id,
         list_name=list_name,
         template_name=template_name,
+        from_email=campaign.from_email,
+        fromEmail=campaign.from_email,
+        from_name=campaign.from_name,
+        fromName=campaign.from_name,
         scheduled_at=campaign.scheduled_at,
         sent_at=campaign.sent_at,
         total_recipients=campaign.total_recipients or 0,
@@ -326,6 +393,7 @@ def create_campaign(
     try:
         template_id = _resolve_template(db, tenant_id, payload)
         list_id = _resolve_list(db, tenant_id, payload)
+        from_email, from_name = _resolve_sender(db, tenant_id, payload)
 
         campaign = Campaign(
             tenant_id=tenant_id,
@@ -338,6 +406,8 @@ def create_campaign(
             list_id=list_id,
             scheduled_at=scheduled_at,
             total_recipients=_audience_size(db, tenant_id, list_id),
+            from_email=from_email,
+            from_name=from_name,
         )
         db.add(campaign)
         db.commit()
@@ -436,6 +506,13 @@ def update_campaign(
         ) is not None:
             campaign.list_id = _resolve_list(db, tenant_id, payload)
             campaign.total_recipients = _audience_size(db, tenant_id, campaign.list_id)
+        # Changing the sender is only meaningful before the campaign goes out.
+        if campaign.status not in ("sent", "sending"):
+            sender_keys = ("alias_id", "aliasId", "from_email", "fromEmail")
+            if any(getattr(payload, key, None) is not None for key in sender_keys):
+                from_email, from_name = _resolve_sender(db, tenant_id, payload)
+                campaign.from_email = from_email
+                campaign.from_name = from_name
         if payload.status is not None:
             campaign.status = _validate_status(payload.status)
         scheduled = _scheduled_value(payload)
