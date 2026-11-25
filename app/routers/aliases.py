@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.exc import IntegrityError
 
-from app.db import EmailAlias, SessionLocal, Tenant
+from app.db import EmailAlias, SessionLocal
 from app.deps import current_tenant_id
 
 logger = logging.getLogger(__name__)

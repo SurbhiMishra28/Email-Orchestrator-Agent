@@ -88,13 +88,38 @@ def _render_footer(template, variables: Dict[str, Any]) -> str:
 
 
 def neon_gateway_configured() -> bool:
-    """True when the Neon AI Gateway has both a host and a token."""
     from app.config import settings as app_settings
 
     return bool(
         (app_settings.NEON_AI_GATEWAY_BASE_URL or "").strip()
         and (app_settings.NEON_AI_GATEWAY_TOKEN or "").strip()
     )
+
+
+def default_alias(db, tenant_id) -> tuple:
+    """The tenant's default sender alias as ``(name, email)``, or ``("", "")``.
+
+    Sending resolves the From identity here so the alias list in Settings is not
+    decorative: without this the queue would keep using the mailbox's own
+    address and "Make default" would change nothing.
+    """
+    from app.db import EmailAlias
+
+    if tenant_id is None:
+        return "", ""
+    alias = (
+        db.query(EmailAlias)
+        .filter(
+            EmailAlias.tenant_id == tenant_id,
+            EmailAlias.is_default.is_(True),
+            EmailAlias.is_active.is_(True),
+        )
+        .order_by(EmailAlias.id.asc())
+        .first()
+    )
+    if alias is None or not alias.email:
+        return "", ""
+    return (alias.name or "").strip(), alias.email.strip()
 
 
 def get_neon_gateway_client():
@@ -347,11 +372,17 @@ class EmailAgent:
                 try:
                     from app.services.tracking import send_html_for_draft
 
+                    alias_name, alias_email = default_alias(
+                        self.db, getattr(contact, "tenant_id", None)
+                    )
+
                     send_email(
                         smtp_config,
                         contact.email,
                         subject,
                         body,
+                        alias_name or None,
+                        alias_email or None,
                         html_body=send_html_for_draft(
                             self.db, draft, getattr(contact, "tenant_id", None)
                         ),
@@ -554,14 +585,16 @@ class QueueManager:
                     # smtplib blocks; keep the event loop responsive.
                     from app.services.tracking import send_html_for_draft
 
+                    alias_name, alias_email = default_alias(db, draft_tenant)
+
                     await asyncio.to_thread(
                         send_email,
                         smtp_config,
                         contact.email,
                         draft.subject,
                         draft.body,
-                        None,
-                        None,
+                        alias_name or None,
+                        alias_email or None,
                         send_html_for_draft(db, draft, draft_tenant),
                     )
                 except MailDeliveryError as exc:

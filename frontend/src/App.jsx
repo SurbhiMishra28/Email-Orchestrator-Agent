@@ -5128,17 +5128,17 @@ export default function App(){
                   Eligible
                 </button>
                 {visibleLists.map(list => (
-                  <span key={list.id} className="relative flex items-center">
+                  <span key={list.id} className="relative flex min-w-0 shrink-0 items-center">
                     <button
                       onClick={() => setSelectedList(String(list.id))}
-                      className={selectedList === String(list.id) ? "seg-item-active rounded-r-none pr-1" : "seg-item rounded-r-none pr-1"}
-                      title={list.description || undefined}
+                      className={(selectedList === String(list.id) ? "seg-item-active rounded-r-none pr-1" : "seg-item rounded-r-none pr-1") + " min-w-0 max-w-[200px] truncate"}
+                      title={list.name}
                     >
                       {list.name} <span className="opacity-60">({list.total_subscribers ?? list.member_count})</span>
                     </button>
                     <button
                       onClick={() => setOpenListMenu(openListMenu === list.id ? null : list.id)}
-                      className={"rounded-r-md py-1.5 pl-1 pr-2 text-[12px] transition-colors " + (selectedList === String(list.id) ? "bg-brand-600 text-white/80 hover:bg-brand-700" : "text-ink-400 hover:bg-ink-100 hover:text-ink-700")}
+                      className={"shrink-0 rounded-r-md py-1.5 pl-1 pr-2 text-[12px] transition-colors " + (selectedList === String(list.id) ? "bg-brand-600 text-white/80 hover:bg-brand-700" : "text-ink-400 hover:bg-ink-100 hover:text-ink-700")}
                       title={`Actions for ${list.name}`}
                       aria-label={`Actions for ${list.name}`}
                     >
