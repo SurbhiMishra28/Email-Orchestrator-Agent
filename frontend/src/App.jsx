@@ -695,6 +695,10 @@ function ListsView({api,notify,setSelectedList,setView}){
 
   const [confirmFolder,setConfirmFolder]=useState(null);
 
+  const [creatingFolder,setCreatingFolder]=useState(false);
+
+  const [newFolderName,setNewFolderName]=useState("");
+
   const [perPage,setPerPage]=useState(20);
 
   const [page,setPage]=useState(1);
@@ -802,13 +806,15 @@ function ListsView({api,notify,setSelectedList,setView}){
   };
 
   const addFolder=async()=>{
-    const name=(newFolder||"").trim();
+    const name=(creatingFolder ? newFolderName : newFolder).trim();
     if(!name) return;
     setBusy("folder-new");
     try{
       await api("/api/lists/folders",{method:"POST",body:JSON.stringify({name})});
       setNewFolder("");
-      notify("Folder created");
+      setNewFolderName("");
+      setCreatingFolder(false);
+      notify(`Created folder "${name}"`);
       await load();
     }catch(e){ notify(e?.message||String(e)); }
     finally{ setBusy(null); }
@@ -835,6 +841,9 @@ function ListsView({api,notify,setSelectedList,setView}){
   return (
     <div className="space-y-4">
       <PageHeader title="Lists" subtitle="Folders group your lists; a list is an audience you can send a campaign to." eyebrow="Audience">
+        <button onClick={()=>{ setCreatingFolder(true); setNewFolderName(""); }} className="btn-secondary">
+          <FolderPlus className="h-3.5 w-3.5"/>Create a folder
+        </button>
         <button onClick={()=>{ setNewList({name:"",folder_id: activeFolder!=="all"&&activeFolder!=="none" ? activeFolder : ""}); setCreating(true); }} className="btn-primary">
           <Plus className="h-3.5 w-3.5"/>Create a list
         </button>
@@ -882,7 +891,7 @@ function ListsView({api,notify,setSelectedList,setView}){
                     </button>
                     <button
                       onClick={()=>{ setFolderEdit(folder.id); setFolderDraft(folder.name); }}
-                      className="icon-btn h-7 w-7 opacity-0 group-hover/folder:opacity-100"
+                      className="icon-btn h-7 w-7"
                       title="Rename folder"
                     >
                       <Pencil className="h-3.5 w-3.5"/>
@@ -904,7 +913,7 @@ function ListsView({api,notify,setSelectedList,setView}){
                     ) : (
                       <button
                         onClick={()=>setConfirmFolder(folder.id)}
-                        className="icon-btn h-7 w-7 opacity-0 hover:bg-danger-50 hover:text-danger-600 group-hover/folder:opacity-100"
+                        className="icon-btn h-7 w-7 hover:bg-danger-50 hover:text-danger-600"
                         title="Delete folder"
                       >
                         <Trash2 className="h-3.5 w-3.5"/>
@@ -923,22 +932,12 @@ function ListsView({api,notify,setSelectedList,setView}){
               <span className="tabular-nums text-[11px] text-ink-400">{lists.filter(l=>!l.folder_id).length}</span>
             </button>
 
-            <div className="mt-2 flex items-center gap-1 border-t border-ink-200 pt-2">
-              <input
-                className="input min-w-0 flex-1 py-1.5 text-[12.5px]"
-                placeholder="New folder name"
-                value={newFolder}
-                onChange={e=>setNewFolder(e.target.value)}
-                onKeyDown={(e)=>{ if(e.key==="Enter") addFolder(); }}
-              />
+            <div className="mt-2 border-t border-ink-200 pt-2">
               <button
-                onClick={addFolder}
-                disabled={!newFolder.trim() || busy==="folder-new"}
-                className="btn-primary btn-sm"
-                title="Create folder"
-                aria-label="Create folder"
+                onClick={()=>{ setCreatingFolder(true); setNewFolderName(""); }}
+                className="btn-ghost btn-sm w-full justify-start"
               >
-                <Plus className="h-3.5 w-3.5"/>
+                <FolderPlus className="h-3.5 w-3.5"/>New folder
               </button>
             </div>
           </div>
@@ -1069,6 +1068,63 @@ function ListsView({api,notify,setSelectedList,setView}){
           </div>
         </div>
       </div>
+
+      {creatingFolder&&(
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink-50/80 p-4 py-10 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-card border border-ink-200 bg-ink-100 p-5 shadow-pop">
+            <h3 className="text-[15px] font-semibold text-ink-900">Create a folder</h3>
+            <p className="mt-1 text-[12.5px] text-ink-500">
+              Folders keep the sidebar tidy as your lists grow. Put related lists
+              together, then move lists into the folder from the list actions.
+            </p>
+            <label className="field-label mt-4">
+              Folder name
+              <input
+                className={inputCls+" mt-1"}
+                value={newFolderName}
+                autoFocus
+                placeholder="e.g. Noida prospects"
+                onChange={e=>setNewFolderName(e.target.value)}
+                onKeyDown={(e)=>{ if(e.key==="Enter") addFolder(); if(e.key==="Escape") setCreatingFolder(false); }}
+              />
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={()=>setCreatingFolder(false)} className="btn-ghost">Cancel</button>
+              <button onClick={addFolder} disabled={!newFolderName.trim() || busy==="folder-new"} className="btn-primary">
+                <FolderPlus className="h-3.5 w-3.5"/>Create folder
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmFolder&&(() => {
+        const folder = folders.find(f => String(f.id) === String(confirmFolder));
+        if (!folder) return null;
+        const inside = lists.filter(l => String(l.folder_id) === String(folder.id)).length;
+        return (
+          <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink-50/80 p-4 py-10 backdrop-blur-sm">
+            <div className="w-full max-w-md rounded-card border border-danger-200 bg-ink-100 p-5 shadow-pop">
+              <h3 className="text-[15px] font-semibold text-ink-900">Delete "{folder.name}"?</h3>
+              <p className="mt-1 text-[12.5px] text-ink-500">
+                {inside > 0
+                  ? `This folder holds ${inside} list${inside === 1 ? "" : "s"}. Deleting the folder also deletes ${inside === 1 ? "that list" : "those lists"} and their memberships. Contacts themselves are not deleted.`
+                  : "This folder is empty. Deleting it does not touch any list."}
+              </p>
+              <div className="mt-5 flex justify-end gap-2">
+                <button onClick={()=>setConfirmFolder(null)} className="btn-ghost">Cancel</button>
+                <button
+                  onClick={()=>removeFolder(folder)}
+                  disabled={busy==="folder-"+folder.id}
+                  className="btn-danger"
+                >
+                  Delete folder
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {creating&&(
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink-50/80 p-4 py-10 backdrop-blur-sm">
