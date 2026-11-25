@@ -587,6 +587,73 @@ function ErrorDisplay({err,onRetry}){
 
 
 
+function ListRail({folders=[], lists=[], selectedList="all", folderFilter="all", listSearch="", allCount=0, eligibleCount=0, onSelect, onFolder, onSearch, onCreate, hideSearch=false}){
+
+  const countIn=(id)=>lists.filter(l=>String(l.folder_id)===String(id)).length;
+
+  const row=(key,label,count,active,extraClass="")=>(
+    <button
+      key={key}
+      onClick={()=>onSelect(key)}
+      title={label}
+      className={"flex w-full min-w-0 shrink-0 items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors "+(active?"bg-brand-50 font-medium text-brand-700":"text-ink-600 hover:bg-ink-50")+" "+extraClass}
+    >
+      <span className="min-w-0 truncate">{label}</span>
+      {count!=null&&<span className="shrink-0 tabular-nums text-[11px] text-ink-400">{count}</span>}
+    </button>
+  );
+
+  const folderRow=(id,label,count)=>(
+    <button
+      key={"folder-"+id}
+      onClick={()=>onFolder(String(id))}
+      title={label}
+      className={"flex w-full min-w-0 shrink-0 items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors "+(folderFilter===String(id)?"bg-ink-100 font-medium text-ink-900":"text-ink-600 hover:bg-ink-50")}
+    >
+      <span className="flex min-w-0 items-center gap-1.5">
+        <Folder className="h-3.5 w-3.5 shrink-0 opacity-60"/>
+        <span className="truncate">{label}</span>
+      </span>
+      <span className="shrink-0 tabular-nums text-[11px] text-ink-400">{count}</span>
+    </button>
+  );
+
+  return (
+    <div className="flex gap-1 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
+      {row("all","All contacts",allCount,selectedList==="all")}
+      {eligibleCount!=null&&row("eligible","Eligible",eligibleCount,selectedList==="eligible")}
+
+      <div className="mt-2 shrink-0 px-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-ink-400">Folders</div>
+
+      {folders.map(f=>folderRow(f.id,f.name,f.listCount ?? countIn(f.id)))}
+      {folderRow("none","No folder",lists.filter(l=>!l.folder_id).length)}
+
+      {!hideSearch&&(
+        <div className="mt-2 shrink-0 px-1">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-400"/>
+            <input
+              type="text"
+              placeholder="Search lists..."
+              className="input w-full py-1.5 pl-8 text-[12.5px]"
+              value={listSearch}
+              onChange={e=>onSearch(e.target.value)}
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="mt-1 shrink-0 px-1">
+        <button onClick={onCreate} className="btn-ghost btn-sm w-full justify-start">
+          <Plus className="h-3.5 w-3.5"/>New list
+        </button>
+      </div>
+
+      {lists.length===0&&<p className="shrink-0 px-2.5 py-2 text-[12px] text-ink-400">No lists match.</p>}
+    </div>
+  );
+}
+
 function ListsView({api,notify}){
 
   const [folders,setFolders]=useState([]);
@@ -637,22 +704,22 @@ function ListsView({api,notify}){
       {error&&<div className="notice-error">{error}</div>}
 
       <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
-        {/* Folder rail, Brevo-style */}
+        {/* Folder rail, shared with the Contacts page so they cannot drift */}
         <Card title="Folders" className="h-max">
-          <div className="space-y-1">
-            <button onClick={()=>setActiveFolder("all")} className={"flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[13px] "+(activeFolder==="all"?"bg-brand-50 font-medium text-brand-700":"text-ink-600 hover:bg-ink-50")}>
-              <span>All lists</span><span className="tabular-nums text-[11px] text-ink-400">{lists.length}</span>
-            </button>
-            {folders.map(f=>(
-              <button key={f.id} onClick={()=>setActiveFolder(String(f.id))} className={"flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[13px] "+(activeFolder===String(f.id)?"bg-brand-50 font-medium text-brand-700":"text-ink-600 hover:bg-ink-50")}>
-                <span className="truncate">{f.name}</span>
-                <span className="tabular-nums text-[11px] text-ink-400">{lists.filter(l=>String(l.folder_id)===String(f.id)).length}</span>
-              </button>
-            ))}
-            <button onClick={()=>setActiveFolder("none")} className={"flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[13px] "+(activeFolder==="none"?"bg-brand-50 font-medium text-brand-700":"text-ink-600 hover:bg-ink-50")}>
-              <span>No folder</span><span className="tabular-nums text-[11px] text-ink-400">{lists.filter(l=>!l.folder_id).length}</span>
-            </button>
-          </div>
+          <ListRail
+            folders={folders}
+            lists={lists}
+            selectedList={activeFolder === "all" || activeFolder === "none" ? "all" : String(activeFolder)}
+            folderFilter={activeFolder}
+            listSearch=""
+            allCount={lists.length}
+            eligibleCount={null}
+            onSelect={(key)=>{ if(key==="all"||key==="eligible"){ setActiveFolder("all"); } }}
+            onFolder={(id)=>setActiveFolder(id==="none"?"none":id)}
+            onSearch={()=>{}}
+            onCreate={()=>notify("Create lists from the Contacts page")}
+            hideSearch
+          />
         </Card>
 
         {/* List cards */}
@@ -1870,8 +1937,6 @@ export default function App(){
   const [newFolderName, setNewFolderName] = useState("");
 
   const [folderError, setFolderError] = useState(null);
-
-  const [openListMenu, setOpenListMenu] = useState(null);
 
   const [listSearch, setListSearch] = useState("");
 
@@ -5068,106 +5133,91 @@ export default function App(){
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-200 bg-ink-50 px-5 py-2.5 max-md:px-4">
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex items-center gap-1.5">
+                  <span className="flex items-center gap-1.5 text-[12.5px] text-ink-500">
                     <Folder className="h-4 w-4 text-ink-400"/>
-                    <select
-                      className="select w-auto py-1.5 text-[12.5px]"
-                      value={folderFilter}
-                      onChange={e => setFolderFilter(e.target.value)}
-                    >
-                      <option value="all">All folders</option>
-                      {folders.map(folder => (
-                        <option key={folder.id} value={String(folder.id)}>{folder.name} ({folder.listCount})</option>
-                      ))}
-                      <option value="none">No folder</option>
-                    </select>
-                  </div>
+                    {folderFilter === "all" ? "All folders" : folderFilter === "none" ? "No folder" : (folders.find(f => String(f.id) === folderFilter)?.name || "Folder")}
+                  </span>
                   <button
                     onClick={() => { setShowFolderModal(true); setFolderError(null); }}
                     className="btn-ghost btn-sm"
                   >
                     <FolderPlus className="h-3.5 w-3.5"/>New folder
                   </button>
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-400"/>
-                    <input
-                      type="text"
-                      placeholder="Search lists..."
-                      className="input w-48 py-1.5 pl-8 text-[12.5px]"
-                      value={listSearch}
-                      onChange={e => setListSearch(e.target.value)}
-                    />
-                  </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-1.5 text-[12.5px] text-ink-500">
                     <Info className="h-3.5 w-3.5 opacity-70"/>
                     <span className="tabular-nums">{filteredContactsCount} contacts</span>
                   </div>
-                  <button
-                    onClick={() => { setNewListName(""); setNewListFolder(""); setListError(null); setShowListModal(true); }}
-                    className="btn-primary"
-                  >
-                    <Plus className="h-3.5 w-3.5"/>Create a list
-                  </button>
                 </div>
               </div>
 
-              {/* List tabs: newest list first, like Brevo */}
-              <div className="flex flex-wrap items-center gap-1 border-b border-ink-200 px-5 py-2.5">
-                <button
-                  onClick={() => setSelectedList("all")}
-                  className={selectedList === "all" ? "seg-item-active" : "seg-item"}
-                >
-                  All contacts <span className="opacity-60">({state.contacts?.length || 0})</span>
-                </button>
-                <button
-                  onClick={() => setSelectedList("eligible")}
-                  className={selectedList === "eligible" ? "seg-item-active" : "seg-item"}
-                >
-                  Eligible
-                </button>
-                {visibleLists.map(list => (
-                  <span key={list.id} className="relative flex min-w-0 shrink-0 items-center">
-                    <button
-                      onClick={() => setSelectedList(String(list.id))}
-                      className={(selectedList === String(list.id) ? "seg-item-active rounded-r-none pr-1" : "seg-item rounded-r-none pr-1") + " min-w-0 max-w-[200px] truncate"}
-                      title={list.name}
-                    >
-                      {list.name} <span className="opacity-60">({list.total_subscribers ?? list.member_count})</span>
-                    </button>
-                    <button
-                      onClick={() => setOpenListMenu(openListMenu === list.id ? null : list.id)}
-                      className={"shrink-0 rounded-r-md py-1.5 pl-1 pr-2 text-[12px] transition-colors " + (selectedList === String(list.id) ? "bg-brand-600 text-white/80 hover:bg-brand-700" : "text-ink-400 hover:bg-ink-100 hover:text-ink-700")}
-                      title={`Actions for ${list.name}`}
-                      aria-label={`Actions for ${list.name}`}
-                    >
-                      <MoreHorizontal className="h-4 w-4"/>
-                    </button>
-                    {openListMenu === list.id && (
-                      <div className="absolute left-0 top-full z-30 mt-1 w-56 rounded-xl border border-ink-200 bg-ink-100 py-1 shadow-pop">
-                        {[
-                          { label: "List settings", icon: SlidersHorizontal, onClick: () => { setShowListSettings(list); setListSettingsForm({ description: list.description || "", from_name: list.from_name || "", from_email: list.from_email || "", reply_to: list.reply_to || "", header: list.header || "", footer: list.footer || "" }); setListError(null); } },
-                          { label: "Duplicate", icon: Copy, onClick: () => duplicateList(list.id) },
-                          { label: "Import contacts to the list", icon: Upload, onClick: () => { setShowListImport(list); setListImportText(""); setListError(null); } },
-                          { label: "Rename", icon: Pencil, onClick: () => { setShowRenameList(list); setRenameListName(list.name); setListError(null); } },
-                          { label: "Move", icon: MoveRight, onClick: () => { setShowMoveList(list); setListError(null); } },
-                          { label: "Delete list", icon: Trash2, danger: true, onClick: () => { setOpenListMenu(null); deleteList(list.id); } },
-                        ].map(item => (
-                          <button
-                            key={item.label}
-                            onClick={() => { setOpenListMenu(null); item.onClick(); }}
-                            className={"flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-ink-50 " + (item.danger ? "text-danger-600" : "text-ink-700")}
-                          >
-                            <item.icon className="h-4 w-4 opacity-70"/>{item.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </span>
-                ))}
-                {listError && <span className="text-[12px] text-danger-600">{listError}</span>}
-              </div>
+              {/* Brevo-style: lists own the page. The rail navigates; the table
+                  on the right always shows the selected list. */}
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+
+                <Card title="Lists" className="shrink-0 lg:w-[248px] lg:overflow-y-auto lg:border-r">
+                  <ListRail
+                    folders={folders}
+                    lists={visibleLists}
+                    selectedList={selectedList}
+                    folderFilter={folderFilter}
+                    listSearch={listSearch}
+                    allCount={state.contacts?.length || 0}
+                    eligibleCount={state.contacts?.filter(c=>c.eligible_to_email===true).length || 0}
+                    onSelect={setSelectedList}
+                    onFolder={setFolderFilter}
+                    onSearch={setListSearch}
+                    onCreate={() => { setNewListName(""); setNewListFolder(""); setListError(null); setShowListModal(true); }}
+                  />
+                  {listError && <p className="mt-2 px-1 text-[12px] text-danger-600">{listError}</p>}
+                </Card>
+
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+
+              {/* Selected list identity + counts, so the table is unambiguous */}
+              {selectedList !== "all" && selectedList !== "eligible" && (() => {
+                const current = lists.find(l => String(l.id) === selectedList);
+                if (!current) return null;
+                return (
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-200 bg-ink-50 px-5 py-2.5 max-md:px-4">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <h2 className="truncate text-[14px] font-semibold text-ink-900">{current.name}</h2>
+                      {current.folder_name && <Pill v={current.folder_name}/>}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => { setShowListSettings(current); setListSettingsForm({ description: current.description || "", from_name: current.from_name || "", from_email: current.from_email || "", reply_to: current.reply_to || "", header: current.header || "", footer: current.footer || "" }); setListError(null); }}
+                        className="icon-btn"
+                        title="List settings"
+                      >
+                        <SlidersHorizontal className="h-4 w-4"/>
+                      </button>
+                      <button
+                        onClick={() => duplicateList(current.id)}
+                        className="icon-btn"
+                        title="Duplicate list"
+                      >
+                        <Copy className="h-4 w-4"/>
+                      </button>
+                      <button
+                        onClick={() => { setShowRenameList(current); setRenameListName(current.name); setListError(null); }}
+                        className="icon-btn"
+                        title="Rename list"
+                      >
+                        <Pencil className="h-4 w-4"/>
+                      </button>
+                      <button
+                        onClick={() => deleteList(current.id)}
+                        className="icon-btn hover:bg-danger-50 hover:text-danger-600"
+                        title="Delete list"
+                      >
+                        <Trash2 className="h-4 w-4"/>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* List context bar: counts and bulk actions for the open list */}
               {selectedList !== "all" && selectedList !== "eligible" && (
@@ -5412,6 +5462,8 @@ export default function App(){
                     )}
                   </tbody>
                 </table>
+              </div>
+                </div>
               </div>
             </div>
           </div>
