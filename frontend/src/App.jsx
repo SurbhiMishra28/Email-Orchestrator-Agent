@@ -920,7 +920,7 @@ function ListsView({api,notify,setSelectedList,setView}){
   return (
     <div className="space-y-4">
       <PageHeader title="Lists" subtitle="Folders group your lists; a list is an audience you can send a campaign to." eyebrow="Audience">
-        <button onClick={()=>{ setCreatingFolder(true); setNewFolderName(""); }} className="btn-secondary">
+        <button onClick={()=>{ setCreatingFolder(true); setNewFolderName(""); }} className="btn-primary">
           <FolderPlus className="h-3.5 w-3.5"/>Create a folder
         </button>
         <button onClick={()=>{ setNewList({name:"",folder_id: activeFolder!=="all"&&activeFolder!=="none" ? activeFolder : ""}); setCreating(true); }} className="btn-primary">
