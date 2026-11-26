@@ -72,8 +72,9 @@ def test_followup_template_is_substantial(monkeypatch):
 
     assert len(DEFAULT_FOLLOWUP_BODY) > 400
     assert "Just wanted to follow up on my previous email" not in DEFAULT_FOLLOWUP_BODY
-    for needle in ("{{ business_offer }}", "{{ first_name", "calendly_url"):
-        assert needle in DEFAULT_FOLLOWUP_BODY
+    # The follow-up restates the value and carries the signature block.
+    for needle in ("{{ first_name", "calendly_url", "{{ business_name", "{{ business_address", "{{ company_website"):
+        assert needle in DEFAULT_FOLLOWUP_BODY, needle
 
 
 def test_provisioning_upgrades_the_old_followup(monkeypatch):

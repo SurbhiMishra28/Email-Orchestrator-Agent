@@ -383,8 +383,15 @@ class EmailAgent:
             if not template:
                 return {"success": False, "error": "Template not found or inactive"}
             
-            # Expand template
-            expanded = await expand_template_with_ai(template, contact, use_ai=use_ai)
+            # Expand template. ``use_ai`` is only passed when it is off, so a
+            # caller (or a test double) with the original two-argument signature
+            # keeps working.
+            if use_ai:
+                expanded = await expand_template_with_ai(template, contact)
+            else:
+                expanded = await expand_template_with_ai(
+                    template, contact, use_ai=False
+                )
             subject = expanded["subject"]
             body = expanded["body"]
             
