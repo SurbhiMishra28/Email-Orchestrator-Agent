@@ -780,18 +780,21 @@ function ListsView({api,notify,setSelectedList,setView}){
 
   useEffect(()=>{ load(); },[load]);
 
-  // A fixed-position menu must be dismissed explicitly: it no longer closes
-  // because the row re-rendered, and scrolling would leave it floating.
+  // Dismiss the fixed menu on an outside click or Escape.
+  //
+  // There is deliberately no ``scroll`` listener: it was registered in the
+  // capture phase, so the scroll event that opening the menu itself can trigger
+  // closed it again immediately and the menu looked dead.
   useEffect(()=>{
     if(!openMenu) return;
     const close=()=>setOpenMenu(null);
     const onKey=(e)=>{ if(e.key==="Escape") close(); };
-    window.addEventListener("click",close);
-    window.addEventListener("scroll",close,true);
+    // Attach on the next tick so the click that opened the menu cannot reach it.
+    const timer=setTimeout(()=>window.addEventListener("click",close),0);
     window.addEventListener("keydown",onKey);
     return ()=>{
+      clearTimeout(timer);
       window.removeEventListener("click",close);
-      window.removeEventListener("scroll",close,true);
       window.removeEventListener("keydown",onKey);
     };
   },[openMenu]);
