@@ -804,15 +804,8 @@ function ListsView({api,notify,setSelectedList,setView}){
     });
   };
 
-  const allSelected=filtered.length>0 && filtered.every(l=>selectedLists.has(l.id));
-
-  const toggleAllLists=()=>{
-    setSelectedLists(prev=>{
-      if(filtered.length>0 && filtered.every(l=>prev.has(l.id))) return new Set();
-      return new Set(filtered.map(l=>l.id));
-    });
-  };
-
+  // Declared before the selection helpers: ``allSelected`` reads it, and a
+  // ``const`` used above its declaration throws at render time.
   const filtered=lists.filter(l=>{
     const inFolder = activeFolder==="all" || (activeFolder==="none" ? !l.folder_id : String(l.folder_id)===String(activeFolder));
     // Brevo searches by name OR id ("Search a list name or ID").
@@ -822,6 +815,15 @@ function ListsView({api,notify,setSelectedList,setView}){
       || String(l.id)===term;
     return inFolder && match;
   });
+
+  const allSelected=filtered.length>0 && filtered.every(l=>selectedLists.has(l.id));
+
+  const toggleAllLists=()=>{
+    setSelectedLists(prev=>{
+      if(filtered.length>0 && filtered.every(l=>prev.has(l.id))) return new Set();
+      return new Set(filtered.map(l=>l.id));
+    });
+  };
 
   const pageCount=Math.max(1, Math.ceil(filtered.length/perPage));
   const currentPage=Math.min(page,pageCount);
@@ -2212,7 +2214,7 @@ function CampaignWizard({api,notify,lists,folders,templates,aliases,abTests,onCl
   const [error,setError]=useState(null);
   const [preview,setPreview]=useState(null);
   const [form,setForm]=useState({
-    name:"",subject:"",preview_text:"",campaign_type:"marketing",
+    name:"",campaign_type:"marketing",
     list_ids:[],exclude_list_ids:[],template_id:"",alias_id:"",
     scheduled_at:"",timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||"UTC",
     ab:A_B_DEFAULTS,
@@ -2266,8 +2268,6 @@ function CampaignWizard({api,notify,lists,folders,templates,aliases,abTests,onCl
     try{
       const payload={
         name:form.name.trim(),
-        subject:form.subject.trim()||undefined,
-        preview_text:form.preview_text.trim()||undefined,
         campaign_type:form.campaign_type,
         list_ids:form.list_ids,
         exclude_list_ids:form.exclude_list_ids,
@@ -2285,8 +2285,8 @@ function CampaignWizard({api,notify,lists,folders,templates,aliases,abTests,onCl
           split_a:form.ab.split_a, split_b:100-form.ab.split_a,
           evaluation_hours:form.ab.evaluation_hours,
           variants:[
-            {label:"A",subject:form.ab.subject_a||payload.subject||"Version A",body:form.ab.body_a||"Version A body"},
-            {label:"B",subject:form.ab.subject_b||payload.subject||"Version B",body:form.ab.body_b||"Version B body"},
+            {label:"A",subject:form.ab.subject_a||"Version A",body:form.ab.body_a||"Version A body"},
+            {label:"B",subject:form.ab.subject_b||"Version B",body:form.ab.body_b||"Version B body"},
           ],
         })});
         payload.ab_test_id=test.id;
@@ -2304,12 +2304,6 @@ function CampaignWizard({api,notify,lists,folders,templates,aliases,abTests,onCl
       <div className="space-y-3">
         <label className="field-label block">Campaign name *
           <input className={inputCls+" mt-1"} autoFocus value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="e.g. Q4 product launch"/>
-        </label>
-        <label className="field-label block">Subject line
-          <input className={inputCls+" mt-1"} value={form.subject} onChange={e=>setForm({...form,subject:e.target.value})} placeholder="What the recipient sees first"/>
-        </label>
-        <label className="field-label block">Preview text
-          <input className={inputCls+" mt-1"} value={form.preview_text} onChange={e=>setForm({...form,preview_text:e.target.value})} placeholder="Shown next to the subject in most inboxes"/>
         </label>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="field-label block">Sender
@@ -2457,7 +2451,7 @@ function CampaignWizard({api,notify,lists,folders,templates,aliases,abTests,onCl
     return (
       <div className="space-y-2 rounded-lg border border-ink-200 bg-ink-50 p-3 text-[12.5px] text-ink-700">
         <div className="flex justify-between"><span className="text-ink-500">Name</span><span className="font-medium text-ink-900">{form.name||"-"}</span></div>
-        <div className="flex justify-between"><span className="text-ink-500">Subject</span><span className="font-medium text-ink-900">{form.subject||"From template"}</span></div>
+        <div className="flex justify-between"><span className="text-ink-500">Template</span><span className="font-medium text-ink-900">{templates.find(t=>String(t.id)===String(form.template_id))?.name||"First active template"}</span></div>
         <div className="flex justify-between"><span className="text-ink-500">Recipients</span><span className="font-medium text-ink-900">{preview?.total_recipients==null?"All eligible contacts":preview.total_recipients}</span></div>
         <div className="flex justify-between"><span className="text-ink-500">Lists</span><span className="max-w-[60%] text-right font-medium text-ink-900">{form.list_ids.map(id=>lists.find(l=>l.id===id)?.name||id).join(", ")||"All contacts"}</span></div>
         <div className="flex justify-between"><span className="text-ink-500">A/B test</span><span className="font-medium text-ink-900">{form.ab.enabled?`${form.ab.test_type} test, ${form.ab.split_a}/${100-form.ab.split_a}`:"Off"}</span></div>
@@ -4490,6 +4484,31 @@ export default function App(){
     } catch (e) {
 
       setInboxError(e.message);
+
+    } finally {
+
+      setInboxBusy(false);
+
+    }
+
+  };
+
+  // Delete one stored message. The copy in the IMAP mailbox is untouched.
+  const deleteInboxMessage = async (messageId) => {
+
+    setInboxBusy(true);
+
+    setInboxError(null);
+
+    try {
+
+      await api(`/api/inbox/messages/${messageId}`, { method: "DELETE" });
+
+      await loadInbox();
+
+    } catch (e) {
+
+      setInboxError(e.message || "Could not delete that message");
 
     } finally {
 
@@ -7098,7 +7117,17 @@ export default function App(){
 
                         <p className="truncate text-[13px] font-medium text-ink-900">{m.subject}</p>
 
-                        <span className="shrink-0 text-[11px] tabular-nums text-ink-400">{m.received_at ? new Date(m.received_at).toLocaleString() : ""}</span>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="text-[11px] tabular-nums text-ink-400">{m.received_at ? new Date(m.received_at).toLocaleString() : ""}</span>
+                          <button
+                            onClick={()=>deleteInboxMessage(m.id)}
+                            className="icon-btn h-6 w-6 hover:bg-danger-50 hover:text-danger-600"
+                            title="Delete this stored message"
+                            aria-label="Delete message"
+                          >
+                            <Trash2 className="h-3.5 w-3.5"/>
+                          </button>
+                        </div>
 
                       </div>
 

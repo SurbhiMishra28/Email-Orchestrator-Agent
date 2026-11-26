@@ -193,3 +193,30 @@ def sync(limit: int = 25, tenant_id: int = Depends(current_tenant_id)):
         return {"configured": True, **result}
     finally:
         db.close()
+
+
+@router.delete("/messages/{message_id}")
+def delete_message(message_id: int, tenant_id: int = Depends(current_tenant_id)):
+    """Delete one stored inbox message.
+
+    This removes the local copy only. The message stays in the IMAP mailbox and
+    is untouched there, which is what the Inbox screen promises.
+    """
+    db = SessionLocal()
+    try:
+        message = (
+            db.query(InboxMessage)
+            .filter(
+                InboxMessage.id == message_id,
+                InboxMessage.tenant_id == tenant_id,
+            )
+            .first()
+        )
+        if message is None:
+            raise HTTPException(status_code=404, detail="Message not found")
+
+        db.delete(message)
+        db.commit()
+        return {"message": "Message deleted", "id": message_id}
+    finally:
+        db.close()
