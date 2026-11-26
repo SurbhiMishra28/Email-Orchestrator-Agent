@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base, Contact, Draft, Settings
-from app.services.limits import PACING_SECONDS, check_send_allowed
+from app.services.limits import DEFAULT_PACING_SECONDS, check_send_allowed
 
 
 @pytest.fixture
@@ -51,7 +51,7 @@ def test_pacing_blocks_a_second_send_within_a_minute(db):
 
     assert not allowed
     assert reason.startswith("Pacing")
-    assert PACING_SECONDS == 60
+    assert DEFAULT_PACING_SECONDS == 60
 
 
 def test_daily_cap_blocks_after_warmup_limit(db):

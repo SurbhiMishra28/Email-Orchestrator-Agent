@@ -6,6 +6,7 @@ and 60-second pacing. A blocked send never mutates the draft.
 Every counter is scoped to one tenant: a busy account must not consume another
 tenant's daily allowance or trigger its pacing delay.
 """
+import os
 from datetime import datetime, time, timedelta, timezone
 from typing import Optional, Tuple
 
@@ -16,7 +17,11 @@ from app.db import Contact, Draft, Settings, Tenant
 # Daily ceiling for a single workspace. Ten per day is deliberate: it stays
 # inside a consumer mailbox's comfortable range and keeps a cold thread from
 # looking like a blast, while still being enough to work through a small list.
-POST_WARMUP_CAP = 10
+# ``DAILY_CAP`` overrides it per deployment; the default stays 10 so an
+# unconfigured install is conservative. The value is read at call time, not at
+# import, so a test or a restarted process can raise it without a code change.
+DEFAULT_DAILY_CAP = 10
+POST_WARMUP_CAP = DEFAULT_DAILY_CAP
 
 # No warm-up ramp. The ramp exists to protect a brand-new sending domain, and
 # this deployment sends from an established mailbox, so a flat cap is both
@@ -24,8 +29,36 @@ POST_WARMUP_CAP = 10
 WARMUP_CAPS = ()
 
 # Minimum gap between two sends. One message a minute is roughly the ceiling a
-# consumer mailbox tolerates without looking automated.
-PACING_SECONDS = 60
+# consumer mailbox tolerates without looking automated. ``PACING_SECONDS``
+# overrides it when a one-off batch has to clear the queue faster.
+DEFAULT_PACING_SECONDS = 60
+PACING_SECONDS = DEFAULT_PACING_SECONDS
+
+
+def _env_int(name: str, default: int) -> int:
+    """Parse a positive integer setting, falling back to ``default``."""
+    raw = os.getenv(name)
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+def hard_daily_cap() -> int:
+    """The deployment-wide daily ceiling (``DAILY_CAP``, else ``POST_WARMUP_CAP``)."""
+    if os.getenv("DAILY_CAP"):
+        return _env_int("DAILY_CAP", POST_WARMUP_CAP)
+    return POST_WARMUP_CAP
+
+
+def pacing_seconds() -> int:
+    """The minimum gap between two sends (``PACING_SECONDS``, else the module default)."""
+    if os.getenv("PACING_SECONDS"):
+        return _env_int("PACING_SECONDS", PACING_SECONDS)
+    return PACING_SECONDS
 
 
 def _utc(value: Optional[datetime]) -> Optional[datetime]:
@@ -74,7 +107,12 @@ def sent_to_domain_today(
 
 
 def warmup_cap(db, tenant_id: Optional[int] = None, now: Optional[datetime] = None) -> int:
-    """Cap for the current warm-up day, based on the first successful send."""
+    """Cap for the current warm-up day, based on the first successful send.
+
+    ``WARMUP_CAPS`` is empty, so this is the flat deployment ceiling. When a
+    ramp is configured it still may never exceed ``DAILY_CAP``.
+    """
+    ceiling = hard_daily_cap()
     first = (
         _tenant_drafts(db, tenant_id)
         .with_entities(func.min(Draft.sent_at))
@@ -83,13 +121,13 @@ def warmup_cap(db, tenant_id: Optional[int] = None, now: Optional[datetime] = No
     )
     first = _utc(first)
     if first is None:
-        return POST_WARMUP_CAP
+        return ceiling
     now = now or datetime.now(timezone.utc)
     day = (now.date() - first.date()).days + 1
     for last_day, cap in WARMUP_CAPS:
         if day <= last_day:
-            return cap
-    return POST_WARMUP_CAP
+            return min(cap, ceiling)
+    return ceiling
 
 
 def seconds_since_last_send(
@@ -141,9 +179,9 @@ def check_tenant_send_allowed(
         settings_query = settings_query.filter(Settings.tenant_id == tenant_id)
     settings = settings_query.first()
 
-    configured_daily = settings.daily_cap if settings else POST_WARMUP_CAP
+    configured_daily = settings.daily_cap if settings else hard_daily_cap()
     configured_domain = settings.domain_cap if settings else 3
-    ceiling = configured_daily or POST_WARMUP_CAP
+    ceiling = configured_daily or hard_daily_cap()
     plan_limit = plan_daily_limit(db, tenant_id)
     if plan_limit is not None:
         ceiling = min(ceiling, plan_limit)
@@ -167,8 +205,9 @@ def check_tenant_send_allowed(
         )
 
     elapsed = seconds_since_last_send(db, tenant_id, now)
-    if elapsed is not None and elapsed < PACING_SECONDS:
-        wait = int(PACING_SECONDS - elapsed) + 1
+    gap = pacing_seconds()
+    if elapsed is not None and elapsed < gap:
+        wait = int(gap - elapsed) + 1
         return False, f"Pacing: wait {wait}s before the next send."
 
     return True, ""

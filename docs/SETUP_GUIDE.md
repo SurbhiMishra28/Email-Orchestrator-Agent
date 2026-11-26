@@ -231,22 +231,22 @@ npm run dev
 | `NVIDIA_MODEL` | No | llama-3.1-nemotron-70b-instruct | AI model ID |
 | `AUTOPILOT` | No | false | Auto-send approved drafts |
 | `AUTO_APPROVE` | No | false | Auto-approve all drafts |
-| `DAILY_CAP` | No | 50 | Daily send limit |
+| `DAILY_CAP` | No | 10 | Deployment-wide daily send ceiling |
 | `DOMAIN_CAP` | No | 3 | Per-domain daily limit |
+| `PACING_SECONDS` | No | 60 | Minimum seconds between two sends |
 | `CORS_ORIGINS` | No | - | Comma-separated allowed origins |
 
-### Sending Limits (Warm-up)
+### Sending Limits
 
-The system enforces a progressive warm-up period:
+There is no warm-up ramp. The effective daily cap is the lowest of `DAILY_CAP`
+(default 10), `Settings.daily_cap` (default 50), and the tenant's
+`daily_email_limit` (default 50). With the shipped configuration that is 10/day.
+The per-recipient-domain cap (`Settings.domain_cap`, default 3) and the pacing
+gap (`PACING_SECONDS`, default 60) apply on top.
 
-| Days Since First Send | Daily Cap |
-|----------------------|-----------|
-| Days 1-3 | 5 emails |
-| Days 4-7 | 10 emails |
-| Days 8-14 | 30 emails |
-| Day 15+ | 50 emails |
-
-The lower of: warm-up cap, `DAILY_CAP`, and domain cap applies.
+To send 50 in one day: `DAILY_CAP=50`, `Settings.daily_cap=50`,
+`Settings.domain_cap=50`, and a tenant limit of 50 or more. At the default
+pacing that batch takes about 50 minutes.
 
 ---
 

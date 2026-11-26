@@ -136,13 +136,11 @@ async def create_intro_drafts(
 
         skipped = 0
         for contact in contacts:
-            # Lock the contact row so a concurrent invocation cannot pass the
-            # existence check at the same moment and create a twin draft.
-            try:
-                db.query(Contact).filter(Contact.id == contact.id).with_for_update().one()
-            except Exception:  # locking is best-effort on SQLite
-                pass
-
+            # No row lock here on purpose. A ``SELECT ... FOR UPDATE`` inside a
+            # request that the platform then kills leaves the lock held by an
+            # abandoned transaction, and every later request blocks on it --
+    # which presents as the whole app hanging. ``dedupe_intro_drafts`` already
+            # collapses any duplicate that a race does produce.
             if _open_draft_exists(db, tenant_id, contact.id):
                 skipped += 1
                 continue

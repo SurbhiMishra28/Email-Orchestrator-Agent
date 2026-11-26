@@ -144,7 +144,7 @@ async def drain_queue(
     ``paused`` so a caller can tell "all sent" from "stopped by a limit".
     """
     from app.agents import QueueManager
-    from app.services.limits import PACING_SECONDS
+    from app.services.limits import pacing_seconds
 
     totals: Dict[str, Any] = {
         "processed": 0,
@@ -174,11 +174,12 @@ async def drain_queue(
         )
         if paused:
             totals["paused"] = True
-            if time.monotonic() + PACING_SECONDS >= deadline:
+            gap = pacing_seconds()
+            if time.monotonic() + gap >= deadline:
                 break
             # Pacing is the only reason worth waiting for: the next draft is
             # ready, just not yet allowed to leave.
-            await asyncio.sleep(PACING_SECONDS)
+            await asyncio.sleep(gap)
             continue
 
         # A pass that sent nothing and was not merely paced means there is

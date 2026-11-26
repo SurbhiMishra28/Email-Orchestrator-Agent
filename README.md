@@ -231,18 +231,27 @@ clicks to another tenant. Redirects only follow absolute `http(s)` targets. Turn
 tracking off stops all future pixels; it does not delete events already recorded.
 
 
-### Sending Limits (Warm-up)
+### Sending Limits
 
-The system enforces a progressive warm-up period:
+There is no day-based warm-up ramp. A workspace's effective daily cap is the
+**lowest** of:
 
-| Days Since First Send | Daily Cap |
-|----------------------|-----------|
-| Days 1-3 | 5 emails |
-| Days 4-7 | 10 emails |
-| Days 8-14 | 30 emails |
-| Day 15+ | 50 emails |
+| Source | Default | How to change |
+|---|---|---|
+| `DAILY_CAP` (deployment ceiling) | 10 | environment variable |
+| `Settings.daily_cap` | 50 (config default) | Settings page / `POST /api/settings` |
+| `Tenant.daily_email_limit` | 50 (free plan) | tenant plan; `0`/`NULL` = unlimited |
 
-The lower of this cap, `DAILY_CAP`, and the recipient-domain cap always applies.
+With the shipped configuration that is **10 sends per day**, because the
+`DAILY_CAP` ceiling is 10 unless the deployment raises it. Sends are also paced
+at least 60 seconds apart (`PACING_SECONDS`), so 50 messages take roughly 50
+minutes, and the per-recipient-domain cap (`Settings.domain_cap`, default 3)
+applies on top.
+
+To send 50 in a day, set `DAILY_CAP=50`, raise `Settings.daily_cap` and
+`Settings.domain_cap` to at least 50, and keep `Tenant.daily_email_limit` at 50
+or higher.
+
 Warm-up day 1 begins with the first successful send. Contacts are ineligible by
 default and must be explicitly marked eligible in Contacts or imported with an
 `email_permission` CSV column set to `true` for permission-based recipients.
