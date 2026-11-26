@@ -3304,7 +3304,7 @@ export default function App(){
 
   const [addContactOpen, setAddContactOpen] = useState(false);
 
-  const [addContactForm, setAddContactForm] = useState({email:"",name:"",company:"",role:"",industry:"",notes:"",eligible_to_email:true});
+  const [addContactForm, setAddContactForm] = useState({email:"",name:""});
 
   const [sendSelectedOpen, setSendSelectedOpen] = useState(false);
 
@@ -4728,29 +4728,22 @@ export default function App(){
 
         method:"POST",
 
+        // Only name and email are asked for. Everything else stays at its
+        // default and can be filled in later from the contact record.
+        // ``eligible_to_email`` is sent explicitly: the API default is False, and
+        // a contact added here is one the operator just typed in, so it must be
+        // mailable or the autopilot would silently skip it.
         body:JSON.stringify({
-
           email: addContactForm.email.trim(),
-
           name: addContactForm.name.trim()||undefined,
-
-          company: addContactForm.company.trim()||undefined,
-
-          role: addContactForm.role.trim()||undefined,
-
-          industry: addContactForm.industry.trim()||undefined,
-
-          notes: addContactForm.notes.trim()||undefined,
-
-          eligible_to_email: addContactForm.eligible_to_email
-
+          eligible_to_email: true,
         }),
 
       });
 
       setAddContactOpen(false);
 
-      setAddContactForm({email:"",name:"",company:"",role:"",industry:"",notes:"",eligible_to_email:true});
+      setAddContactForm({email:"",name:""});
 
       setStatus("Contact added successfully");
 
@@ -5773,7 +5766,7 @@ export default function App(){
                   <Upload className="h-3.5 w-3.5"/>Import CSV
                 </button>
                 <button
-                  onClick={()=>{setAddContactOpen(true);setAddContactForm({email:"",name:"",company:"",role:"",industry:"",notes:"",eligible_to_email:true});}}
+                  onClick={()=>{setAddContactOpen(true);setAddContactForm({email:"",name:""});}}
                   className="btn-primary"
                 >
                   <Plus className="h-3.5 w-3.5"/>Add contact
@@ -6137,7 +6130,7 @@ export default function App(){
                                   <Upload className="h-3.5 w-3.5"/>Import CSV
                                 </button>
                                 <button
-                                  onClick={()=>{setAddContactOpen(true);setAddContactForm({email:"",name:"",company:"",role:"",industry:"",notes:"",eligible_to_email:true});}}
+                                  onClick={()=>{setAddContactOpen(true);setAddContactForm({email:"",name:""});}}
                                   className="btn-primary btn-sm"
                                 >
                                   <Plus className="h-3.5 w-3.5"/>Add contact
@@ -7584,19 +7577,11 @@ export default function App(){
 
                 <h3 className="modal-title">Add Contact</h3>
 
-                <button onClick={()=>{setAddContactOpen(false);setAddContactForm({email:"",name:"",company:"",role:"",industry:"",notes:"",eligible_to_email:true});}} className="icon-btn" aria-label="Close"><XCircle className="h-5 w-5"/></button>
+                <button onClick={()=>{setAddContactOpen(false);setAddContactForm({email:"",name:""});}} className="icon-btn" aria-label="Close"><XCircle className="h-5 w-5"/></button>
 
               </div>
 
               <div className="modal-body">
-
-                <label className="field-label">
-
-                  Email *
-
-                  <input type="email" className={inputCls+" mt-1"} value={addContactForm.email} onChange={e=>setAddContactForm({...addContactForm,email:e.target.value})} placeholder="contact@example.com"/>
-
-                </label>
 
                 <label className="field-label">
 
@@ -7608,41 +7593,9 @@ export default function App(){
 
                 <label className="field-label">
 
-                  Company
+                  Email *
 
-                  <input type="text" className={inputCls+" mt-1"} value={addContactForm.company} onChange={e=>setAddContactForm({...addContactForm,company:e.target.value})} placeholder="Acme Corp"/>
-
-                </label>
-
-                <label className="field-label">
-
-                  Role
-
-                  <input type="text" className={inputCls+" mt-1"} value={addContactForm.role} onChange={e=>setAddContactForm({...addContactForm,role:e.target.value})} placeholder="CTO"/>
-
-                </label>
-
-                <label className="field-label">
-
-                  Industry
-
-                  <input type="text" className={inputCls+" mt-1"} value={addContactForm.industry} onChange={e=>setAddContactForm({...addContactForm,industry:e.target.value})} placeholder="Technology"/>
-
-                </label>
-
-                <label className="field-label">
-
-                  Notes
-
-                  <textarea rows={2} className={inputCls+" mt-1 resize-none"} value={addContactForm.notes} onChange={e=>setAddContactForm({...addContactForm,notes:e.target.value})} placeholder="Additional notes..."/>
-
-                </label>
-
-                <label className="flex items-center gap-2 pt-2">
-
-                  <input type="checkbox" checked={addContactForm.eligible_to_email} onChange={e=>setAddContactForm({...addContactForm,eligible_to_email:e.target.checked})} className="checkbox"/>
-
-                  <span className="text-[13px] text-ink-700">Eligible to email</span>
+                  <input type="email" className={inputCls+" mt-1"} value={addContactForm.email} onChange={e=>setAddContactForm({...addContactForm,email:e.target.value})} placeholder="contact@example.com"/>
 
                 </label>
 
@@ -7650,7 +7603,7 @@ export default function App(){
 
                 <div className="modal-foot -mx-5 -mb-4">
 
-                  <button onClick={()=>{setAddContactOpen(false);setAddContactForm({email:"",name:"",company:"",role:"",industry:"",notes:"",eligible_to_email:true});setError(null);}} className={btnGhost}>Cancel</button>
+                  <button onClick={()=>{setAddContactOpen(false);setAddContactForm({email:"",name:""});setError(null);}} className={btnGhost}>Cancel</button>
 
                   <button onClick={addContact} className={btnPrimary}>Add Contact</button>
 
