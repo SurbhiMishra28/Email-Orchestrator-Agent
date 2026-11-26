@@ -233,7 +233,7 @@ npm run dev
 | `AUTO_APPROVE` | No | false | Auto-approve all drafts |
 | `DAILY_CAP` | No | 10 | Deployment-wide daily send ceiling |
 | `DOMAIN_CAP` | No | 3 | Per-domain daily limit |
-| `PACING_SECONDS` | No | 60 | Minimum seconds between two sends |
+| `PACING_SECONDS` | No | 10 | Minimum seconds between two sends |
 | `CORS_ORIGINS` | No | - | Comma-separated allowed origins |
 
 ### Sending Limits
@@ -242,11 +242,11 @@ There is no warm-up ramp. The effective daily cap is the lowest of `DAILY_CAP`
 (default 10), `Settings.daily_cap` (default 50), and the tenant's
 `daily_email_limit` (default 50). With the shipped configuration that is 10/day.
 The per-recipient-domain cap (`Settings.domain_cap`, default 3) and the pacing
-gap (`PACING_SECONDS`, default 60) apply on top.
+gap (`PACING_SECONDS`, default 10) apply on top.
 
 To send 50 in one day: `DAILY_CAP=50`, `Settings.daily_cap=50`,
 `Settings.domain_cap=50`, and a tenant limit of 50 or more. At the default
-pacing that batch takes about 50 minutes.
+pacing that batch takes about 8 minutes.
 
 ---
 

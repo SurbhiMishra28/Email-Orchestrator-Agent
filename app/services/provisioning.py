@@ -294,10 +294,11 @@ def provision_tenant_defaults(db, tenant_id: int, inherit_environment: bool = No
 _STOCK_BODIES = {
     "intro": {
         "Hi {{ first_name or 'there' }},\n\nI'm reaching out from {{ business_name or 'our team' }}. {{ business_offer }}\n\nWould you be open to a short conversation to see if this is relevant?\n{% if calendly_url %}Choose a time: {{ calendly_url }}{% else %}If so, reply and we can coordinate a time.{% endif %}\n\n{{ sender_name or 'Best regards' }}",
-        "Hi {{ first_name or 'there' }},\n\nI wanted to bring this back to the top of your inbox in case my last note landed at a busy moment.\n\nThe short version: {{ business_offer }} Most teams I speak with are not looking for a new vendor -- they are looking for one less thing to chase. That is usually the gap worth 15 minutes.\n\nIf the timing is wrong, just say so and I will close the loop and come back next quarter. If it is relevant, here is the easiest next step:\n{% if calendly_url %}{{ calendly_url }}{% else %}reply with a day that works and I will send an invite.{% endif %}\n\nEither way, thanks for reading this far.\n\n{{ sender_name or 'Best regards' }}",
+        "Hi {{first_name}},\n\nJust wanted to follow up on my previous email...",
     },
     "followup": {
         "Hi {{first_name}},\n\nJust wanted to follow up on my previous email...",
+        "Hi {{ first_name or 'there' }},\n\nI wanted to bring this back to the top of your inbox in case my last note landed at a busy moment.\n\nThe short version: {{ business_offer }} Most teams I speak with are not looking for a new vendor -- they are looking for one less thing to chase. That is usually the gap worth 15 minutes.\n\nIf the timing is wrong, just say so and I will close the loop and come back next quarter. If it is relevant, here is the easiest next step:\n{% if calendly_url %}{{ calendly_url }}{% else %}reply with a day that works and I will send an invite.{% endif %}\n\nEither way, thanks for reading this far.\n\n{{ sender_name or 'Best regards' }}",
     },
     "reply": {
         "Hi {{ first_name or 'there' }},\n\nThanks for getting back to me. {{ business_offer }}\n\n{% if calendly_url %}You can grab a time that suits you here: {{ calendly_url }}{% else %}Let me know a couple of times that work for you and I'll send an invite.{% endif %}\n\n{{ sender_name or 'Best regards' }}",

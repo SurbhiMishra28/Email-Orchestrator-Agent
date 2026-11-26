@@ -25,7 +25,7 @@ configured.
   tokens are only needed for the programmatic API
 - **Agent System**: Personalized Email, Reply Analyzer, Auto-Responder, AI Brain, Sender, and Calendar agents
 - **Reply Automation**: Automatic reply generation and sending based on reply classification
-- **Rate Limits**: Warm-up cap (5-50 emails/day based on tenure), daily cap, domain cap
+- **Rate Limits**: Configurable daily cap (`DAILY_CAP`, default 10), per-domain cap
 - **Scheduling**: Follow-ups are automatically queued for days 3 and 5, and stop after a reply or day 8
 - **IMAP Sync**: Read-only inbox polling for reply processing
 - **Gmail API**: OAuth-based HTTPS sending and read-only inbox sync for hosts
@@ -215,7 +215,7 @@ The frontend build check is `npm run build` in `frontend/`.
 The orchestrator coordinates agents for contact personalization, email drafting,
 SMTP sending, reply classification, follow-ups, and IMAP inbox sync. Outbound email
 is plain text by default, sent through the configured authenticated SMTP relay, and
-paced at least 60 seconds apart.
+paced at least 10 seconds apart.
 
 ### Engagement tracking (opt-in)
 
@@ -244,7 +244,7 @@ There is no day-based warm-up ramp. A workspace's effective daily cap is the
 
 With the shipped configuration that is **10 sends per day**, because the
 `DAILY_CAP` ceiling is 10 unless the deployment raises it. Sends are also paced
-at least 60 seconds apart (`PACING_SECONDS`), so 50 messages take roughly 50
+at least 10 seconds apart (`PACING_SECONDS`), so 50 messages take about 8
 minutes, and the per-recipient-domain cap (`Settings.domain_cap`, default 3)
 applies on top.
 
