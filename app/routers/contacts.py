@@ -62,9 +62,15 @@ def list_contacts(
     skip: int = 0,
     limit: int = 1000,
     list_id: int = Query(None),
+    tag: str = Query(None),
+    search: str = Query(None),
     tenant_id: int = Depends(current_tenant_id),
 ):
-    """List the tenant's contacts, optionally limited to one segment."""
+    """List the tenant's contacts, optionally limited to one segment.
+
+    ``tag`` and ``search`` back the list/segment pickers: a segment is a saved
+    tag, so filtering here is what makes "select a segment" a real audience.
+    """
     db = SessionLocal()
     try:
         query = db.query(Contact).filter(Contact.tenant_id == tenant_id)
@@ -76,6 +82,17 @@ def list_contacts(
             ).filter(
                 ContactListMember.list_id == list_id,
                 ContactListMember.tenant_id == tenant_id,
+            )
+        if tag:
+            wanted = tag.strip().lower()
+            query = query.filter(
+                func.lower(func.cast(Contact.tags, func.TEXT)).like(f"%{wanted}%")
+            )
+        if search:
+            needle = f"%{search.strip().lower()}%"
+            query = query.filter(
+                func.lower(Contact.email).like(needle)
+                | func.lower(func.coalesce(Contact.name, "")).like(needle)
             )
         contacts = (
             query.order_by(Contact.id.asc())

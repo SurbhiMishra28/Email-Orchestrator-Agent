@@ -471,8 +471,6 @@ function AnalyticsChart({series}){
 
         })}
 
-        })}
-
       </div>
 
       <div className="mt-3 flex items-center gap-4 text-[12px] text-ink-600">
@@ -2121,6 +2119,313 @@ function TeamView({api,currentUserId}){
 
 
 
+const A_B_DEFAULTS={enabled:false,test_type:"subject",winning_metric:"open_rate",split_a:50,evaluation_hours:4,subject_a:"",subject_b:"",body_a:"",body_b:""};
+
+function CampaignWizard({api,notify,lists,folders,templates,aliases,abTests,onClose,onCreated}){
+  const STEPS=["Details","Audience","Design","Schedule","Review"];
+  const [step,setStep]=useState(0);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState(null);
+  const [preview,setPreview]=useState(null);
+  const [form,setForm]=useState({
+    name:"",subject:"",preview_text:"",campaign_type:"marketing",
+    list_ids:[],exclude_list_ids:[],template_id:"",alias_id:"",
+    scheduled_at:"",timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||"UTC",
+    ab:A_B_DEFAULTS,
+  });
+  const [listSearch,setListSearch]=useState("");
+
+  const visibleLists=useMemo(()=>{
+    const term=listSearch.trim().toLowerCase();
+    if(!term) return lists;
+    return lists.filter(l=>(l.name||"").toLowerCase().includes(term));
+  },[lists,listSearch]);
+
+  const folderName=(id)=>folders.find(f=>String(f.id)===String(id))?.name||"No folder";
+
+  const toggleList=(id)=>{
+    setForm(f=>{
+      const key=String(id);
+      const has=f.list_ids.some(x=>String(x)===key);
+      return {...f,list_ids:has?f.list_ids.filter(x=>String(x)!==key):[...f.list_ids,Number(id)]};
+    });
+  };
+  const toggleExclude=(id)=>{
+    setForm(f=>{
+      const key=String(id);
+      const has=f.exclude_list_ids.some(x=>String(x)===key);
+      return {...f,exclude_list_ids:has?f.exclude_list_ids.filter(x=>String(x)!==key):[...f.exclude_list_ids,Number(id)]};
+    });
+  };
+
+  const estimate=useCallback(async()=>{
+    if(!form.list_ids.length){ setPreview({total_recipients:null,per_list:[],overlap:0}); return; }
+    try{
+      const body=await api("/api/campaigns/audience/preview",{method:"POST",body:JSON.stringify({
+        list_ids:form.list_ids, exclude_list_ids:form.exclude_list_ids,
+      })});
+      setPreview(body);
+    }catch(e){ setError(e?.message||"Could not estimate recipients"); }
+  },[api,form.list_ids,form.exclude_list_ids]);
+
+  useEffect(()=>{ const t=setTimeout(estimate,250); return ()=>clearTimeout(t); },[estimate]);
+
+  const canNext=(()=>{
+    if(step===0) return form.name.trim().length>0;
+    if(step===1) return form.list_ids.length>0||form.includeAll;
+    if(step===4) return form.name.trim().length>0;
+    return true;
+  })();
+
+  const create=async()=>{
+    setBusy(true); setError(null);
+    try{
+      const payload={
+        name:form.name.trim(),
+        subject:form.subject.trim()||undefined,
+        preview_text:form.preview_text.trim()||undefined,
+        campaign_type:form.campaign_type,
+        list_ids:form.list_ids,
+        exclude_list_ids:form.exclude_list_ids,
+        template_id:form.template_id?Number(form.template_id):undefined,
+        alias_id:form.alias_id?Number(form.alias_id):undefined,
+        scheduled_at:form.scheduled_at||undefined,
+        timezone:form.timezone||undefined,
+      };
+      if(form.ab.enabled){
+        const test=await api("/api/ab-tests",{method:"POST",body:JSON.stringify({
+          name:`${payload.name} - ${form.ab.test_type} test`,
+          template_id:payload.template_id||null,
+          test_type:form.ab.test_type,
+          winning_metric:form.ab.winning_metric,
+          split_a:form.ab.split_a, split_b:100-form.ab.split_a,
+          evaluation_hours:form.ab.evaluation_hours,
+          variants:[
+            {label:"A",subject:form.ab.subject_a||payload.subject||"Version A",body:form.ab.body_a||"Version A body"},
+            {label:"B",subject:form.ab.subject_b||payload.subject||"Version B",body:form.ab.body_b||"Version B body"},
+          ],
+        })});
+        payload.ab_test_id=test.id;
+      }
+      const created=await api("/api/campaigns",{method:"POST",body:JSON.stringify(payload)});
+      notify(`Campaign "${created.name}" created`);
+      onCreated?.(created);
+      onClose?.();
+    }catch(e){ setError(e?.message||"Could not create the campaign"); }
+    finally{ setBusy(false); }
+  };
+
+  const stepBody=(()=>{
+    if(step===0) return (
+      <div className="space-y-3">
+        <label className="field-label block">Campaign name *
+          <input className={inputCls+" mt-1"} autoFocus value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="e.g. Q4 product launch"/>
+        </label>
+        <label className="field-label block">Subject line
+          <input className={inputCls+" mt-1"} value={form.subject} onChange={e=>setForm({...form,subject:e.target.value})} placeholder="What the recipient sees first"/>
+        </label>
+        <label className="field-label block">Preview text
+          <input className={inputCls+" mt-1"} value={form.preview_text} onChange={e=>setForm({...form,preview_text:e.target.value})} placeholder="Shown next to the subject in most inboxes"/>
+        </label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="field-label block">Sender
+            <select className={inputCls+" mt-1"} value={form.alias_id} onChange={e=>setForm({...form,alias_id:e.target.value})}>
+              <option value="">Default alias</option>
+              {(aliases||[]).map(alias=>(
+                <option key={alias.id} value={String(alias.id)}>{(alias.name?alias.name+" ":"")+alias.email}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field-label block">Campaign type
+            <select className={inputCls+" mt-1"} value={form.campaign_type} onChange={e=>setForm({...form,campaign_type:e.target.value})}>
+              <option value="marketing">Marketing (consent-based)</option>
+              <option value="transactional">Transactional (event-triggered)</option>
+            </select>
+          </label>
+        </div>
+      </div>
+    );
+    if(step===1) return (
+      <div className="space-y-3">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-400"/>
+          <input className={inputCls+" pl-8"} placeholder="Search contact lists..." value={listSearch} onChange={e=>setListSearch(e.target.value)}/>
+        </div>
+        <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-ink-200 p-2">
+          {visibleLists.length===0&&<p className="px-2 py-3 text-[12.5px] text-ink-500">No lists match. Create one in Lists first.</p>}
+          {visibleLists.map(list=>{
+            const selected=form.list_ids.some(x=>String(x)===String(list.id));
+            const excluded=form.exclude_list_ids.some(x=>String(x)===String(list.id));
+            return (
+              <div key={list.id} className={"flex items-center gap-2 rounded-md px-2 py-1.5 "+(selected?"bg-brand-50":"hover:bg-ink-50")}>
+                <input type="checkbox" checked={selected} onChange={()=>toggleList(list.id)} aria-label={`Include ${list.name}`}/>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-medium text-ink-900">{list.name}</div>
+                  <div className="text-[11px] text-ink-500">{folderName(list.folder_id)} - {list.total_subscribers??list.member_count} contact(s)</div>
+                </div>
+                <label className="flex items-center gap-1 text-[11px] text-ink-500">
+                  <input type="checkbox" checked={excluded} onChange={()=>toggleExclude(list.id)} aria-label={`Exclude ${list.name}`}/>
+                  Exclude
+                </label>
+              </div>
+            );
+          })}
+        </div>
+        <div className="rounded-lg border border-ink-200 bg-ink-50 px-3 py-2.5">
+          <div className="flex items-baseline justify-between">
+            <span className="text-[12px] font-semibold uppercase tracking-wide text-ink-500">Estimated recipients</span>
+            <span className="text-[19px] font-semibold tabular-nums text-ink-900">
+              {preview?.total_recipients==null?"All eligible contacts":preview.total_recipients}
+            </span>
+          </div>
+          {!!preview?.overlap && (
+            <p className="mt-1 text-[11.5px] text-ink-500">{preview.overlap} contact(s) appear in more than one selected list and are counted once.</p>
+          )}
+          {!!preview?.per_list?.length && (
+            <ul className="mt-1.5 space-y-0.5">
+              {preview.per_list.map(item=>(
+                <li key={item.id} className="flex justify-between text-[11.5px] text-ink-600">
+                  <span className="truncate">{item.name}</span><span className="tabular-nums">{item.eligible}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    );
+    if(step===2) return (
+      <div className="space-y-3">
+        <label className="field-label block">Template
+          <select className={inputCls+" mt-1"} value={form.template_id} onChange={e=>setForm({...form,template_id:e.target.value})}>
+            <option value="">First active template</option>
+            {templates.map(t=><option key={t.id} value={String(t.id)}>{t.name}</option>)}
+          </select>
+        </label>
+        <div className="rounded-lg border border-ink-200 p-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-[13px] font-semibold text-ink-900">A/B test campaign</div>
+              <p className="text-[11.5px] text-ink-500">Send two versions to a share of the audience, then the winner to the rest.</p>
+            </div>
+            <input type="checkbox" checked={form.ab.enabled} onChange={e=>setForm({...form,ab:{...form.ab,enabled:e.target.checked}})} aria-label="Enable A/B test"/>
+          </div>
+          {form.ab.enabled&&(
+            <div className="mt-3 space-y-2.5">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="field-label block">Test type
+                  <select className={inputCls+" mt-1"} value={form.ab.test_type} onChange={e=>setForm({...form,ab:{...form.ab,test_type:e.target.value}})}>
+                    <option value="subject">Subject line</option>
+                    <option value="sender">Sender name</option>
+                    <option value="content">Email content</option>
+                  </select>
+                </label>
+                <label className="field-label block">Winning metric
+                  <select className={inputCls+" mt-1"} value={form.ab.winning_metric} onChange={e=>setForm({...form,ab:{...form.ab,winning_metric:e.target.value}})}>
+                    <option value="open_rate">Highest open rate</option>
+                    <option value="click_rate">Highest click rate</option>
+                    <option value="reply_rate">Highest reply rate</option>
+                  </select>
+                </label>
+              </div>
+              <div>
+                <div className="field-label">Traffic distribution</div>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {[10,20,50].map(split=>(
+                    <button key={split} type="button" onClick={()=>setForm({...form,ab:{...form.ab,split_a:split}})}
+                      className={"rounded-md border px-2.5 py-1 text-[12px] "+(form.ab.split_a===split?"border-brand-300 bg-brand-50 text-brand-700":"border-ink-200 text-ink-600 hover:bg-ink-50")}>
+                      {split}/{100-split}
+                    </button>
+                  ))}
+                  <input type="number" min="1" max="99" className={inputCls+" w-20 py-1"} value={form.ab.split_a}
+                    onChange={e=>{const v=Math.min(99,Math.max(1,Number(e.target.value)||1)); setForm({...form,ab:{...form.ab,split_a:v}});}}/>
+                  <span className="self-center text-[12px] text-ink-500">% to A, {100-form.ab.split_a}% to B</span>
+                </div>
+              </div>
+              <label className="field-label block">Select winner after (hours)
+                <input type="number" min="1" max="720" className={inputCls+" mt-1 w-24"} value={form.ab.evaluation_hours}
+                  onChange={e=>setForm({...form,ab:{...form.ab,evaluation_hours:Math.max(1,Number(e.target.value)||1)}})}/>
+              </label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {["a","b"].map(v=>(
+                  <div key={v} className="space-y-1.5 rounded-md border border-ink-200 p-2">
+                    <div className="badge badge-sent">Version {v.toUpperCase()}</div>
+                    <input className={inputCls} placeholder="Subject" value={form.ab[`subject_${v}`]} onChange={e=>setForm({...form,ab:{...form.ab,[`subject_${v}`]:e.target.value}})}/>
+                    <textarea rows={2} className={inputCls+" resize-y"} placeholder="Body" value={form.ab[`body_${v}`]} onChange={e=>setForm({...form,ab:{...form.ab,[`body_${v}`]:e.target.value}})}/>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+    if(step===3) return (
+      <div className="space-y-3">
+        <label className="field-label block">Send time
+          <input type="datetime-local" className={inputCls+" mt-1"} value={form.scheduled_at} onChange={e=>setForm({...form,scheduled_at:e.target.value})}/>
+          <span className="mt-1 block text-[11.5px] text-ink-400">Leave empty to keep it as a draft and send manually.</span>
+        </label>
+        <label className="field-label block">Timezone
+          <input className={inputCls+" mt-1"} value={form.timezone} onChange={e=>setForm({...form,timezone:e.target.value})} placeholder="e.g. Europe/Berlin"/>
+        </label>
+      </div>
+    );
+    return (
+      <div className="space-y-2 rounded-lg border border-ink-200 bg-ink-50 p-3 text-[12.5px] text-ink-700">
+        <div className="flex justify-between"><span className="text-ink-500">Name</span><span className="font-medium text-ink-900">{form.name||"-"}</span></div>
+        <div className="flex justify-between"><span className="text-ink-500">Subject</span><span className="font-medium text-ink-900">{form.subject||"From template"}</span></div>
+        <div className="flex justify-between"><span className="text-ink-500">Recipients</span><span className="font-medium text-ink-900">{preview?.total_recipients==null?"All eligible contacts":preview.total_recipients}</span></div>
+        <div className="flex justify-between"><span className="text-ink-500">Lists</span><span className="max-w-[60%] text-right font-medium text-ink-900">{form.list_ids.map(id=>lists.find(l=>l.id===id)?.name||id).join(", ")||"All contacts"}</span></div>
+        <div className="flex justify-between"><span className="text-ink-500">A/B test</span><span className="font-medium text-ink-900">{form.ab.enabled?`${form.ab.test_type} test, ${form.ab.split_a}/${100-form.ab.split_a}`:"Off"}</span></div>
+        <div className="flex justify-between"><span className="text-ink-500">Schedule</span><span className="font-medium text-ink-900">{form.scheduled_at||"Draft"}</span></div>
+        <p className="pt-1 text-[11.5px] text-ink-500">Every send still respects your daily cap and pacing.</p>
+      </div>
+    );
+  })();
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal max-w-2xl">
+        <div className="modal-head">
+          <div className="min-w-0">
+            <h3 className="modal-title">Create a campaign</h3>
+            <p className="mt-0.5 text-[12px] text-ink-500">Step {step+1} of {STEPS.length} - {STEPS[step]}</p>
+          </div>
+          <button onClick={onClose} className="icon-btn" aria-label="Close"><XCircle className="h-5 w-5"/></button>
+        </div>
+        <div className="modal-body">
+          <ol className="mb-4 flex items-center gap-1">
+            {STEPS.map((label,index)=>(
+              <li key={label} className="flex flex-1 items-center gap-1">
+                <button type="button" onClick={()=>index<=step&&setStep(index)}
+                  className={"flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold "+(index===step?"bg-brand-600 text-white":index<step?"bg-brand-100 text-brand-700":"bg-ink-200 text-ink-500")}
+                  aria-label={label} aria-current={index===step?"step":undefined}>
+                  {index<step?<Check className="h-3.5 w-3.5"/>:index+1}
+                </button>
+                <span className={"hidden truncate text-[11.5px] sm:block "+(index===step?"font-semibold text-ink-900":"text-ink-500")}>{label}</span>
+                {index<STEPS.length-1&&<span className="mx-1 h-px flex-1 bg-ink-200"/>}
+              </li>
+            ))}
+          </ol>
+          {stepBody}
+          {error&&<p className="notice-error mt-3">{error}</p>}
+        </div>
+        <div className="modal-foot -mx-5 -mb-4">
+          <button onClick={onClose} className={btnGhost}>Cancel</button>
+          <div className="flex items-center gap-2">
+            {step>0&&<button onClick={()=>setStep(step-1)} className={btnGhost}>Back</button>}
+            {step<STEPS.length-1
+              ? <button onClick={()=>setStep(step+1)} disabled={!canNext} className={btnPrimary}>Continue</button>
+              : <button onClick={create} disabled={busy||!form.name.trim()} className={btnPrimary}>
+                  {busy?<Loader2 className="h-3.5 w-3.5 animate-spin"/>:<Send className="h-3.5 w-3.5"/>}Create campaign
+                </button>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ExperimentsView({api}){
 
   const [tests,setTests]=useState([]);
@@ -2142,6 +2447,14 @@ function ExperimentsView({api}){
     name:"",
 
     template_id:"",
+
+    test_type:"subject",
+
+    winning_metric:"open_rate",
+
+    split_a:50,
+
+    evaluation_hours:4,
 
     variantA:{label:"control",subject:"",body:""},
 
@@ -2201,13 +2514,23 @@ function ExperimentsView({api}){
 
         template_id:form.template_id?Number(form.template_id):null,
 
+        test_type:form.test_type,
+
+        winning_metric:form.winning_metric,
+
+        split_a:form.split_a,
+
+        split_b:100-form.split_a,
+
+        evaluation_hours:form.evaluation_hours,
+
         variants:[form.variantA,form.variantB],
 
       })});
 
       setNote("Experiment created");
 
-      setForm({name:"",template_id:"",variantA:{label:"control",subject:"",body:""},variantB:{label:"challenger",subject:"",body:""}});
+      setForm({name:"",template_id:"",test_type:"subject",winning_metric:"open_rate",split_a:50,evaluation_hours:4,variantA:{label:"control",subject:"",body:""},variantB:{label:"challenger",subject:"",body:""}});
 
       await load();
 
@@ -2267,6 +2590,32 @@ function ExperimentsView({api}){
 
   };
 
+  const pickWinner=async(test)=>{
+
+    setBusy(true);
+
+    setError(null);
+
+    try{
+
+      await api(`/api/ab-tests/${test.id}/winner`,{method:"POST",body:JSON.stringify({})});
+
+      setNote(`Winner selected for "${test.name}"`);
+
+      await load();
+
+    }catch(e){
+
+      setError(e?.message||"Could not select a winner");
+
+    }finally{
+
+      setBusy(false);
+
+    }
+
+  };
+
   const resultsFor=(id)=>results.find(r=>r.test_id===id);
 
   const canCreate=form.name.trim()&&form.variantA.subject.trim()&&form.variantB.subject.trim();
@@ -2308,6 +2657,78 @@ function ExperimentsView({api}){
                 {templates.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
 
               </select>
+
+            </div>
+
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+
+            <div>
+
+              <label className="field-label mb-1 block">Test type</label>
+
+              <select className="select w-full" value={form.test_type} onChange={e=>setForm(f=>({...f,test_type:e.target.value}))}>
+
+                <option value="subject">Subject line</option>
+
+                <option value="sender">Sender name</option>
+
+                <option value="content">Email content</option>
+
+              </select>
+
+            </div>
+
+            <div>
+
+              <label className="field-label mb-1 block">Winning metric</label>
+
+              <select className="select w-full" value={form.winning_metric} onChange={e=>setForm(f=>({...f,winning_metric:e.target.value}))}>
+
+                <option value="open_rate">Highest open rate</option>
+
+                <option value="click_rate">Highest click rate</option>
+
+                <option value="reply_rate">Highest reply rate</option>
+
+              </select>
+
+            </div>
+
+            <div>
+
+              <label className="field-label mb-1 block">Winner after (hours)</label>
+
+              <input type="number" min="1" max="720" className={inputCls} value={form.evaluation_hours} onChange={e=>setForm(f=>({...f,evaluation_hours:Math.max(1,Number(e.target.value)||1)}))}/>
+
+            </div>
+
+          </div>
+
+          <div>
+
+            <label className="field-label mb-1 block">Traffic distribution</label>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+
+              {[10,20,50].map(split=>(
+
+                <button key={split} type="button" onClick={()=>setForm(f=>({...f,split_a:split}))}
+
+                  className={"rounded-md border px-2.5 py-1 text-[12px] "+(form.split_a===split?"border-brand-300 bg-brand-50 text-brand-700":"border-ink-200 text-ink-600 hover:bg-ink-50")}>
+
+                  {split}/{100-split}
+
+                </button>
+
+              ))}
+
+              <input type="number" min="1" max="99" className={inputCls+" w-20 py-1"} value={form.split_a}
+
+                onChange={e=>setForm(f=>({...f,split_a:Math.min(99,Math.max(1,Number(e.target.value)||1))}))}/>
+
+              <span className="text-[12px] text-ink-500">% to A, {100-form.split_a}% to B</span>
 
             </div>
 
@@ -2372,6 +2793,9 @@ function ExperimentsView({api}){
 
                           <div className="text-[12px] text-ink-500">
                             {test.variants.length} variant{test.variants.length===1?"":"s"} - <StatusPill status={test.status}/>
+                            <span className="ml-2">{test.split_a??50}/{test.split_b??50} split</span>
+                            <span className="ml-2">winner by {(test.winning_metric||"open_rate").replace("_"," ")}</span>
+                            {test.winner_label&&<span className="ml-2 font-medium text-brand-700">Winner: {test.winner_label}</span>}
                           </div>
 
                         </div>
@@ -2383,6 +2807,12 @@ function ExperimentsView({api}){
                             {test.status==="active"?"Pause":"Resume"}
 
                           </button>
+
+                          {test.status!=="completed"&&(
+                            <button onClick={()=>pickWinner(test)} disabled={busy} className={btnGhost + " btn-sm"} title="Close the test with the leading variant">
+                              Pick winner
+                            </button>
+                          )}
 
                           <button onClick={()=>remove(test)} disabled={busy} className="icon-btn hover:text-danger-600" title="Delete experiment">
 
@@ -3040,11 +3470,7 @@ export default function App(){
 
   const [campaignStatusFilter, setCampaignStatusFilter] = useState("all");
 
-  const [campaignChannel, setCampaignChannel] = useState("email");
-
   const [showCampaignModal, setShowCampaignModal] = useState(false);
-
-  const [campaignForm, setCampaignForm] = useState({ name: "", subject: "", preview_text: "", channel: "email", template_id: "", list_id: "", scheduled_at: "", alias_id: "" });
 
   const [campaignBusy, setCampaignBusy] = useState(false);
 
@@ -3085,83 +3511,8 @@ export default function App(){
   }, []);
 
   const openCampaignEditor = () => {
-
-    setCampaignForm({
-
-      name: "",
-
-      subject: "",
-
-      preview_text: "",
-
-      channel: campaignChannel,
-
-      template_id: templates[0] ? String(templates[0].id) : "",
-
-      list_id: lists[0] ? String(lists[0].id) : "",
-
-      scheduled_at: "",
-
-    });
-
     setCampaignError(null);
-
     setShowCampaignModal(true);
-
-  };
-
-  const createCampaign = async () => {
-
-    const name = campaignForm.name.trim();
-
-    if (!name) { setCampaignError("Give the campaign a name"); return; }
-
-    setCampaignBusy(true);
-
-    try {
-
-      const created = await api("/api/campaigns", {
-
-        method: "POST",
-
-        body: JSON.stringify({
-
-          name,
-
-          subject: campaignForm.subject.trim() || undefined,
-
-          preview_text: campaignForm.preview_text.trim() || undefined,
-
-          channel: campaignForm.channel,
-
-          template_id: campaignForm.template_id ? Number(campaignForm.template_id) : undefined,
-
-          list_id: campaignForm.list_id ? Number(campaignForm.list_id) : undefined,
-
-          alias_id: campaignForm.alias_id ? Number(campaignForm.alias_id) : undefined,
-
-          scheduled_at: campaignForm.scheduled_at || undefined,
-
-        }),
-
-      });
-
-      setCampaigns(prev => [created, ...prev.filter(c => c.id !== created.id)]);
-
-      setShowCampaignModal(false);
-
-      flashCampaign(`Campaign "${created.name}" created`);
-
-    } catch (e) {
-
-      setCampaignError(e?.message || "Could not create campaign");
-
-    } finally {
-
-      setCampaignBusy(false);
-
-    }
-
   };
 
   const sendCampaign = async (campaign) => {
@@ -3270,19 +3621,12 @@ export default function App(){
   };
 
   const openCampaignDetail = async (campaign) => {
-
     try {
-
-      const detail = await api(`/api/campaigns/${campaign.id}/stats`);
-
+      const detail = await api(`/api/campaigns/${campaign.id}/analytics`);
       setCampaignDetail(detail);
-
     } catch (e) {
-
       setCampaignError(e?.message || "Could not load campaign stats");
-
     }
-
   };
 
   // Filter contacts by list/segment (must come after selectedList and lists)
@@ -6355,7 +6699,12 @@ export default function App(){
                         </button>
                       </td>
                       <td><StatusPill status={campaign.status}/></td>
-                      <td className="text-ink-700">{campaign.list_name || "All contacts"}</td>
+                      <td className="text-ink-700">
+                        {campaign.list_names?.length
+                          ? campaign.list_names.join(", ")
+                          : (campaign.list_name || "All contacts")}
+                        {campaign.exclude_list_ids?.length>0 && <span className="ml-1 text-[11px] text-ink-400">(-{campaign.exclude_list_ids.length} excluded)</span>}
+                      </td>
                       <td className="text-right tabular-nums text-ink-700">{campaign.total_recipients}</td>
                       <td className="text-right tabular-nums text-ink-700">{campaign.delivered}</td>
                       <td className="text-right tabular-nums text-ink-700">{campaign.opened}<span className="ml-1 text-[11px] text-ink-400">{campaign.open_rate}%</span></td>
@@ -6492,7 +6841,7 @@ export default function App(){
 
                       return (
 
-                        <tr key={draft.id} onClick={()=>startEdit(draft)} className="cursor-pointer">
+                        <tr key={draft.id}>
 
                           <td>
 
@@ -6502,7 +6851,18 @@ export default function App(){
 
                           </td>
 
-                          <td className="max-w-0 truncate text-ink-800">{draft.subject||"(no subject)"}</td>
+                          <td className="max-w-0 truncate text-ink-800">
+                            {/* Only the subject opens the editor. A whole-row
+                                click handler meant any click in the table
+                                re-opened the composer after it was closed. */}
+                            <button
+                              onClick={()=>startEdit(draft)}
+                              className="max-w-full truncate text-left hover:text-brand-700 hover:underline"
+                              title="Edit draft"
+                            >
+                              {draft.subject||"(no subject)"}
+                            </button>
+                          </td>
 
                           <td><StatusPill status={draft.status}/></td>
 
@@ -7822,72 +8182,21 @@ export default function App(){
 
         {/* New Campaign Modal */}
         {showCampaignModal && (
-          <div className="modal-backdrop">
-            <div className="modal">
-              <div className="modal-head">
-                <h3 className="modal-title">New campaign</h3>
-                <button onClick={()=>{setShowCampaignModal(false);setCampaignError(null);}} className="icon-btn" aria-label="Close"><XCircle className="h-5 w-5"/></button>
-              </div>
-              <div className="modal-body">
-                <label className="field-label">
-                  Campaign name *
-                  <input className={inputCls+" mt-1"} value={campaignForm.name} onChange={e=>setCampaignForm({...campaignForm,name:e.target.value})} placeholder="e.g. Q4 product launch" autoFocus/>
-                </label>
-                <label className="field-label">
-                  Subject line
-                  <input className={inputCls+" mt-1"} value={campaignForm.subject} onChange={e=>setCampaignForm({...campaignForm,subject:e.target.value})} placeholder="Leave empty to use the template subject"/>
-                </label>
-                <label className="field-label">
-                  Preview text
-                  <input className={inputCls+" mt-1"} value={campaignForm.preview_text} onChange={e=>setCampaignForm({...campaignForm,preview_text:e.target.value})} placeholder="Shown next to the subject in most inboxes"/>
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="field-label">
-                    Send to list
-                    <select className={inputCls+" mt-1"} value={campaignForm.list_id} onChange={e=>setCampaignForm({...campaignForm,list_id:e.target.value})}>
-                      <option value="">All eligible contacts</option>
-                      {lists.map(list=>(
-                        <option key={list.id} value={String(list.id)}>{list.name} ({list.total_subscribers ?? list.member_count})</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field-label">
-                    Template
-                    <select className={inputCls+" mt-1"} value={campaignForm.template_id} onChange={e=>setCampaignForm({...campaignForm,template_id:e.target.value})}>
-                      <option value="">First active template</option>
-                      {templates.map(template=>(
-                        <option key={template.id} value={String(template.id)}>{template.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-                <label className="field-label">
-                  Sender
-                  <select className={inputCls+" mt-1"} value={campaignForm.alias_id} onChange={e=>setCampaignForm({...campaignForm,alias_id:e.target.value})}>
-                    <option value="">Default alias</option>
-                    {(state.aliases||[]).map(alias=>(
-                      <option key={alias.id} value={String(alias.id)}>
-                        {(alias.name?alias.name+" ":"")+alias.email}{alias.is_default?" (default)":""}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="mt-1 block text-[11.5px] text-ink-400">
-                    Recipients see this name and address in the From line.
-                  </span>
-                </label>
-                <label className="field-label">
-                  Schedule (optional)
-                  <input type="datetime-local" className={inputCls+" mt-1"} value={campaignForm.scheduled_at} onChange={e=>setCampaignForm({...campaignForm,scheduled_at:e.target.value})}/>
-                </label>
-                <p className="text-[12px] text-ink-500">Campaigns are created as drafts. Nothing is sent until you press Send, and every send still respects your daily cap.</p>
-                {campaignError && <p className="notice-error">{campaignError}</p>}
-                <div className="modal-foot -mx-5 -mb-4">
-                  <button onClick={()=>{setShowCampaignModal(false);setCampaignError(null);}} className={btnGhost}>Cancel</button>
-                  <button onClick={createCampaign} disabled={campaignBusy||!campaignForm.name.trim()} className={btnPrimary}>Create campaign</button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <CampaignWizard
+            api={api}
+            notify={flashCampaign}
+            lists={lists}
+            folders={folders}
+            templates={templates}
+            aliases={state.aliases||[]}
+            onClose={()=>{ setShowCampaignModal(false); setCampaignError(null); }}
+            onCreated={(created)=>{
+              if(created){
+                setCampaigns(prev=>[created,...prev.filter(c=>c.id!==created.id)]);
+              }
+              loadCampaigns();
+            }}
+          />
         )}
 
         {/* Campaign Stats Modal */}
@@ -7919,9 +8228,51 @@ export default function App(){
                     </div>
                   ))}
                 </div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {[["Devices","devices"],["Countries","countries"]].map(([title,key])=>{
+                    const entries=Object.entries(campaignDetail[key]||{});
+                    return (
+                      <div key={key} className="rounded-lg border border-ink-200 p-2.5">
+                        <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-ink-500">{title}</div>
+                        {entries.length===0
+                          ? <p className="text-[11.5px] text-ink-400">No data yet.</p>
+                          : entries.map(([name,count])=>(
+                              <div key={name} className="flex justify-between text-[12px] text-ink-700">
+                                <span className="truncate">{name}</span><span className="tabular-nums">{count}</span>
+                              </div>
+                            ))}
+                      </div>
+                    );
+                  })}
+                </div>
+                {campaignDetail.ab_test?.variants?.length>0&&(
+                  <div className="mt-3 rounded-lg border border-ink-200 p-2.5">
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <span className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-500">A/B test result</span>
+                      <span className="text-[11px] text-ink-500">{campaignDetail.ab_test.status}</span>
+                    </div>
+                    <table className="data-table">
+                      <thead><tr><th>Variant</th><th className="text-right">Sent</th><th className="text-right">Open</th><th className="text-right">Click</th></tr></thead>
+                      <tbody>
+                        {campaignDetail.ab_test.variants.map(v=>(
+                          <tr key={v.variant_id}>
+                            <td className="font-medium text-ink-900">{v.label}</td>
+                            <td className="text-right tabular-nums">{v.sent}</td>
+                            <td className="text-right tabular-nums">{v.open_rate}%</td>
+                            <td className="text-right tabular-nums">{v.click_rate??0}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
                 <div className="mt-1 text-[12px] text-ink-500">
                   Status: <span className="font-medium text-ink-700">{campaignDetail.campaign?.status}</span>
-                  {campaignDetail.campaign?.list_name ? <> - List: <span className="font-medium text-ink-700">{campaignDetail.campaign.list_name}</span></> : null}
+                  {campaignDetail.campaign?.list_names?.length
+                    ? <> - Lists: <span className="font-medium text-ink-700">{campaignDetail.campaign.list_names.join(", ")}</span></>
+                    : campaignDetail.campaign?.list_name
+                      ? <> - List: <span className="font-medium text-ink-700">{campaignDetail.campaign.list_name}</span></>
+                      : <> - Audience: <span className="font-medium text-ink-700">All contacts</span></>}
                 </div>
               </div>
               <div className="modal-foot -mx-5 -mb-4">
