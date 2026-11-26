@@ -351,10 +351,11 @@ def _audience_query(db, tenant_id: int, list_ids: List[int], exclude_ids: List[i
         )
         .subquery()
     )
+    # A contact in two selected lists has two membership rows; filtering with
+    # ``IN`` keeps one row per contact so counts and sends do not double up.
     query = (
         db.query(Contact)
-        .join(member_lists, member_lists.c.contact_id == Contact.id)
-        .filter(*eligible)
+        .filter(*eligible, Contact.id.in_(db.query(member_lists.c.contact_id)))
     )
     if exclude_ids:
         excluded = (

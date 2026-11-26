@@ -29,8 +29,15 @@ HEADER_ALIASES: Dict[str, set] = {
         "e mail",
     },
     "name": {"name", "full name", "fullname", "contact name", "display name"},
-    "first_name": {"first name", "firstname", "given name", "forename"},
-    "last_name": {"last name", "lastname", "surname", "family name"},
+    "first_name": {"first name", "firstname", "given name", "forename", "prenom", "prénom"},
+    "last_name": {
+        "last name",
+        "lastname",
+        "surname",
+        "family name",
+        "nom",
+        "nom de famille",
+    },
     "company": {
         "company",
         "company name",

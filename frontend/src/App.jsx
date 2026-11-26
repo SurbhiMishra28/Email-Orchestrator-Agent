@@ -734,6 +734,10 @@ function ListsView({api,notify,setSelectedList,setView}){
 
   const [confirmFolder,setConfirmFolder]=useState(null);
 
+  const [selectedLists,setSelectedLists]=useState(()=>new Set());
+
+  const [confirmBulkDelete,setConfirmBulkDelete]=useState(false);
+
   const [creatingFolder,setCreatingFolder]=useState(false);
 
   const [newFolderName,setNewFolderName]=useState("");
@@ -791,6 +795,23 @@ function ListsView({api,notify,setSelectedList,setView}){
       window.removeEventListener("keydown",onKey);
     };
   },[openMenu]);
+
+  const toggleListSelection=(id)=>{
+    setSelectedLists(prev=>{
+      const next=new Set(prev);
+      if(next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const allSelected=filtered.length>0 && filtered.every(l=>selectedLists.has(l.id));
+
+  const toggleAllLists=()=>{
+    setSelectedLists(prev=>{
+      if(filtered.length>0 && filtered.every(l=>prev.has(l.id))) return new Set();
+      return new Set(filtered.map(l=>l.id));
+    });
+  };
 
   const filtered=lists.filter(l=>{
     const inFolder = activeFolder==="all" || (activeFolder==="none" ? !l.folder_id : String(l.folder_id)===String(activeFolder));
@@ -1069,6 +1090,18 @@ function ListsView({api,notify,setSelectedList,setView}){
               onChange={e=>{ setQ(e.target.value); setPage(1); }}
             />
           </div>
+          {selectedLists.size>0&&(
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="text-[12.5px] text-ink-600">{selectedLists.size} selected</span>
+              <button
+                onClick={()=>setConfirmBulkDelete(true)}
+                className="btn-danger btn-sm"
+              >
+                <Trash2 className="h-3.5 w-3.5"/>Delete
+              </button>
+              <button onClick={()=>setSelectedLists(new Set())} className="btn-ghost btn-sm">Clear</button>
+            </div>
+          )}
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto p-5 max-md:p-4">
@@ -1077,7 +1110,18 @@ function ListsView({api,notify,setSelectedList,setView}){
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th className="w-[38%] min-w-64">List name</th>
+                    <th className="w-10">
+                      <button
+                        onClick={toggleAllLists}
+                        title={allSelected ? "Clear selection" : "Select all visible lists"}
+                        className="flex items-center"
+                      >
+                        <span className={"flex h-4 w-4 items-center justify-center rounded-[5px] border transition-colors " + (allSelected ? "border-brand-600 bg-brand-600 text-white" : "border-ink-300 bg-ink-100")}>
+                          {allSelected && <Check className="h-3 w-3"/>}
+                        </span>
+                      </button>
+                    </th>
+                    <th className="w-72 min-w-64">List name</th>
                     <th className="w-[18%] min-w-36">Folder</th>
                     <th className="w-[12%] min-w-24 text-right">Contacts</th>
                     <th className="w-[16%] min-w-36">Creation date</th>
@@ -1087,6 +1131,17 @@ function ListsView({api,notify,setSelectedList,setView}){
                 <tbody>
                   {pageRows.map(list=>(
                     <tr key={list.id} className="group transition-colors hover:bg-ink-50/70">
+                      <td>
+                        <button
+                          onClick={()=>toggleListSelection(list.id)}
+                          title={selectedLists.has(list.id)?"Deselect":"Select"}
+                          className="flex items-center"
+                        >
+                          <span className={"flex h-4 w-4 items-center justify-center rounded-[5px] border transition-colors " + (selectedLists.has(list.id) ? "border-brand-600 bg-brand-600 text-white" : "border-ink-300 bg-ink-100")}>
+                            {selectedLists.has(list.id) && <Check className="h-3 w-3"/>}
+                          </span>
+                        </button>
+                      </td>
                       <td>
                         <div className="flex min-w-0 items-center gap-2.5">
                           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
@@ -1197,7 +1252,7 @@ function ListsView({api,notify,setSelectedList,setView}){
                   ))}
                   {filtered.length===0&&(
                     <tr>
-                      <td colSpan={5} className="table-empty">
+                      <td colSpan={6} className="table-empty">
                         {loading ? (
                           <div className="flex items-center justify-center gap-2 py-6 text-[13px] text-ink-500">
                             <Loader2 className="h-4 w-4 animate-spin"/>Loading lists...
@@ -1318,6 +1373,35 @@ function ListsView({api,notify,setSelectedList,setView}){
             <div className="mt-5 flex justify-end gap-2">
               <button onClick={()=>setSettingsTarget(null)} className="btn-ghost">Cancel</button>
               <button onClick={saveListSettings} disabled={busy===settingsTarget.id} className="btn-primary">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmBulkDelete&&(
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink-50/80 p-4 py-10 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-card border border-danger-200 bg-ink-100 p-5 shadow-pop">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-danger-50 text-danger-600">
+                <Trash2 className="h-5 w-5"/>
+              </span>
+              <div className="min-w-0">
+                <h3 className="text-[15px] font-semibold text-ink-900">
+                  Delete {selectedLists.size} list{selectedLists.size===1?"":"s"}?
+                </h3>
+                <p className="mt-1 text-[12.5px] text-ink-500">
+                  The lists and their memberships are removed. Contacts themselves are not deleted.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={()=>setConfirmBulkDelete(false)} className="btn-ghost">Cancel</button>
+              <button
+                onClick={async()=>{ setConfirmBulkDelete(false); await removeSelectedLists(); }}
+                className="btn-danger"
+              >
+                Delete
+              </button>
             </div>
           </div>
         </div>
@@ -3674,8 +3758,6 @@ export default function App(){
 
   // The campaigns listing honours the same search + status filters as Brevo.
   const visibleCampaigns = campaigns.filter(campaign => {
-
-    if (campaignChannel && campaign.channel && campaign.channel !== campaignChannel) return false;
 
     if (campaignStatusFilter !== "all" && campaign.status !== campaignStatusFilter) return false;
 
