@@ -177,24 +177,21 @@ def import_csv(
                 )
                 if existing:
                     # Existing contacts are refreshed in place, not duplicated.
-                    for field in ["name", "company", "role", "phone", "linkedin", "notes"]:
-                        if field in row:
-                            setattr(existing, field, row[field])
+                    # Only the name is imported: the address book deliberately
+                    # collects nothing else, so a CSV column like "company" must
+                    # not silently overwrite a field the operator filled in.
+                    if "name" in row:
+                        existing.name = row["name"] or existing.name
                     if permission_known:
                         existing.eligible_to_email = permission
                     if existing.eligible_to_email:
                         eligible_emails.add(email)
                     updated += 1
                 else:
-                    # Create new
+                    # Create new: name and email only.
                     contact_data = {
                         "email": email,
                         "name": row.get("name", row.get("Name", "")),
-                        "company": row.get("company", row.get("Company", "")),
-                        "role": row.get("role", row.get("Role", "")),
-                        "phone": row.get("phone", row.get("Phone", "")),
-                        "linkedin": row.get("linkedin", row.get("LinkedIn", "")),
-                        "notes": row.get("notes", row.get("Notes", "")),
                     }
                     if permission_known:
                         contact_data["eligible_to_email"] = permission

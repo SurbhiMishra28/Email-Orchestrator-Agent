@@ -8137,7 +8137,7 @@ export default function App(){
 
               <div className="modal-body">
 
-                <p className="text-[12px] text-ink-500">Paste CSV with an <code>email</code> column. Optional: name, company, role, phone, linkedin, notes. Existing contacts are updated and added to this list.</p>
+                <p className="text-[12px] text-ink-500">Paste CSV with an <code>email</code> column. Optional: <code>name</code>. Existing contacts are updated and added to this list.</p>
 
                 <textarea
 
@@ -8149,7 +8149,7 @@ export default function App(){
 
                   onChange={e=>setListImportText(e.target.value)}
 
-                  placeholder={"email,name,company\nada@example.com,Ada,Analytical Engines"}
+                  placeholder={"email,name\nada@example.com,Ada"}
 
                 />
 
