@@ -70,6 +70,7 @@ async def create_intro_drafts(
     contact_ids: Optional[List[int]] = None,
     tenant_id: Optional[int] = None,
     require_automation: bool = False,
+    use_ai: bool = True,
 ) -> dict:
     """Create one intro draft per eligible contact that has none.
 
@@ -148,6 +149,7 @@ async def create_intro_drafts(
             result = await EmailAgent(contact.id, template.id).run(
                 auto_approve=False,
                 send_via_smtp=False,
+                use_ai=use_ai,
             )
             if not result.get("success"):
                 logger.warning(

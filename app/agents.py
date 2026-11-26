@@ -236,8 +236,14 @@ def get_llm_client():
     return client
 
 
-async def expand_template_with_ai(template: Template, contact: Contact, custom_values: Dict[str, Any] = None) -> Dict[str, str]:
-    """Expand a template using AI for personalization."""
+async def expand_template_with_ai(template: Template, contact: Contact, custom_values: Dict[str, Any] = None, use_ai: bool = True) -> Dict[str, str]:
+    """Expand a template using AI for personalization.
+
+    ``use_ai=False`` renders the template with the local Jinja engine only. That
+    is what an interactive "Run" uses: an LLM call per contact costs seconds
+   ​  each, so drafting ten contacts would hold the request open long enough for
+    the platform to kill it before a single email is sent.
+    """
     db = SessionLocal()
     try:
         # Get the tenant's settings for context. The template and contact carry
@@ -281,7 +287,7 @@ async def expand_template_with_ai(template: Template, contact: Contact, custom_v
             variables.update(custom_values)
         
         # Try AI expansion first if LLM is available
-        llm = get_llm_client()
+        llm = get_llm_client() if use_ai else None
         if llm:
             try:
                 messages = [
@@ -356,8 +362,13 @@ class EmailAgent:
         self.smtp_config = smtp_config
         self.db = SessionLocal()
     
-    async def run(self, auto_approve: bool = True, send_via_smtp: bool = True) -> Dict[str, Any]:
-        """Execute the email agent workflow."""
+    async def run(self, auto_approve: bool = True, send_via_smtp: bool = True, use_ai: bool = True) -> Dict[str, Any]:
+        """Execute the email agent workflow.
+
+        ``use_ai=False`` skips the per-contact LLM call and renders the template
+        directly, which is what an interactive run needs to stay inside the
+        function's time limit.
+        """
         try:
             # Get contact
             contact = self.db.query(Contact).filter(Contact.id == self.contact_id).first()
@@ -373,7 +384,7 @@ class EmailAgent:
                 return {"success": False, "error": "Template not found or inactive"}
             
             # Expand template
-            expanded = await expand_template_with_ai(template, contact)
+            expanded = await expand_template_with_ai(template, contact, use_ai=use_ai)
             subject = expanded["subject"]
             body = expanded["body"]
             

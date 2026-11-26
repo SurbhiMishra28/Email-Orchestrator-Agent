@@ -678,7 +678,11 @@ async def _run_autopilot_for_tenant(
     from app.services.outreach import create_intro_drafts
     from app.services.send_worker import drain_queue
 
-    intro = await create_intro_drafts(tenant_id=tenant_id)
+    # ``use_ai=False``: this runs inside the HTTP request, and one LLM call per
+    # contact would push a ten-contact workspace past the function's time limit
+# before a single email is sent. The template engine renders the same
+    # placeholders instantly; AI personalisation stays on the background path.
+    intro = await create_intro_drafts(tenant_id=tenant_id, use_ai=False)
 
     if is_configured(tenant_id):
         try:
