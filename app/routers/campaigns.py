@@ -56,6 +56,17 @@ class CampaignCreate(BaseModel):
     templateId: Optional[int] = None
     list_id: Optional[int] = None
     listId: Optional[int] = None
+    # Brevo targets several lists per campaign and can subtract an exclusion
+    # list, so both the snake_case and Brevo camelCase spellings are accepted.
+    list_ids: Optional[List[int]] = None
+    listIds: Optional[List[int]] = None
+    exclude_list_ids: Optional[List[int]] = None
+    excludeListIds: Optional[List[int]] = None
+    campaign_type: str = "marketing"
+    campaignType: Optional[str] = None
+    timezone: Optional[str] = None
+    ab_test_id: Optional[int] = None
+    abTestId: Optional[int] = None
     scheduled_at: Optional[str] = None
     scheduledAt: Optional[str] = None
     # Sender identity. ``alias_id`` is resolved to the alias's name/address; the
@@ -78,6 +89,15 @@ class CampaignUpdate(BaseModel):
     templateId: Optional[int] = None
     list_id: Optional[int] = None
     listId: Optional[int] = None
+    list_ids: Optional[List[int]] = None
+    listIds: Optional[List[int]] = None
+    exclude_list_ids: Optional[List[int]] = None
+    excludeListIds: Optional[List[int]] = None
+    campaign_type: Optional[str] = None
+    campaignType: Optional[str] = None
+    timezone: Optional[str] = None
+    ab_test_id: Optional[int] = None
+    abTestId: Optional[int] = None
     status: Optional[str] = None
     scheduled_at: Optional[str] = None
     scheduledAt: Optional[str] = None

@@ -600,18 +600,14 @@
 
 /* ----------------------------------------------------------- theme finishes */
 @layer components {
-  /* Light theme: the dark theme reads as lit by a single wash, so shadows have
-     to be softer or every card looks like it is floating in a void. */
+  /* The UI is flat: no drop shadows in any theme. Depth comes from the
+     hairline border and the surface tone. These rules exist to neutralise any
+     shadow a component class still applies. */
   [data-theme="light"] .surface,
   [data-theme="light"] .stat-tile,
-  [data-theme="light"] .modal {
-    box-shadow:
-      0 1px 2px rgba(16, 24, 20, 0.04),
-      0 10px 28px rgba(16, 24, 20, 0.07);
-  }
-
+  [data-theme="light"] .modal,
   [data-theme="light"] .app-rail {
-    box-shadow: 1px 0 0 rgba(16, 24, 20, 0.06);
+    box-shadow: none;
   }
 
   /* Glass: panels are translucent and blur the page wash behind them. The
@@ -626,9 +622,7 @@
     backdrop-filter: blur(18px) saturate(140%);
     -webkit-backdrop-filter: blur(18px) saturate(140%);
     border-color: rgb(var(--ink-200) / 0.85);
-    box-shadow:
-      0 12px 36px rgba(0, 0, 0, 0.38),
-      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    box-shadow: none;
   }
 
   [data-theme="glass"] .data-table thead th {

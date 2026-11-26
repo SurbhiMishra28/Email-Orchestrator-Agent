@@ -112,6 +112,10 @@ class DuplicateRequest(BaseModel):
 
 class ListImportRequest(BaseModel):
     csv: str
+    # Contacts arriving in a list you created are people you intend to mail.
+    # Without this an import leaves every row ineligible, so the campaign built
+    # from the list reports 0 recipients and sends nothing.
+    mark_eligible: bool = True
 
 
 class ContactListOut(BaseModel):
@@ -324,6 +328,19 @@ def _unique_list_name(db, tenant_id: int, base: str) -> str:
         candidate = f"{base} ({suffix})"
         suffix += 1
     return candidate
+
+
+def _merge_tags(existing, incoming) -> List[str]:
+    """Union two tag lists, keeping the original order and case of each tag."""
+    merged: List[str] = []
+    seen = set()
+    for tag in list(existing or []) + list(incoming or []):
+        text = str(tag).strip()
+        if not text or text.lower() in seen:
+            continue
+        seen.add(text.lower())
+        merged.append(text)
+    return merged
 
 
 def _insert_members(db, tenant_id: int, list_id: int, contact_ids) -> int:
@@ -940,21 +957,31 @@ def import_contacts_to_list(
     payload: ListImportRequest,
     tenant_id: int = Depends(current_tenant_id),
 ):
-    """Brevo's "Import contacts to the list": create/update then add."""
+    """Brevo's "Import contacts to the list": create/update then add.
+
+    Headers are normalised first (BOM, ``Email``/``EMAIL``, ``First Name``) so an
+    export taken straight from Brevo, Mailchimp or Excel imports instead of
+    silently reporting zero rows.
+    """
+    from app.services.csv_import import CsvImportError, parse_contacts_csv
+
+    rows, errors = ([], [])
+    try:
+        rows, errors = parse_contacts_csv(payload.csv)
+    except CsvImportError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
     db = SessionLocal()
     try:
         contact_list = _get_list(db, list_id, tenant_id)
-        reader = csv.DictReader(StringIO(payload.csv))
 
         created = 0
         updated = 0
         member_ids: List[int] = []
-        errors: List[str] = []
+        errors = list(errors)
 
-        for row in reader:
-            raw_email = (row.get("email") or row.get("Email") or "").strip()
-            if not raw_email:
-                continue
+        for row in rows:
+            raw_email = str(row.get("email") or "").strip()
             try:
                 email = validate_email(
                     raw_email, check_deliverability=False
@@ -963,6 +990,7 @@ def import_contacts_to_list(
                 errors.append(f"{raw_email}: {exc}")
                 continue
 
+            row_tags = [str(tag) for tag in (row.get("tags") or [])]
             existing = (
                 db.query(Contact)
                 .filter(
@@ -972,28 +1000,36 @@ def import_contacts_to_list(
                 .first()
             )
             if existing:
-                for column, attr in (
-                    ("name", "name"),
-                    ("company", "company"),
-                    ("role", "role"),
-                    ("phone", "phone"),
-                    ("linkedin", "linkedin"),
-                    ("notes", "notes"),
+                for attr in (
+                    "name",
+                    "company",
+                    "role",
+                    "phone",
+                    "linkedin",
+                    "notes",
                 ):
-                    if row.get(column):
-                        setattr(existing, attr, row[column])
+                    if row.get(attr):
+                        setattr(existing, attr, row[attr])
+                if row_tags:
+                    existing.tags = _merge_tags(existing.tags, row_tags)
+                # An imported contact is someone the operator chose to mail, so
+                # the list's audience must not read back as zero recipients.
+                if payload.mark_eligible:
+                    existing.eligible_to_email = True
                 updated += 1
                 member_ids.append(existing.id)
             else:
                 contact = Contact(
                     tenant_id=tenant_id,
                     email=email,
-                    name=row.get("name") or row.get("Name") or None,
-                    company=row.get("company") or row.get("Company") or None,
-                    role=row.get("role") or row.get("Role") or None,
-                    phone=row.get("phone") or row.get("Phone") or None,
-                    linkedin=row.get("linkedin") or row.get("LinkedIn") or None,
-                    notes=row.get("notes") or row.get("Notes") or None,
+                    name=row.get("name") or None,
+                    company=row.get("company") or None,
+                    role=row.get("role") or None,
+                    phone=row.get("phone") or None,
+                    linkedin=row.get("linkedin") or None,
+                    notes=row.get("notes") or None,
+                    tags=row_tags,
+                    eligible_to_email=payload.mark_eligible,
                 )
                 db.add(contact)
                 db.flush()

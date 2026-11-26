@@ -1,11 +1,10 @@
 """Contacts API router (tenant-scoped)."""
-import csv
-from io import StringIO
 from typing import List
 
 from email_validator import EmailNotValidError, validate_email
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Body
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from app.db import (
@@ -20,9 +19,23 @@ from app.db import (
 )
 from app.deps import current_tenant_id
 from app.models.schemas import ContactCreate, ContactOut, ContactUpdate, CSVImport
+from app.services.csv_import import CsvImportError, parse_contacts_csv
 from app.services.recipients import blocked_reason
 
 router = APIRouter()
+
+
+def _merge_tags(existing, incoming) -> List[str]:
+    """Union two tag lists, keeping the first spelling of each tag."""
+    merged: List[str] = []
+    seen = set()
+    for tag in list(existing or []) + list(incoming or []):
+        text = str(tag).strip()
+        if not text or text.lower() in seen:
+            continue
+        seen.add(text.lower())
+        merged.append(text)
+    return merged
 
 
 class EligibilityUpdate(BaseModel):
@@ -125,28 +138,26 @@ def import_csv(
 ):
     db = SessionLocal()
     try:
-        file_obj = StringIO(csv_data.csv)
-        reader = csv.DictReader(file_obj)
-        
+        try:
+            rows, parse_errors = parse_contacts_csv(csv_data.csv)
+        except CsvImportError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
         imported = 0
         updated = 0
-        skipped = 0
-        errors = []
+        skipped = len(parse_errors)
+        errors = list(parse_errors)
         eligible_emails = set()
-        
-        for row in reader:
-            try:
-                email = row.get("email", row.get("Email", "")).strip()
-                if not email:
-                    skipped += 1
-                    continue
 
+        for row in rows:
+            try:
+                raw_email = str(row.get("email") or "").strip()
                 try:
                     email = validate_email(
-                        email, check_deliverability=False
+                        raw_email, check_deliverability=False
                     ).normalized
                 except EmailNotValidError as exc:
-                    errors.append(f"{email}: {exc}")
+                    errors.append(f"{raw_email}: {exc}")
                     continue
 
                 # Import a placeholder and autopilot will mail it. Refuse the
@@ -156,12 +167,8 @@ def import_csv(
                     errors.append(f"{email}: {problem}")
                     skipped += 1
                     continue
-                
-                permission_raw = (
-                    row.get("email_permission")
-                    or row.get("Email_Permission")
-                    or ""
-                ).strip().lower()
+
+                permission_raw = str(row.get("email_permission") or "").strip().lower()
                 permission_known = permission_raw in {
                     "true", "1", "yes", "y", "false", "0", "no", "n",
                 }
@@ -170,9 +177,13 @@ def import_csv(
                     # No permission column: fall back to the request's default
                     # rather than silently importing unusable contacts.
                     permission = csv_data.default_eligible
+                row_tags = [str(tag) for tag in (row.get("tags") or [])]
                 existing = (
                     db.query(Contact)
-                    .filter(Contact.tenant_id == tenant_id, Contact.email == email)
+                    .filter(
+                        Contact.tenant_id == tenant_id,
+                        func.lower(Contact.email) == email.lower(),
+                    )
                     .first()
                 )
                 if existing:
@@ -180,8 +191,10 @@ def import_csv(
                     # Only the name is imported: the address book deliberately
                     # collects nothing else, so a CSV column like "company" must
                     # not silently overwrite a field the operator filled in.
-                    if "name" in row:
-                        existing.name = row["name"] or existing.name
+                    if row.get("name"):
+                        existing.name = str(row["name"])
+                    if row_tags:
+                        existing.tags = _merge_tags(existing.tags, row_tags)
                     if permission_known:
                         existing.eligible_to_email = permission
                     if existing.eligible_to_email:
@@ -191,7 +204,8 @@ def import_csv(
                     # Create new: name and email only.
                     contact_data = {
                         "email": email,
-                        "name": row.get("name", row.get("Name", "")),
+                        "name": str(row.get("name") or ""),
+                        "tags": row_tags,
                     }
                     if permission_known:
                         contact_data["eligible_to_email"] = permission

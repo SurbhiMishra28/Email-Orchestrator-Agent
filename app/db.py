@@ -425,6 +425,19 @@ class Campaign(Base):
     list_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("contact_lists.id", ondelete="SET NULL"), nullable=True
     )
+    # Brevo lets one campaign target several lists at once and subtract an
+    # exclusion list from the result. ``list_id`` stays the primary list so
+    # existing sends and tests keep working; these carry the full selection.
+    list_ids: Mapped[list] = mapped_column(JSON, default=[])
+    exclude_list_ids: Mapped[list] = mapped_column(JSON, default=[])
+    # marketing campaigns are opt-in audiences; transactional messages are
+    # triggered by an event and ignore the marketing consent flags.
+    campaign_type: Mapped[str] = mapped_column(String(50), default="marketing")
+    timezone: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # The winning variant of an attached A/B test, denormalised for the listing.
+    ab_test_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("ab_tests.id", ondelete="SET NULL"), nullable=True
+    )
     # The sender identity chosen for this campaign, resolved from the tenant's
     # aliases when it is created. Stored on the row so a later change to the
     # default alias does not rewrite history.
@@ -494,6 +507,16 @@ class ABTest(Base):
     template_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("templates.id"), nullable=True
     )
+    # Brevo's A/B configuration: what is being tested, how traffic splits, which
+    # metric decides the winner, and how long the test runs before the winner is
+    # mailed to the remainder of the audience.
+    test_type: Mapped[str] = mapped_column(String(50), default="subject")
+    winning_metric: Mapped[str] = mapped_column(String(50), default="open_rate")
+    split_a: Mapped[int] = mapped_column(Integer, default=50)
+    split_b: Mapped[int] = mapped_column(Integer, default=50)
+    evaluation_hours: Mapped[int] = mapped_column(Integer, default=4)
+    winner_label: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    decided_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -1081,6 +1104,34 @@ def _ensure_columns():
                         connection.execute(
                             text("ALTER TABLE campaigns ADD COLUMN from_name VARCHAR(255) NULL")
                         )
+                _ensure_campaign_audience_columns(columns)
+
+            # Brevo-style A/B configuration, added after experiments shipped.
+            if "ab_tests" in table_names:
+                columns = {col["name"] for col in inspector.get_columns("ab_tests")}
+                ab_columns = []
+                if "test_type" not in columns:
+                    ab_columns.append("test_type VARCHAR(50) DEFAULT 'subject'")
+                if "winning_metric" not in columns:
+                    ab_columns.append("winning_metric VARCHAR(50) DEFAULT 'open_rate'")
+                if "split_a" not in columns:
+                    ab_columns.append("split_a INTEGER DEFAULT 50")
+                if "split_b" not in columns:
+                    ab_columns.append("split_b INTEGER DEFAULT 50")
+                if "evaluation_hours" not in columns:
+                    ab_columns.append("evaluation_hours INTEGER DEFAULT 4")
+                if "winner_label" not in columns:
+                    ab_columns.append("winner_label VARCHAR(100) NULL")
+                if "decided_at" not in columns:
+                    ab_columns.append("decided_at TIMESTAMP NULL")
+                if ab_columns:
+                    with engine.begin() as connection:
+                        for col in ab_columns:
+                            col_name, col_type = col.split(" ", 1)
+                            connection.execute(
+                                text(f"ALTER TABLE ab_tests ADD COLUMN {col_name} {col_type}")
+                            )
+                    logger.info("Added missing ab_tests columns: %s", ab_columns)
 
         # Check contacts for tags column (JSON in MySQL, JSON in PostgreSQL, TEXT fallback for SQLite)
         if "contacts" in table_names:
@@ -1173,6 +1224,31 @@ _UID_SCOPED_TABLES = (
     ("inbox_messages", "uid", "ix_inbox_messages_uid"),
     ("replies_processed", "message_uid", "ix_replies_processed_message_uid"),
 )
+
+
+def _ensure_campaign_audience_columns(existing_columns):
+    """Add multi-list targeting and campaign-type columns to an older table."""
+    columns = set(existing_columns)
+    missing = []
+    if "list_ids" not in columns:
+        missing.append("list_ids TEXT NULL")
+    if "exclude_list_ids" not in columns:
+        missing.append("exclude_list_ids TEXT NULL")
+    if "campaign_type" not in columns:
+        missing.append("campaign_type VARCHAR(50) DEFAULT 'marketing'")
+    if "timezone" not in columns:
+        missing.append("timezone VARCHAR(100) NULL")
+    if "ab_test_id" not in columns:
+        missing.append("ab_test_id INTEGER NULL")
+    if not missing:
+        return
+    with engine.begin() as connection:
+        for col in missing:
+            col_name, col_type = col.split(" ", 1)
+            connection.execute(
+                text(f"ALTER TABLE campaigns ADD COLUMN {col_name} {col_type}")
+            )
+    logger.info("Added missing campaigns columns: %s", missing)
 
 
 def _ensure_uid_uniqueness(inspector, table_names):

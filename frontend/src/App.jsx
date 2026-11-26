@@ -5648,7 +5648,7 @@ export default function App(){
                     role="button"
                     tabIndex={0}
                     onKeyDown={(e)=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openTemplateComposer(template);}}}
-                    className="surface flex cursor-pointer flex-col transition-shadow hover:shadow-pop focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="surface flex cursor-pointer flex-col transition-colors hover:border-brand-300/60 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
 
                     <div className="flex items-start justify-between gap-3 border-b border-ink-100 px-4 py-3">

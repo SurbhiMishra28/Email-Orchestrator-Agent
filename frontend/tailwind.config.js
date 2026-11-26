@@ -76,11 +76,16 @@ export default {
       borderRadius: {
         card: "14px",
       },
+      // Shadows are intentionally empty: the UI is flat, and depth comes from
+      // the hairline border (ink-200) and surface tone instead. Keeping the
+      // keys means existing ``shadow-card`` / ``shadow-pop`` classes still
+      // resolve, so removing them is a one-line change if wanted later.
       boxShadow: {
-        card: "0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px rgba(0, 0, 0, 0.28)",
-        pop: "0 24px 64px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4)",
-        rail: "1px 0 0 rgba(255, 255, 255, 0.05)",
-        glow: "0 0 60px rgba(127, 179, 157, 0.18)",
+        card: "none",
+        pop: "none",
+        rail: "none",
+        glow: "none",
+        sm: "none",
       },
       keyframes: {
         "fade-in": {
