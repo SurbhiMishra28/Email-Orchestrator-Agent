@@ -850,6 +850,26 @@ function ListsView({api,notify,setSelectedList,setView}){
     finally{ setBusy(null); }
   };
 
+  // Bulk delete from the checkbox column. The confirmation dialog calls this,
+  // so it must exist as a named handler rather than being inlined.
+  const removeSelectedLists=async()=>{
+    const ids=[...selectedLists];
+    if(ids.length===0) return;
+    setBusy("bulk-delete");
+    try{
+      const results=await Promise.allSettled(
+        ids.map(id=>api(`/api/lists/${id}`,{method:"DELETE"}))
+      );
+      const failed=results.filter(r=>r.status==="rejected").length;
+      setSelectedLists(new Set());
+      setConfirmBulkDelete(false);
+      if(failed) notify(`${ids.length-failed} list(s) deleted, ${failed} failed`);
+      else notify(`Deleted ${ids.length} list${ids.length===1?"":"s"}`);
+      await load();
+    }catch(e){ notify(e?.message||String(e)); }
+    finally{ setBusy(null); }
+  };
+
   const dup=async(list)=>{
     setBusy(list.id);
     try{
