@@ -1,7 +1,7 @@
 """Sending limits shared by manual sends and the queue.
 
 Implements the documented daily cap, warm-up ramp, per-recipient-domain cap
-and 60-second pacing. A blocked send never mutates the draft.
+and the pacing gap between sends. A blocked send never mutates the draft.
 
 Every counter is scoped to one tenant: a busy account must not consume another
 tenant's daily allowance or trigger its pacing delay.
@@ -59,7 +59,7 @@ def hard_daily_cap() -> int:
 
 
 def pacing_seconds() -> int:
-    """The minimum gap between two sends (``PACING_SECONDS``, default 60)."""
+    """The minimum gap between two sends (``PACING_SECONDS``, default 10)."""
     return PACING_SECONDS
 
 

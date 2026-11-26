@@ -7,14 +7,26 @@ would be circular.
 from app.config import settings as app_settings
 from app.db import IMAPConfig, Settings, SMTPConfig, Template
 
-DEFAULT_INTRO_SUBJECT = "A quick introduction"
+# Bump this when the seeded wording changes. Templates carry the version they
+# were seeded with, so an upgrade can refresh stock wording without touching a
+# template the operator has edited.
+DEFAULT_TEMPLATE_VERSION = 2
+
+DEFAULT_INTRO_SUBJECT = "A quick introduction from Skora Infotech"
 DEFAULT_INTRO_BODY = (
     "Hi {{ first_name or 'there' }},\n\n"
-    "I'm reaching out from {{ business_name or 'our team' }}. {{ business_offer }}\n\n"
-    "Would you be open to a short conversation to see if this is relevant?\n"
-    "{% if calendly_url %}Choose a time: {{ calendly_url }}{% else %}"
-    "If so, reply and we can coordinate a time.{% endif %}\n\n"
-    "{{ sender_name or 'Best regards' }}"
+    "This is {{ sender_name or 'Surbhi Mishra' }} from {{ business_name or 'Skora Infotech' }}. "
+    "We work with businesses to grow their online presence through websites, "
+    "marketing and SEO.\n\n"
+    "I noticed {{ company or 'your business' }} might be interested in growing "
+    "its online presence. Would you be open to a quick chat about how we can help?\n\n"
+    "If yes, I can share some ideas that might work for {{ company or 'you' }}.\n\n"
+    "Best,\n"
+    "{{ sender_name or 'Surbhi Mishra' }}\n"
+    "{{ sender_role or 'Sales Manager' }}\n"
+    "{{ business_name or 'Skora Infotech Pvt Ltd' }}\n"
+    "{% if business_address %}{{ business_address }}\n{% endif %}"
+    "{% if company_website %}{{ company_website }}{% endif %}"
 )
 
 # Seeded reply template. The auto-responder answers classified inbound replies;
@@ -24,11 +36,16 @@ DEFAULT_INTRO_BODY = (
 DEFAULT_REPLY_SUBJECT = "Re: {{ subject }}"
 DEFAULT_REPLY_BODY = (
     "Hi {{ first_name or 'there' }},\n\n"
-    "Thanks for getting back to me. {{ business_offer }}\n\n"
+    "Thanks for getting back to me.\n\n"
     "{% if calendly_url %}You can grab a time that suits you here: "
     "{{ calendly_url }}{% else %}Let me know a couple of times that work for you "
     "and I'll send an invite.{% endif %}\n\n"
-    "{{ sender_name or 'Best regards' }}"
+    "Best,\n"
+    "{{ sender_name or 'Surbhi Mishra' }}\n"
+    "{{ sender_role or 'Sales Manager' }}\n"
+    "{{ business_name or 'Skora Infotech Pvt Ltd' }}\n"
+    "{% if business_address %}{{ business_address }}\n{% endif %}"
+    "{% if company_website %}{{ company_website }}{% endif %}"
 )
 
 # Seeded follow-up template. The day-3 and day-5 nudges reuse this body, so it
@@ -38,17 +55,21 @@ DEFAULT_REPLY_BODY = (
 DEFAULT_FOLLOWUP_SUBJECT = "Re: {{ subject }}"
 DEFAULT_FOLLOWUP_BODY = (
     "Hi {{ first_name or 'there' }},\n\n"
-    "I wanted to bring this back to the top of your inbox in case my last note "
-    "landed at a busy moment.\n\n"
-    "The short version: {{ business_offer }} Most teams I speak with are not "
-    "looking for a new vendor -- they are looking for one less thing to chase. "
-    "That is usually the gap worth 15 minutes.\n\n"
-    "If the timing is wrong, just say so and I will close the loop and come "
-    "back next quarter. If it is relevant, here is the easiest next step:\n"
-    "{% if calendly_url %}{{ calendly_url }}{% else %}reply with a day that "
-    "works and I will send an invite.{% endif %}\n\n"
-    "Either way, thanks for reading this far.\n\n"
-    "{{ sender_name or 'Best regards' }}"
+    "Bringing this back to the top of your inbox in case my last note got buried.\n\n"
+    "We help businesses like {{ company or 'yours' }} grow their online presence "
+    "through websites, marketing and SEO. If that is on your list this quarter, I "
+    "would be glad to share a few ideas that might work for you.\n\n"
+    "Would you be open to a quick chat?\n"
+    "{% if calendly_url %}{{ calendly_url }}{% else %}Reply with a day that suits "
+    "you and I will send an invite.{% endif %}\n\n"
+    "If the timing is wrong, just say so and I will close the loop and come back "
+    "next quarter.\n\n"
+    "Best,\n"
+    "{{ sender_name or 'Surbhi Mishra' }}\n"
+    "{{ sender_role or 'Sales Manager' }}\n"
+    "{{ business_name or 'Skora Infotech Pvt Ltd' }}\n"
+    "{% if business_address %}{{ business_address }}\n{% endif %}"
+    "{% if company_website %}{{ company_website }}{% endif %}"
 )
 
 # Legacy category spellings (init_templates.py) mapped to the canonical ones the
@@ -262,4 +283,60 @@ def provision_tenant_defaults(db, tenant_id: int, inherit_environment: bool = No
             )
         )
 
+    _upgrade_stock_templates(db, tenant_id)
+
     db.commit()
+
+
+# Bodies this app has shipped as defaults. A template whose body is still one of
+# these is stock, so an upgrade may refresh it; anything else is the operator's
+# own writing and is left alone.
+_STOCK_BODIES = {
+    "intro": {
+        "Hi {{ first_name or 'there' }},\n\nI'm reaching out from {{ business_name or 'our team' }}. {{ business_offer }}\n\nWould you be open to a short conversation to see if this is relevant?\n{% if calendly_url %}Choose a time: {{ calendly_url }}{% else %}If so, reply and we can coordinate a time.{% endif %}\n\n{{ sender_name or 'Best regards' }}",
+        "Hi {{ first_name or 'there' }},\n\nI wanted to bring this back to the top of your inbox in case my last note landed at a busy moment.\n\nThe short version: {{ business_offer }} Most teams I speak with are not looking for a new vendor -- they are looking for one less thing to chase. That is usually the gap worth 15 minutes.\n\nIf the timing is wrong, just say so and I will close the loop and come back next quarter. If it is relevant, here is the easiest next step:\n{% if calendly_url %}{{ calendly_url }}{% else %}reply with a day that works and I will send an invite.{% endif %}\n\nEither way, thanks for reading this far.\n\n{{ sender_name or 'Best regards' }}",
+    },
+    "followup": {
+        "Hi {{first_name}},\n\nJust wanted to follow up on my previous email...",
+    },
+    "reply": {
+        "Hi {{ first_name or 'there' }},\n\nThanks for getting back to me. {{ business_offer }}\n\n{% if calendly_url %}You can grab a time that suits you here: {{ calendly_url }}{% else %}Let me know a couple of times that work for you and I'll send an invite.{% endif %}\n\n{{ sender_name or 'Best regards' }}",
+    },
+}
+
+_STOCK_SUBJECTS = {
+    "intro": {"A quick introduction"},
+    "followup": {"Following up"},
+    "reply": {"Re: {{ subject }}"},
+}
+
+_NEW_DEFAULTS = {
+    "intro": (DEFAULT_INTRO_SUBJECT, DEFAULT_INTRO_BODY),
+    "followup": (DEFAULT_FOLLOWUP_SUBJECT, DEFAULT_FOLLOWUP_BODY),
+    "reply": (DEFAULT_REPLY_SUBJECT, DEFAULT_REPLY_BODY),
+}
+
+
+def _upgrade_stock_templates(db, tenant_id: int) -> int:
+    """Refresh seeded wording on an upgraded database.
+
+    Only rows whose body still matches a shipped default are touched, so a
+    template the operator edited in the dashboard is never overwritten.
+    """
+    upgraded = 0
+    for category, (new_subject, new_body) in _NEW_DEFAULTS.items():
+        rows = (
+            db.query(Template)
+            .filter(Template.tenant_id == tenant_id, Template.category == category)
+            .all()
+        )
+        for row in rows:
+            body = (row.body_template or "").strip()
+            subject = (row.subject_template or "").strip()
+            if body in _STOCK_BODIES.get(category, set()) or subject in _STOCK_SUBJECTS.get(
+                category, set()
+            ):
+                row.subject_template = new_subject
+                row.body_template = new_body
+                upgraded += 1
+    return upgraded
