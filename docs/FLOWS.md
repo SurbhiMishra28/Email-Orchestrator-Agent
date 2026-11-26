@@ -76,8 +76,8 @@ flowchart TD
     G --> I2
     I2 -- yes --> I3[status=failed<br/>no SMTP call]
     I2 -- no --> J{Limits check}
-    J --> K[Warm-up cap]
-    J --> L[DAILY_CAP]
+    J --> K[DAILY_CAP ceiling]
+    J --> L[Settings daily cap]
     J --> M[Plan limit]
     J --> N[Recipient-domain cap]
     K --> O{Lowest cap reached?}
@@ -91,9 +91,11 @@ flowchart TD
     R -- no --> T[status=failed + error_message]
 ```
 
-The effective cap is `min(warm-up, DAILY_CAP, plan_limit, domain cap)` — see
-`app/services/limits.py`. A draft never flips to `sent` unless SMTP actually
-accepted the message.
+The effective cap is `min(DAILY_CAP, settings.daily_cap, plan_limit)` with
+`Settings.domain_cap` and `PACING_SECONDS` applied per send — see
+`app/services/limits.py`. `DAILY_CAP` and `PACING_SECONDS` are read from the
+environment at call time, so a deployment can raise them without a code change.
+A draft never flips to `sent` unless SMTP actually accepted the message.
 
 Both send paths also refuse a recipient that cannot receive mail (see
 `services/recipients.blocked_reason`) and a contact blacklisted by a bounce. Such

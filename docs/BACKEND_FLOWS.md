@@ -232,7 +232,7 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    A[check_tenant_send_allowed] --> B["effective daily = min(daily_cap or 50, plan daily_email_limit, warm-up cap)"]
+    A[check_tenant_send_allowed] --> B["effective daily = min(DAILY_CAP, Settings.daily_cap, plan daily_email_limit)"]
     B --> C{today >= effective?}
     C -- yes --> D[block: plan or daily cap]
     C -- no --> E{domain count >= domain_cap?}

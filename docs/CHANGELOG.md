@@ -65,7 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Queue-based email sending with rate limiting
 - Reply analysis agent for classifying responses
 - Follow-up generation agent (day 3, day 5, day 8 workflow)
-- Send limits with warm-up caps (5→10→30→50 emails/day)
+- Send limits with a flat daily cap (configurable via `DAILY_CAP`)
 - AI personalization support via NVIDIA API
 - Email verification service (SMTP, MX, catch-all checks)
 - Comprehensive test suite (10 passing tests)
@@ -177,15 +177,18 @@ See `.env.example` for all supported environment variables including:
 
 ## Send Limits
 
-### Warm-up Caps
-| Days Since First Send | Daily Cap |
-|----------------------|-----------|
-| Days 1-3 | 5 emails |
-| Days 4-7 | 10 emails |
-| Days 8-14 | 30 emails |
-| Day 15+ | 50 emails |
+### Daily Cap
 
-The lower of: warm-up cap, `DAILY_CAP`, and domain cap applies.
+There is no warm-up ramp. The effective daily cap is the lowest of:
+
+| Source | Default |
+|---|---|
+| `DAILY_CAP` (deployment ceiling) | 10 |
+| `Settings.daily_cap` | 50 |
+| `Tenant.daily_email_limit` | 50 (0/NULL = unlimited) |
+
+The per-recipient-domain cap (`Settings.domain_cap`, default 3) and the
+`PACING_SECONDS` gap (default 60) apply on top.
 
 ---
 

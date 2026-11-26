@@ -47,7 +47,7 @@ Gate `POST /api/auth/register` at the proxy if the instance is private.
 #### Implemented Limits
 - **slowapi** middleware (per-IP rate limiting)
 - **Send limits** per contact (60-second pacing)
-- **Daily caps** (warm-up progression: 5→10→30→50)
+- **Daily caps** (`DAILY_CAP` ceiling, default 10; no warm-up ramp)
 
 #### Configuration
 ```python

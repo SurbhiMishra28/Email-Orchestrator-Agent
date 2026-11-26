@@ -431,11 +431,24 @@ def _resolve_template(db, tenant_id: int, template_id: Optional[int]) -> Templat
             )
         return template
 
+    # No template chosen: prefer an intro. A "follow-up" body sent as a first
+    # message reads as an accident ("just following up on my previous email" to
+    # someone who never received one), so the category is not left to chance.
     template = (
         db.query(Template)
-        .filter(Template.tenant_id == tenant_id, Template.is_active == True)
+        .filter(
+            Template.tenant_id == tenant_id,
+            Template.is_active == True,
+            Template.category == "intro",
+        )
         .first()
     )
+    if template is None:
+        template = (
+            db.query(Template)
+            .filter(Template.tenant_id == tenant_id, Template.is_active == True)
+            .first()
+        )
     if not template:
         raise HTTPException(status_code=404, detail="No active template found")
     return template
