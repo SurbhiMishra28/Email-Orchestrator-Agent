@@ -13,9 +13,18 @@ from sqlalchemy import func
 
 from app.db import Contact, Draft, Settings, Tenant
 
-# README: 5/day on days 1-3, 10 on 4-7, 30 on 8-14, 50 thereafter.
-WARMUP_CAPS = ((3, 5), (7, 10), (14, 30))
-POST_WARMUP_CAP = 50
+# Daily ceiling for a single workspace. Ten per day is deliberate: it stays
+# inside a consumer mailbox's comfortable range and keeps a cold thread from
+# looking like a blast, while still being enough to work through a small list.
+POST_WARMUP_CAP = 10
+
+# No warm-up ramp. The ramp exists to protect a brand-new sending domain, and
+# this deployment sends from an established mailbox, so a flat cap is both
+# simpler and matches what the operator asked for.
+WARMUP_CAPS = ()
+
+# Minimum gap between two sends. One message a minute is roughly the ceiling a
+# consumer mailbox tolerates without looking automated.
 PACING_SECONDS = 60
 
 

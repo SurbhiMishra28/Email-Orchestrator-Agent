@@ -169,8 +169,8 @@ class SettingsBase(BaseModel):
     goal: str = "book intro calls with sales leaders"
     business_name: str = ""
     business_offer: str = ""
-    daily_cap: int = 50
-    domain_cap: int = 3
+    daily_cap: int = 10
+    domain_cap: int = 10
     AUTO_APPROVE: bool = False
     AUTOPILOT: bool = False
     # Footer and sender signature configuration
