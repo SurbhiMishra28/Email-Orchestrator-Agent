@@ -48,6 +48,84 @@ def active_test_for_template(
     return query.order_by(ABTest.id.asc()).first()
 
 
+def winner_for_campaign(db, test: ABTest, label: str) -> int:
+    """Make every draft still pending for this experiment use the winner.
+
+    Drafts already sent keep the variant they were sent with: rewriting history
+    would corrupt the very results that picked the winner. Pending drafts are
+    switched so the remainder of the audience receives the winning message.
+    """
+    variant = (
+        db.query(ABVariant)
+        .filter(
+            ABVariant.ab_test_id == test.id,
+            ABVariant.tenant_id == test.tenant_id,
+            ABVariant.label == label,
+        )
+        .first()
+    )
+    if variant is None:
+        return 0
+
+    updated = 0
+    pending = (
+        db.query(Draft)
+        .filter(
+            Draft.tenant_id == test.tenant_id,
+            Draft.status.in_(["draft", "blocked"]),
+        )
+        .all()
+    )
+    for draft in pending:
+        variables = dict(draft.variables or {})
+        if variables.get("ab_test_id") != test.id:
+            continue
+        variables["ab_variant_id"] = variant.id
+        variables["ab_variant_label"] = variant.label
+        variables["ab_winner"] = True
+        draft.variables = variables
+        draft.subject = variant.subject
+        draft.body = variant.body
+        updated += 1
+    return updated
+
+
+def freeze_winner_drafts(db, test: ABTest, label: str) -> int:
+    """Close the experiment: remove the losing assignment from pending drafts.
+
+    ``winner_for_campaign`` has already replaced the variant, so this only marks
+    the drafts so a later queue pass can tell a winner send from a test send.
+    """
+    variant = (
+        db.query(ABVariant)
+        .filter(
+            ABVariant.ab_test_id == test.id,
+            ABVariant.tenant_id == test.tenant_id,
+            ABVariant.label == label,
+        )
+        .first()
+    )
+    if variant is None:
+        return 0
+    updated = 0
+    for draft in (
+        db.query(Draft)
+        .filter(
+            Draft.tenant_id == test.tenant_id,
+            Draft.status.in_(["draft", "blocked"]),
+        )
+        .all()
+    ):
+        variables = dict(draft.variables or {})
+        if variables.get("ab_test_id") != test.id:
+            continue
+        if variables.get("ab_variant_id") == variant.id:
+            variables["ab_winner"] = True
+            draft.variables = variables
+            updated += 1
+    return updated
+
+
 def variants_for_test(db, test: ABTest) -> List[ABVariant]:
     return (
         db.query(ABVariant)

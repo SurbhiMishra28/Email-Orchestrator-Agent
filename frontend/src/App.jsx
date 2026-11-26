@@ -2514,6 +2514,10 @@ export default function App(){
 
   const [sendingDraftId,setSendingDraftId]=useState(null);
 
+  const [confirmDeleteDraft,setConfirmDeleteDraft]=useState(null);
+
+  const [deletingDraftId,setDeletingDraftId]=useState(null);
+
   const [status,setStatus]=useState(null);
 
   const [loading,setLoading]=useState(true);
@@ -5180,6 +5184,21 @@ export default function App(){
 
 
 
+  // Delete an unsent draft. Two-step in the row, so a mis-click cannot
+  // destroy a message someone was about to send.
+  const removeDraft=async(draft)=>{
+    setDeletingDraftId(draft.id);
+    setDraftError(null);
+    try{
+      await api(`/api/drafts/${draft.id}`,{method:"DELETE"});
+      setConfirmDeleteDraft(null);
+      setStatus("Draft deleted");
+      setTimeout(()=>setStatus(null),2000);
+      await load();
+    }catch(e){ setDraftError(e?.message||String(e)); }
+    finally{ setDeletingDraftId(null); }
+  };
+
   const sendDraftNow=async(draft)=>{
 
     setSendingDraftId(draft.id);
@@ -6489,29 +6508,85 @@ export default function App(){
 
                           <td className="text-right" onClick={(e)=>e.stopPropagation()}>
 
-                            {canSend ? (
+                            <div className="flex items-center justify-end gap-1">
 
-                              <button
+                              {canSend ? (
 
-                                onClick={()=>approveAndSend(draft)}
+                                <button
 
-                                disabled={sendingDraftId===draft.id}
+                                  onClick={()=>approveAndSend(draft)}
 
-                                className="btn-ghost btn-sm"
+                                  disabled={sendingDraftId===draft.id}
 
-                                title="Send email"
+                                  className="btn-ghost btn-sm"
 
-                              >
+                                  title="Send email"
 
-                                {sendingDraftId===draft.id?<Loader2 className="h-3.5 w-3.5 animate-spin"/>:<Send className="h-3.5 w-3.5"/>}Send
+                                >
 
-                              </button>
+                                  {sendingDraftId===draft.id?<Loader2 className="h-3.5 w-3.5 animate-spin"/>:<Send className="h-3.5 w-3.5"/>}Send
 
-                            ) : (
+                                </button>
 
-                              <span className="text-[11.5px] text-ink-400" title={draftBlockReason(draft)}>{draftBlockReason(draft)||"-"}</span>
+                              ) : (
 
-                            )}
+                                <span className="text-[11.5px] text-ink-400" title={draftBlockReason(draft)}>{draftBlockReason(draft)||"-"}</span>
+
+                              )}
+
+                              {/* A sent draft is the record that mail left the
+                                  mailbox, so it cannot be deleted. */}
+                              {draft.status!=="sent" && draft.status!=="sending" && (
+
+                                confirmDeleteDraft===draft.id ? (
+
+                                  <span className="flex items-center gap-0.5">
+
+                                    <button
+
+                                      onClick={()=>removeDraft(draft)}
+
+                                      disabled={deletingDraftId===draft.id}
+
+                                      className="btn-danger btn-sm"
+
+                                    >
+
+                                      {deletingDraftId===draft.id?<Loader2 className="h-3.5 w-3.5 animate-spin"/>:"Confirm"}
+
+                                    </button>
+
+                                    <button onClick={()=>setConfirmDeleteDraft(null)} className="icon-btn" title="Cancel">
+
+                                      <X className="h-3.5 w-3.5"/>
+
+                                    </button>
+
+                                  </span>
+
+                                ) : (
+
+                                  <button
+
+                                    onClick={()=>setConfirmDeleteDraft(draft.id)}
+
+                                    className="icon-btn hover:bg-danger-50 hover:text-danger-600"
+
+                                    title="Delete draft"
+
+                                    aria-label={`Delete draft to ${recipient?.email||"contact"}`}
+
+                                  >
+
+                                    <Trash2 className="h-3.5 w-3.5"/>
+
+                                  </button>
+
+                                )
+
+                              )}
+
+                            </div>
 
                           </td>
 

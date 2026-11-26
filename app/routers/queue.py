@@ -152,13 +152,30 @@ async def run_orchestration_all(
     campaign = None
     db = SessionLocal()
     try:
-        # A campaign run takes its template, list and subject from the campaign
+        # A campaign run takes its template, lists and subject from the campaign
         # row, so the listing's "send" action cannot drift from its settings.
         campaign = None
         if request.campaign_id is not None:
             campaign = _load_campaign(db, tenant_id, request.campaign_id)
             template_id = template_id or campaign.template_id
-            list_id = campaign.list_id if campaign.list_id is not None else list_id
+            campaign_lists = list(campaign.list_ids or [])
+            if not campaign_lists and campaign.list_id is not None:
+                campaign_lists = [campaign.list_id]
+            if campaign_lists:
+                # Multi-list targeting is resolved to explicit contact ids so a
+                # single-list ``list_id`` never has to model a union.
+                contact_ids = [
+                    contact.id
+                    for contact in _campaign_audience(
+                        db,
+                        tenant_id,
+                        campaign_lists,
+                        list(campaign.exclude_list_ids or []),
+                    )
+                ]
+                list_id = None
+            elif campaign.list_id is not None:
+                list_id = campaign.list_id
         if not goal:
             settings = (
                 db.query(Settings).filter(Settings.tenant_id == tenant_id).first()
@@ -452,6 +469,67 @@ def _resolve_template(db, tenant_id: int, template_id: Optional[int]) -> Templat
     if not template:
         raise HTTPException(status_code=404, detail="No active template found")
     return template
+
+
+def _campaign_audience(
+    db,
+    tenant_id: int,
+    list_ids: List[int],
+    exclude_ids: List[int],
+) -> List[Contact]:
+    """Eligible contacts for a multi-list campaign, minus the exclusion lists.
+
+    A contact on two of the selected lists is one recipient: the union is
+    de-duplicated by contact id, which is the count Brevo shows.
+    """
+    from app.db import ContactList, ContactListMember
+
+    owned = {
+        row[0]
+        for row in db.query(ContactList.id).filter(
+            ContactList.id.in_(list_ids + exclude_ids),
+            ContactList.tenant_id == tenant_id,
+        )
+    }
+    missing = [list_id for list_id in list_ids if list_id not in owned]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"List(s) not found: {missing}")
+
+    contact_query = (
+        db.query(Contact)
+        .join(ContactListMember, ContactListMember.contact_id == Contact.id)
+        .filter(
+            Contact.tenant_id == tenant_id,
+            ContactListMember.list_id.in_(list_ids),
+            ContactListMember.tenant_id == tenant_id,
+            ContactListMember.unsubscribed.isnot(True),
+            Contact.eligible_to_email == True,
+            Contact.email_blacklisted.isnot(True),
+        )
+    )
+    if exclude_ids:
+        excluded = (
+            db.query(ContactListMember.contact_id)
+            .filter(
+                ContactListMember.tenant_id == tenant_id,
+                ContactListMember.list_id.in_(exclude_ids),
+            )
+            .subquery()
+        )
+        contact_query = contact_query.filter(
+            ~Contact.id.in_(db.query(excluded.c.contact_id))
+        )
+
+    seen = set()
+    contacts: List[Contact] = []
+    for contact in contact_query.all():
+        if contact.id in seen:
+            continue
+        seen.add(contact.id)
+        if blocked_reason(contact.email):
+            continue
+        contacts.append(contact)
+    return contacts
 
 
 def _select_contacts(

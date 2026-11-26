@@ -360,3 +360,36 @@ def send_draft(draft_id: int, tenant_id: int = Depends(current_tenant_id)):
         return {"message": "Email sent successfully", "recipient": contact.email, "status": "sent"}
     finally:
         db.close()
+
+
+@router.delete("/{draft_id}")
+def delete_draft(draft_id: int, tenant_id: int = Depends(current_tenant_id)):
+    """Delete a draft.
+
+    Only unsent drafts can be deleted: a ``sent`` row is the record that a
+    message left the mailbox, and removing it would also erase the open/click
+    history attached to it. ``sending`` is refused for the same reason -- the
+    relay already has the message.
+    """
+    db = SessionLocal()
+    try:
+        db_draft = _get_tenant_draft(db, draft_id, tenant_id)
+
+        if db_draft.status in ("sent", "sending"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"A {db_draft.status} draft cannot be deleted.",
+            )
+
+        db.delete(db_draft)
+        db.add(
+            Log(
+                message=f"Draft {draft_id} deleted",
+                level="info",
+                tenant_id=tenant_id,
+            )
+        )
+        db.commit()
+        return {"message": "Draft deleted", "id": draft_id}
+    finally:
+        db.close()

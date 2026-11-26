@@ -22,6 +22,8 @@ from app.db import (
     Contact,
     ContactList,
     ContactListMember,
+    Draft,
+    Event,
     SessionLocal,
     Template,
 )
@@ -120,6 +122,15 @@ class CampaignOut(BaseModel):
     templateId: Optional[int] = None
     list_id: Optional[int] = None
     listId: Optional[int] = None
+    list_ids: List[int] = []
+    listIds: List[int] = []
+    exclude_list_ids: List[int] = []
+    excludeListIds: List[int] = []
+    list_names: List[str] = []
+    campaign_type: str = "marketing"
+    timezone: Optional[str] = None
+    ab_test_id: Optional[int] = None
+    abTestId: Optional[int] = None
     list_name: Optional[str] = None
     template_name: Optional[str] = None
     # The sender identity this campaign uses, echoed so the listing can show it.
@@ -136,6 +147,7 @@ class CampaignOut(BaseModel):
     replied: int = 0
     bounced: int = 0
     unsubscribed: int = 0
+    spam_complaints: int = 0
     open_rate: float = 0.0
     click_rate: float = 0.0
     created_at: Optional[datetime] = None
@@ -256,40 +268,121 @@ def _scheduled_value(payload) -> Optional[datetime]:
     return _parse_datetime(raw)
 
 
-def _audience_size(db, tenant_id: int, list_id: Optional[int]) -> int:
-    """Count the contacts a campaign would send to.
+def _selected_list_ids(payload, fallback: Optional[int] = None) -> List[int]:
+    """Every list id a payload targets, de-duplicated and order-stable.
 
-    A list campaign counts subscribed membership rows; a campaign with no list
-    targets every eligible, non-blacklisted contact in the tenant.
+    Brevo's UI sends ``listIds``; the single-list field stays supported so older
+    clients (and the scheduler) keep working.
     """
-    if list_id is not None:
-        return (
-            db.query(func.count(ContactListMember.id))
-            .join(Contact, Contact.id == ContactListMember.contact_id)
-            .filter(
-                ContactListMember.list_id == list_id,
-                ContactListMember.tenant_id == tenant_id,
-                ContactListMember.unsubscribed.isnot(True),
-                Contact.tenant_id == tenant_id,
-                Contact.eligible_to_email.is_(True),
-                Contact.email_blacklisted.isnot(True),
-            )
-            .scalar()
-            or 0
-        )
-    return (
-        db.query(func.count(Contact.id))
-        .filter(
-            Contact.tenant_id == tenant_id,
-            Contact.eligible_to_email.is_(True),
-            Contact.email_blacklisted.isnot(True),
-        )
-        .scalar()
-        or 0
+    raw = getattr(payload, "list_ids", None) or getattr(payload, "listIds", None) or []
+    ids: List[int] = []
+    for value in raw:
+        try:
+            list_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if list_id not in ids:
+            ids.append(list_id)
+    single = (
+        getattr(payload, "list_id", None)
+        if getattr(payload, "list_id", None) is not None
+        else getattr(payload, "listId", None)
     )
+    if single is not None and int(single) not in ids:
+        ids.insert(0, int(single))
+    if not ids and fallback is not None:
+        ids.append(int(fallback))
+    return ids
+
+
+def _excluded_list_ids(payload) -> List[int]:
+    raw = (
+        getattr(payload, "exclude_list_ids", None)
+        or getattr(payload, "excludeListIds", None)
+        or []
+    )
+    ids: List[int] = []
+    for value in raw:
+        try:
+            list_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if list_id not in ids:
+            ids.append(list_id)
+    return ids
+
+
+def _validate_list_ids(db, tenant_id: int, list_ids: List[int]) -> None:
+    """A list id must belong to the tenant, else the send could reach strangers."""
+    if not list_ids:
+        return
+    owned = {
+        row[0]
+        for row in db.query(ContactList.id).filter(
+            ContactList.id.in_(list_ids), ContactList.tenant_id == tenant_id
+        )
+    }
+    missing = [list_id for list_id in list_ids if list_id not in owned]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"List(s) not found: {missing}")
+
+
+def _audience_query(db, tenant_id: int, list_ids: List[int], exclude_ids: List[int]):
+    """Contacts a campaign would mail, as a query.
+
+    With no lists the audience is every eligible contact in the tenant. With
+    lists it is the union of their subscribed members, minus anyone on an
+    exclusion list and minus unsubscribed/blacklisted contacts.
+    """
+    eligible = [
+        Contact.tenant_id == tenant_id,
+        Contact.eligible_to_email.is_(True),
+        Contact.email_blacklisted.isnot(True),
+    ]
+    if not list_ids:
+        return db.query(Contact).filter(*eligible)
+
+    member_lists = (
+        db.query(ContactListMember.contact_id)
+        .filter(
+            ContactListMember.tenant_id == tenant_id,
+            ContactListMember.list_id.in_(list_ids),
+            ContactListMember.unsubscribed.isnot(True),
+        )
+        .subquery()
+    )
+    query = (
+        db.query(Contact)
+        .join(member_lists, member_lists.c.contact_id == Contact.id)
+        .filter(*eligible)
+    )
+    if exclude_ids:
+        excluded = (
+            db.query(ContactListMember.contact_id)
+            .filter(
+                ContactListMember.tenant_id == tenant_id,
+                ContactListMember.list_id.in_(exclude_ids),
+            )
+            .subquery()
+        )
+        query = query.filter(~Contact.id.in_(db.query(excluded.c.contact_id)))
+    return query
+
+
+def _audience_size(
+    db, tenant_id: int, list_id: Optional[int], exclude_ids: Optional[List[int]] = None
+) -> int:
+    """Count the contacts a campaign would send to."""
+    list_ids = [list_id] if list_id is not None else []
+    return _audience_query(db, tenant_id, list_ids, exclude_ids or []).count()
 
 
 def _to_out(db, campaign: Campaign, tenant_id: int) -> CampaignOut:
+    list_ids = list(campaign.list_ids or [])
+    if not list_ids and campaign.list_id is not None:
+        list_ids = [campaign.list_id]
+    exclude_ids = list(campaign.exclude_list_ids or [])
+
     list_name = None
     if campaign.list_id is not None:
         list_name = (
@@ -300,6 +393,15 @@ def _to_out(db, campaign: Campaign, tenant_id: int) -> CampaignOut:
             )
             .scalar()
         )
+    list_names: List[str] = []
+    if list_ids:
+        rows = (
+            db.query(ContactList.id, ContactList.name)
+            .filter(ContactList.id.in_(list_ids), ContactList.tenant_id == tenant_id)
+            .all()
+        )
+        by_id = {row[0]: row[1] for row in rows}
+        list_names = [by_id[list_id] for list_id in list_ids if list_id in by_id]
     template_name = None
     if campaign.template_id is not None:
         template_name = (
@@ -326,6 +428,15 @@ def _to_out(db, campaign: Campaign, tenant_id: int) -> CampaignOut:
         templateId=campaign.template_id,
         list_id=campaign.list_id,
         listId=campaign.list_id,
+        list_ids=list_ids,
+        listIds=list_ids,
+        exclude_list_ids=exclude_ids,
+        excludeListIds=exclude_ids,
+        list_names=list_names,
+        campaign_type=campaign.campaign_type or "marketing",
+        timezone=campaign.timezone,
+        ab_test_id=campaign.ab_test_id,
+        abTestId=campaign.ab_test_id,
         list_name=list_name,
         template_name=template_name,
         from_email=campaign.from_email,
@@ -364,6 +475,41 @@ def _validate_channel(channel: str) -> str:
             detail=f"channel must be one of {sorted(VALID_CHANNELS)}",
         )
     return channel
+
+
+VALID_CAMPAIGN_TYPES = {"marketing", "transactional"}
+
+
+def _validate_campaign_type(value: str) -> str:
+    """Marketing needs consent; transactional is triggered by the recipient."""
+    if value not in VALID_CAMPAIGN_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"campaign_type must be one of {sorted(VALID_CAMPAIGN_TYPES)}",
+        )
+    return value
+
+
+def _resolve_ab_test(db, tenant_id: int, payload) -> Optional[int]:
+    """Validate an attached experiment belongs to the tenant."""
+    from app.db import ABTest
+
+    raw = (
+        getattr(payload, "ab_test_id", None)
+        if getattr(payload, "ab_test_id", None) is not None
+        else getattr(payload, "abTestId", None)
+    )
+    if raw is None:
+        return None
+    test_id = int(raw)
+    exists = (
+        db.query(ABTest.id)
+        .filter(ABTest.id == test_id, ABTest.tenant_id == tenant_id)
+        .first()
+    )
+    if not exists:
+        raise HTTPException(status_code=404, detail=f"A/B test {test_id} not found")
+    return test_id
 
 
 # ------------------------------------------------------------------ routes
@@ -408,12 +554,19 @@ def create_campaign(
     """Create a draft campaign, optionally scheduled and targeted at a list."""
     channel = _validate_channel(payload.channel or "email")
     scheduled_at = _scheduled_value(payload)
+    campaign_type = _validate_campaign_type(
+        payload.campaign_type or payload.campaignType or "marketing"
+    )
 
     db = SessionLocal()
     try:
         template_id = _resolve_template(db, tenant_id, payload)
-        list_id = _resolve_list(db, tenant_id, payload)
+        list_ids = _selected_list_ids(payload)
+        _validate_list_ids(db, tenant_id, list_ids)
+        excluded_ids = _excluded_list_ids(payload)
+        _validate_list_ids(db, tenant_id, excluded_ids)
         from_email, from_name = _resolve_sender(db, tenant_id, payload)
+        ab_test_id = _resolve_ab_test(db, tenant_id, payload)
 
         campaign = Campaign(
             tenant_id=tenant_id,
@@ -423,9 +576,16 @@ def create_campaign(
             channel=channel,
             status="scheduled" if scheduled_at else "draft",
             template_id=template_id,
-            list_id=list_id,
+            list_id=list_ids[0] if list_ids else None,
+            list_ids=list_ids,
+            exclude_list_ids=excluded_ids,
+            campaign_type=campaign_type,
+            timezone=payload.timezone,
+            ab_test_id=ab_test_id,
             scheduled_at=scheduled_at,
-            total_recipients=_audience_size(db, tenant_id, list_id),
+            total_recipients=_audience_query(
+                db, tenant_id, list_ids, excluded_ids
+            ).count(),
             from_email=from_email,
             from_name=from_name,
         )
@@ -521,11 +681,34 @@ def update_campaign(
             payload, "templateId", None
         ) is not None:
             campaign.template_id = _resolve_template(db, tenant_id, payload)
-        if getattr(payload, "list_id", None) is not None or getattr(
-            payload, "listId", None
+        list_keys = ("list_id", "listId", "list_ids", "listIds")
+        if any(getattr(payload, key, None) is not None for key in list_keys):
+            list_ids = _selected_list_ids(payload)
+            _validate_list_ids(db, tenant_id, list_ids)
+            campaign.list_ids = list_ids
+            campaign.list_id = list_ids[0] if list_ids else None
+        exclude_keys = ("exclude_list_ids", "excludeListIds")
+        if any(getattr(payload, key, None) is not None for key in exclude_keys):
+            excluded_ids = _excluded_list_ids(payload)
+            _validate_list_ids(db, tenant_id, excluded_ids)
+            campaign.exclude_list_ids = excluded_ids
+        if any(getattr(payload, key, None) is not None for key in list_keys + exclude_keys):
+            campaign.total_recipients = _audience_query(
+                db,
+                tenant_id,
+                list(campaign.list_ids or []),
+                list(campaign.exclude_list_ids or []),
+            ).count()
+        if payload.campaign_type is not None or payload.campaignType is not None:
+            campaign.campaign_type = _validate_campaign_type(
+                payload.campaign_type or payload.campaignType
+            )
+        if payload.timezone is not None:
+            campaign.timezone = payload.timezone
+        if getattr(payload, "ab_test_id", None) is not None or getattr(
+            payload, "abTestId", None
         ) is not None:
-            campaign.list_id = _resolve_list(db, tenant_id, payload)
-            campaign.total_recipients = _audience_size(db, tenant_id, campaign.list_id)
+            campaign.ab_test_id = _resolve_ab_test(db, tenant_id, payload)
         # Changing the sender is only meaningful before the campaign goes out.
         if campaign.status not in ("sent", "sending"):
             sender_keys = ("alias_id", "aliasId", "from_email", "fromEmail")
@@ -589,7 +772,19 @@ def duplicate_campaign(campaign_id: int, tenant_id: int = Depends(current_tenant
             status="draft",
             template_id=original.template_id,
             list_id=original.list_id,
-            total_recipients=_audience_size(db, tenant_id, original.list_id),
+            list_ids=list(original.list_ids or []),
+            exclude_list_ids=list(original.exclude_list_ids or []),
+            campaign_type=original.campaign_type or "marketing",
+            timezone=original.timezone,
+            ab_test_id=original.ab_test_id,
+            total_recipients=_audience_query(
+                db,
+                tenant_id,
+                list(original.list_ids or ([original.list_id] if original.list_id else [])),
+                list(original.exclude_list_ids or []),
+            ).count(),
+            from_email=original.from_email,
+            from_name=original.from_name,
         )
         db.add(copy)
         db.commit()
@@ -658,3 +853,185 @@ def campaign_stats(campaign_id: int, tenant_id: int = Depends(current_tenant_id)
         }
     finally:
         db.close()
+
+
+@router.get("/{campaign_id}/analytics")
+def campaign_analytics(campaign_id: int, tenant_id: int = Depends(current_tenant_id)):
+    """Brevo-style campaign report: counters, rates, devices and A/B results.
+
+    Counters come from the campaign row (which the send path keeps current)
+    while device and geography are derived from the tracking events recorded for
+    this campaign's drafts, so the report never claims data it does not have.
+    """
+    db = SessionLocal()
+    try:
+        campaign = _get_campaign(db, campaign_id, tenant_id)
+        out = _to_out(db, campaign, tenant_id)
+
+        draft_ids = [
+            row[0]
+            for row in db.query(Draft.id).filter(
+                Draft.tenant_id == tenant_id, Draft.campaign_id == campaign.id
+            )
+        ]
+        events = (
+            db.query(Event)
+            .filter(
+                Event.tenant_id == tenant_id,
+                Event.event_type.in_(["email_opened", "link_clicked"]),
+            )
+            .all()
+            if draft_ids
+            else []
+        )
+        events = [
+            event for event in events if (event.data or {}).get("draft_id") in draft_ids
+        ]
+
+        devices: Dict[str, int] = {}
+        countries: Dict[str, int] = {}
+        for event in events:
+            data = event.data or {}
+            device = str(data.get("device") or "unknown")
+            devices[device] = devices.get(device, 0) + 1
+            country = str(data.get("country") or "unknown")
+            countries[country] = countries.get(country, 0) + 1
+
+        ab_results = None
+        if campaign.ab_test_id is not None:
+            from app.db import ABTest
+            from app.services.abtesting import test_results
+
+            test = (
+                db.query(ABTest)
+                .filter(
+                    ABTest.id == campaign.ab_test_id,
+                    ABTest.tenant_id == tenant_id,
+                )
+                .first()
+            )
+            if test is not None:
+                ab_results = test_results(db, test)
+
+        return {
+            "campaign": out.model_dump(mode="json"),
+            "stats": {
+                "total_recipients": out.total_recipients,
+                "delivered": out.delivered,
+                "opened": out.opened,
+                "clicked": out.clicked,
+                "replied": out.replied,
+                "bounced": out.bounced,
+                "unsubscribed": out.unsubscribed,
+                "spam_complaints": out.spam_complaints,
+                "open_rate": out.open_rate,
+                "click_rate": out.click_rate,
+            },
+            "devices": devices,
+            "countries": countries,
+            "ab_test": ab_results,
+        }
+    finally:
+        db.close()
+
+
+class AudiencePreviewRequest(BaseModel):
+    list_ids: Optional[List[int]] = None
+    listIds: Optional[List[int]] = None
+    exclude_list_ids: Optional[List[int]] = None
+    excludeListIds: Optional[List[int]] = None
+
+
+@router.post("/audience/preview")
+def preview_audience(
+    payload: AudiencePreviewRequest, tenant_id: int = Depends(current_tenant_id)
+):
+    """Live recipient estimate and per-list breakdown for the campaign wizard.
+
+    Exposes the overlap too: someone in two selected lists is one recipient, not
+    two, which is the number Brevo shows in its audience step.
+    """
+    db = SessionLocal()
+    try:
+        list_ids = _selected_list_ids(payload)
+        excluded_ids = _excluded_list_ids(payload)
+        _validate_list_ids(db, tenant_id, list_ids + excluded_ids)
+
+        per_list: List[Dict[str, object]] = []
+        member_sets: Dict[int, set] = {}
+        for list_id in list_ids:
+            ids = {
+                row[0]
+                for row in _audience_query(db, tenant_id, [list_id], [])
+                .with_entities(Contact.id)
+                .all()
+            }
+            member_sets[list_id] = ids
+            name = (
+                db.query(ContactList.name)
+                .filter(
+                    ContactList.id == list_id, ContactList.tenant_id == tenant_id
+                )
+                .scalar()
+            )
+            per_list.append({"id": list_id, "name": name, "eligible": len(ids)})
+
+        overlap = 0
+        if len(member_sets) > 1:
+            combined = set().union(*member_sets.values())
+            overlap = sum(len(ids) for ids in member_sets.values()) - len(combined)
+
+        total = _audience_query(db, tenant_id, list_ids, excluded_ids).count()
+        return {
+            "total_recipients": total,
+            "per_list": per_list,
+            "overlap": overlap,
+            "excluded_lists": excluded_ids,
+        }
+    finally:
+        db.close()
+
+
+@router.get("/audience/overlap")
+def audience_overlap(tenant_id: int = Depends(current_tenant_id)):
+    """Lists that share contacts, so a send is not duplicated across them."""
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(ContactListMember.list_id, ContactListMember.contact_id)
+            .filter(ContactListMember.tenant_id == tenant_id)
+            .all()
+        )
+        contact_lists: Dict[int, set] = {}
+        for list_id, contact_id in rows:
+            contact_lists.setdefault(contact_id, set()).add(list_id)
+
+        duplicates: Dict[tuple, int] = {}
+        for list_ids in contact_lists.values():
+            ordered = sorted(list_ids)
+            for index, first in enumerate(ordered):
+                for second in ordered[index + 1 :]:
+                    duplicates[(first, second)] = duplicates.get((first, second), 0) + 1
+
+        names = {
+            row[0]: row[1]
+            for row in db.query(ContactList.id, ContactList.name).filter(
+                ContactList.tenant_id == tenant_id
+            )
+        }
+        overlaps = [
+            {
+                "list_a": pair[0],
+                "list_b": pair[1],
+                "list_a_name": names.get(pair[0]),
+                "list_b_name": names.get(pair[1]),
+                "shared_contacts": count,
+            }
+            for pair, count in sorted(
+                duplicates.items(), key=lambda item: item[1], reverse=True
+            )
+        ]
+        return {"overlaps": overlaps}
+    finally:
+        db.close()
+

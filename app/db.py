@@ -452,6 +452,9 @@ class Campaign(Base):
     replied: Mapped[int] = mapped_column(Integer, default=0)
     bounced: Mapped[int] = mapped_column(Integer, default=0)
     unsubscribed: Mapped[int] = mapped_column(Integer, default=0)
+    # Spam complaints are reported separately from unsubscribes in Brevo's
+    # report, and are the number deliverability advice is based on.
+    spam_complaints: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -1240,6 +1243,8 @@ def _ensure_campaign_audience_columns(existing_columns):
         missing.append("timezone VARCHAR(100) NULL")
     if "ab_test_id" not in columns:
         missing.append("ab_test_id INTEGER NULL")
+    if "spam_complaints" not in columns:
+        missing.append("spam_complaints INTEGER DEFAULT 0")
     if not missing:
         return
     with engine.begin() as connection:
