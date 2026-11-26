@@ -5217,11 +5217,11 @@ export default function App(){
 
     {group:"Audience",id:"contacts",icon:Users,label:"Contacts",badge:state.contacts?.length||null},
 
-    {group:"Audience",id:"lists",icon:Inbox,label:"Lists"},
-
     {group:"Audience",id:"templates",icon:PenLine,label:"Templates"},
 
-    {group:"Campaigns",id:"campaigns",icon:Send,label:"Campaigns"},
+{group:"Campaigns",id:"lists",icon:Inbox,label:"Lists"},
+
+{group:"Campaigns",id:"campaigns",icon:Send,label:"Campaigns"},
 
     {group:"Campaigns",id:"drafts",icon:FileText,label:"Drafts",badge:state.drafts?.filter(d=>d.status==="draft").length||null},
 
@@ -8137,13 +8137,30 @@ export default function App(){
 
               <div className="modal-body">
 
-                <p className="text-[12px] text-ink-500">Paste CSV with an <code>email</code> column. Optional: <code>name</code>. Existing contacts are updated and added to this list.</p>
+                <p className="text-[12px] text-ink-500">Upload a CSV or paste it below. It needs an <code>email</code> column; <code>name</code> is optional. Existing contacts are updated and added to this list.</p>
+
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="mt-3 block w-full text-[12.5px] text-ink-600 file:mr-3 file:rounded-md file:border-0 file:bg-ink-100 file:px-3 file:py-1.5 file:text-[12.5px] file:text-ink-700 hover:file:bg-ink-200"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file) return;
+                    try {
+                      setListImportText(await file.text());
+                      setListError(null);
+                    } catch (err) {
+                      setListError(err?.message || "Could not read that file");
+                    }
+                  }}
+                />
 
                 <textarea
 
                   rows={10}
 
-                  className={inputCls+" font-mono text-xs"}
+                  className={inputCls+" mt-3 font-mono text-xs"}
 
                   value={listImportText}
 
