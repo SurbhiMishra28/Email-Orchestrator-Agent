@@ -1,0 +1,44 @@
+name: Autopilot tick
+
+# Drives the send queue and inbox poll on a host that cannot keep a process
+# alive (Vercel freezes the function between requests, so APScheduler never
+# fires there). GitHub's minimum schedule is 5 minutes; for 1-minute delivery
+# use cron-job.org against the same endpoint instead.
+#
+# Required repository secrets:
+#   APP_URL      - https://your-app.vercel.app  (no trailing slash)
+#   CRON_SECRET  - the CRON_SECRET value from the Vercel project
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Run one autopilot tick
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::APP_URL or CRON_SECRET is not set in repository secrets."
+            exit 1
+          fi
+          code=$(curl -sS -o /tmp/tick.json -w "%{http_code}" \
+            -X POST "${APP_URL%/}/api/cron/tick" \
+            -H "X-Cron-Secret: ${CRON_SECRET}" \
+            -H "Content-Type: application/json" --data '{}')
+          echo "HTTP $code"
+          cat /tmp/tick.json
+          echo
+          if [ "$code" != "200" ]; then
+            echo "::error::tick failed with HTTP $code"
+            exit 1
+          fi
