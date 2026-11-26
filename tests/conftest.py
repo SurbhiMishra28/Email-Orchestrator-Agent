@@ -23,15 +23,45 @@ _TEST_DB_NAME = f"email_orchestrator_test_{_RUN_ID}"
 _SQLITE_PATH = f"test_email_orchestrator_{_RUN_ID}.db"
 
 
+def _is_postgres(url: str) -> bool:
+    return url.startswith("postgresql")
+
+
+def _admin_url() -> str:
+    """The server-level URL used to create/drop the throwaway database.
+
+    For Postgres the unpooled endpoint is used when the platform supplies one:
+    ``CREATE DATABASE`` cannot run through PgBouncer's transaction pooler.
+    """
+    if _is_postgres(_REAL_URL):
+        return os.getenv("DATABASE_URL_UNPOOLED") or _REAL_URL
+    return _REAL_URL
+
+
 def _test_url(url: str) -> str:
-    """Return ``url`` pointed at this run's throwaway test database."""
+    """Return ``url`` pointed at this run's throwaway test database.
+
+    Postgres URLs carry libpq options in the query string (``sslmode=require``),
+    so the swap has to preserve them -- dropping them downgrades the connection
+    to plaintext and the server refuses it.
+    """
     if url.startswith("sqlite"):
         return f"sqlite:///./{_SQLITE_PATH}"
-    base, _, _ = url.rpartition("/")
-    return f"{base}/{_TEST_DB_NAME}"
+
+    scheme, sep, rest = url.partition("://")
+    head, qsep, query = rest.partition("?")
+    base, _, _ = head.rpartition("/")
+    swapped = f"{scheme}{sep}{base}/{_TEST_DB_NAME}"
+    if qsep:
+        swapped = f"{swapped}?{query}"
+    return swapped
 
 
-TEST_DATABASE_URL = _test_url(_REAL_URL)
+# Build the test URL from the *direct* endpoint, not the pooled one. PgBouncer
+# in transaction mode cannot serve a freshly created database reliably (it
+# terminates the connection mid-introspection), and the suite is a single
+# long-lived process, so it does not need pooling.
+TEST_DATABASE_URL = _test_url(_admin_url())
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 # The suite deliberately mails reserved example.com addresses, so the
@@ -69,24 +99,35 @@ os.environ["ENABLE_LIVE_LOGS"] = "true"
 
 
 def _ensure_test_database() -> None:
-    """Create the throwaway database if the server does not have it yet."""
+    """Create the throwaway database if the server does not have it yet.
+
+    DDL cannot run inside a transaction on Postgres, so the admin connection is
+    opened with AUTOCOMMIT and ``CREATE DATABASE`` is issued bare. A concurrent
+    run that already created it is not an error.
+    """
     if TEST_DATABASE_URL.startswith("sqlite"):
         return
 
     from sqlalchemy import create_engine, text
 
-    server_url = TEST_DATABASE_URL.rsplit("/", 1)[0]
-    engine = create_engine(server_url, isolation_level="AUTOCOMMIT")
+    admin = create_engine(_admin_url(), isolation_level="AUTOCOMMIT", pool_pre_ping=True)
     try:
-        with engine.connect() as connection:
-            connection.execute(
-                text(
-                    f"CREATE DATABASE IF NOT EXISTS {_TEST_DB_NAME} "
-                    "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+        with admin.connect() as connection:
+            if _is_postgres(TEST_DATABASE_URL):
+                try:
+                    connection.execute(text(f'CREATE DATABASE "{_TEST_DB_NAME}"'))
+                except Exception as exc:
+                    if "already exists" not in str(exc).lower():
+                        raise
+            else:
+                connection.execute(
+                    text(
+                        f"CREATE DATABASE IF NOT EXISTS {_TEST_DB_NAME} "
+                        "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                    )
                 )
-            )
     finally:
-        engine.dispose()
+        admin.dispose()
 
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -154,15 +195,19 @@ def pytest_sessionfinish(session, exitstatus):
 
     from sqlalchemy import create_engine, text
 
-    server_url = TEST_DATABASE_URL.rsplit("/", 1)[0]
-    admin = create_engine(server_url, isolation_level="AUTOCOMMIT")
+    admin = create_engine(_admin_url(), isolation_level="AUTOCOMMIT", pool_pre_ping=True)
     try:
-        # App connections can outlive the fixture for a moment, and MariaDB
-        # refuses to drop a schema that still has sessions attached.
+        # App connections can outlive the fixture for a moment. Postgres 13+
+        # can terminate them with WITH (FORCE); MySQL needs the retry loop.
         for attempt in range(5):
             try:
                 with admin.connect() as connection:
-                    connection.execute(text(f"DROP DATABASE IF EXISTS {_TEST_DB_NAME}"))
+                    if _is_postgres(TEST_DATABASE_URL):
+                        connection.execute(
+                            text(f'DROP DATABASE IF EXISTS "{_TEST_DB_NAME}" WITH (FORCE)')
+                        )
+                    else:
+                        connection.execute(text(f"DROP DATABASE IF EXISTS {_TEST_DB_NAME}"))
                 break
             except Exception:
                 if attempt == 4:
