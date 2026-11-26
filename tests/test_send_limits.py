@@ -51,7 +51,7 @@ def test_pacing_blocks_a_second_send_within_a_minute(db):
 
     assert not allowed
     assert reason.startswith("Pacing")
-    assert DEFAULT_PACING_SECONDS == 60
+    assert DEFAULT_PACING_SECONDS == 10
 
 
 def test_daily_cap_blocks_after_warmup_limit(db):

@@ -97,6 +97,12 @@ os.environ["DATABASE_URL_UNPOOLED"] = ""
 os.environ["ENABLE_BACKGROUND_JOBS"] = "true"
 os.environ["ENABLE_LIVE_LOGS"] = "true"
 
+# The developer's .env may raise the daily ceiling (DAILY_CAP) for a real batch.
+# Tests assert the code's own default, so the deployment override is cleared
+# here; a test that wants a different ceiling monkeypatches
+# ``app.services.limits.DAILY_CAP``.
+os.environ["DAILY_CAP"] = ""
+
 
 def _ensure_test_database() -> None:
     """Create the throwaway database if the server does not have it yet.

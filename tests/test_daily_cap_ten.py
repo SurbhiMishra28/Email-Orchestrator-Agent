@@ -19,7 +19,7 @@ from app.services.limits import POST_WARMUP_CAP, check_send_allowed, warmup_cap
 @pytest.fixture(autouse=True)
 def _default_ceiling(monkeypatch):
     """Pin the unset-``DAILY_CAP`` behaviour regardless of the developer .env."""
-    monkeypatch.delenv("DAILY_CAP", raising=False)
+    monkeypatch.setattr(limits, "DAILY_CAP", POST_WARMUP_CAP)
 
 
 def _db():
@@ -74,7 +74,7 @@ def test_ten_in_one_domain_are_allowed_before_the_cap():
 
 def test_daily_cap_env_raises_the_ceiling(monkeypatch):
     """``DAILY_CAP`` is the deployment override; 50 sends then 51 is refused."""
-    monkeypatch.setenv("DAILY_CAP", "50")
+    monkeypatch.setattr(limits, "DAILY_CAP", 50)
     db, engine = _db()
     try:
         db.query(Settings).update({"daily_cap": 50, "domain_cap": 50})
@@ -91,6 +91,8 @@ def test_daily_cap_env_raises_the_ceiling(monkeypatch):
         engine.dispose()
 
 
-def test_daily_cap_zero_falls_back_to_default(monkeypatch):
-    monkeypatch.setenv("DAILY_CAP", "0")
-    assert limits.hard_daily_cap() == POST_WARMUP_CAP
+def test_invalid_daily_cap_env_falls_back_to_default(monkeypatch):
+    """A zero or non-numeric ``DAILY_CAP`` must not disable the cap."""
+    for raw in ("0", "-5", "fifty"):
+        monkeypatch.setenv("DAILY_CAP", raw)
+        assert limits._env_int("DAILY_CAP", POST_WARMUP_CAP) == POST_WARMUP_CAP

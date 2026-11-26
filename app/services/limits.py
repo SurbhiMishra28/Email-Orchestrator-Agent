@@ -18,8 +18,7 @@ from app.db import Contact, Draft, Settings, Tenant
 # inside a consumer mailbox's comfortable range and keeps a cold thread from
 # looking like a blast, while still being enough to work through a small list.
 # ``DAILY_CAP`` overrides it per deployment; the default stays 10 so an
-# unconfigured install is conservative. The value is read at call time, not at
-# import, so a test or a restarted process can raise it without a code change.
+# unconfigured install is conservative.
 DEFAULT_DAILY_CAP = 10
 POST_WARMUP_CAP = DEFAULT_DAILY_CAP
 
@@ -28,11 +27,12 @@ POST_WARMUP_CAP = DEFAULT_DAILY_CAP
 # simpler and matches what the operator asked for.
 WARMUP_CAPS = ()
 
-# Minimum gap between two sends. One message a minute is roughly the ceiling a
-# consumer mailbox tolerates without looking automated. ``PACING_SECONDS``
-# overrides it when a one-off batch has to clear the queue faster.
-DEFAULT_PACING_SECONDS = 60
-PACING_SECONDS = DEFAULT_PACING_SECONDS
+# Minimum gap between two sends. This is the knob that decides how fast a queue
+# drains: at 60s a ten-contact workspace needs ten minutes and a single Run only
+# ever sends one message, which reads as "nothing happened". Ten seconds still
+# avoids an instant burst while letting a small batch finish inside one request.
+# ``PACING_SECONDS`` overrides it per deployment.
+DEFAULT_PACING_SECONDS = 10
 
 
 def _env_int(name: str, default: int) -> int:
@@ -47,17 +47,19 @@ def _env_int(name: str, default: int) -> int:
     return value if value > 0 else default
 
 
+# Read once at import so ``.env`` and the process environment apply, while a
+# test (or a caller that has a reason) can still rebind these module globals.
+DAILY_CAP = _env_int("DAILY_CAP", POST_WARMUP_CAP)
+PACING_SECONDS = _env_int("PACING_SECONDS", DEFAULT_PACING_SECONDS)
+
+
 def hard_daily_cap() -> int:
-    """The deployment-wide daily ceiling (``DAILY_CAP``, else ``POST_WARMUP_CAP``)."""
-    if os.getenv("DAILY_CAP"):
-        return _env_int("DAILY_CAP", POST_WARMUP_CAP)
-    return POST_WARMUP_CAP
+    """The deployment-wide daily ceiling (``DAILY_CAP``, default 10)."""
+    return DAILY_CAP
 
 
 def pacing_seconds() -> int:
-    """The minimum gap between two sends (``PACING_SECONDS``, else the module default)."""
-    if os.getenv("PACING_SECONDS"):
-        return _env_int("PACING_SECONDS", PACING_SECONDS)
+    """The minimum gap between two sends (``PACING_SECONDS``, default 60)."""
     return PACING_SECONDS
 
 
