@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "fastapi",
   "buildCommand": "npm ci --prefix frontend && npm run build --prefix frontend && mkdir -p app/static && cp -r frontend/dist/. app/static/",
   "outputDirectory": "frontend/dist",
   "functions": {
