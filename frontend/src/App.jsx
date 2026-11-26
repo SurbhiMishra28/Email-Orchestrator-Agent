@@ -614,6 +614,47 @@ const THEMES = [
   { id: "glass", label: "Glass", icon: Sparkles },
 ];
 
+function DefaultAliasChip({aliases=[]}){
+
+  const current=aliases.find(a=>a.is_default)||aliases[0];
+
+  const [open,setOpen]=useState(false);
+
+  if(!current) return null;
+
+  return (
+    <div className="relative">
+      <button
+        onClick={(e)=>{ e.stopPropagation(); setOpen(o=>!o); }}
+        className="btn-ghost btn-sm"
+        title="The From identity used when a send does not pick one"
+      >
+        <Mail className="h-3.5 w-3.5"/>
+        <span className="max-w-[180px] truncate max-sm:hidden">{current.name||current.email}</span>
+      </button>
+      {open&&(
+        <div className="absolute right-0 top-full z-40 mt-1 w-64 rounded-xl border border-ink-200 bg-ink-100 p-1 shadow-pop">
+          <p className="px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-ink-400">
+            Sender aliases
+          </p>
+          {aliases.map(a=>(
+            <div key={a.id} className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px]">
+              <span className="min-w-0">
+                <span className="block truncate text-ink-800">{a.name||a.email}</span>
+                <span className="block truncate text-[11px] text-ink-500">{a.email}</span>
+              </span>
+              {a.is_default&&<span className="badge shrink-0 border-brand-200 bg-brand-50 text-brand-700">default</span>}
+            </div>
+          ))}
+          <p className="px-2.5 pb-1 pt-2 text-[11px] text-ink-400">
+            Manage these in Settings.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ThemePicker(){
 
   const [theme,setTheme]=useState(()=>{
@@ -5390,6 +5431,8 @@ export default function App(){
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
+
+            <DefaultAliasChip aliases={state.aliases||[]}/>
 
             <ThemePicker/>
 
