@@ -35,6 +35,37 @@ def _open_draft_exists(db, tenant_id: Optional[int], contact_id: int) -> bool:
     )
 
 
+def dedupe_intro_drafts(db, tenant_id: Optional[int] = None) -> int:
+    """Remove duplicate intro drafts so one contact yields at most one email.
+
+    Two invocations that race (an autopilot tick landing on a manual Run) can
+    both observe "no draft yet" and each create one, which means the contact is
+    mailed twice. The oldest draft per contact wins; the extras are deleted
+    before anything is sent. Only unsent drafts are touched, so the audit trail
+   ​   of what actually went out is preserved.
+    """
+    query = db.query(Draft).filter(Draft.status.in_(["draft", "blocked"]))
+    if tenant_id is not None:
+        query = query.filter(Draft.tenant_id == tenant_id)
+
+    seen: set = set()
+    removed = 0
+    for draft in query.order_by(Draft.id.asc()).all():
+        # Follow-ups belong to an existing thread, so they are not intros and
+        # must never be deduped away.
+        if (draft.variables or {}).get("followup_for"):
+            continue
+        key = draft.contact_id
+        if key in seen:
+            db.delete(draft)
+            removed += 1
+        else:
+            seen.add(key)
+    if removed:
+        db.commit()
+    return removed
+
+
 async def create_intro_drafts(
     contact_ids: Optional[List[int]] = None,
     tenant_id: Optional[int] = None,
@@ -50,6 +81,9 @@ async def create_intro_drafts(
     db = SessionLocal()
     created = 0
     try:
+        # Clear duplicates left by an earlier race before adding more.
+        dedupe_intro_drafts(db, tenant_id)
+
         if require_automation:
             settings_query = db.query(Settings)
             if tenant_id is not None:
@@ -102,6 +136,13 @@ async def create_intro_drafts(
 
         skipped = 0
         for contact in contacts:
+            # Lock the contact row so a concurrent invocation cannot pass the
+            # existence check at the same moment and create a twin draft.
+            try:
+                db.query(Contact).filter(Contact.id == contact.id).with_for_update().one()
+            except Exception:  # locking is best-effort on SQLite
+                pass
+
             if _open_draft_exists(db, tenant_id, contact.id):
                 skipped += 1
                 continue
