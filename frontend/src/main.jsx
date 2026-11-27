@@ -77,13 +77,36 @@ function LoginGate({ onSuccess }) {
 }
 
 function Root() {
-  const [needsAuth, setNeedsAuth] = useState(() => !getBasicAuth())
+  // ``null`` means "still deciding". A workspace with no credentials configured
+  // must open straight into the app: showing the gate to every first-time
+  // visitor made an unprotected dashboard look broken. The gate appears only
+  // when the API actually answers 401.
+  const [needsAuth, setNeedsAuth] = useState(() => (getBasicAuth() ? false : null))
 
   useEffect(() => {
     const handler = () => setNeedsAuth(true)
-    window.addEventListener('mailmatrix:auth-required', handler)
-    return () => window.removeEventListener('mailmatrix:auth-required', handler)
+    window.addEventListener("mailmatrix:auth-required", handler)
+    return () => window.removeEventListener("mailmatrix:auth-required", handler)
   }, [])
+
+  useEffect(() => {
+    if (needsAuth !== null) return
+    let cancelled = false
+    fetch("/api/state")
+      .then((response) => {
+        if (cancelled) return
+        // Only a rejected request means this workspace is protected.
+        setNeedsAuth(response.status === 401)
+      })
+      .catch(() => {
+        if (!cancelled) setNeedsAuth(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [needsAuth])
+
+  if (needsAuth === null) return <div className="min-h-screen" />
 
   if (needsAuth) {
     return (

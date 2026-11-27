@@ -6200,72 +6200,118 @@ export default function App(){
 
           <div className="space-y-4">
 
-            <PageHeader title="Agents" subtitle="The pipeline runs itself: contacts go in, replies come back answered." eyebrow="Workspace"/>
+            <PageHeader title="Agents" subtitle="The pipeline runs itself: contacts go in, replies come back answered." eyebrow="Workspace">
+              <button onClick={()=>setView("automation")} className="btn-ghost">
+                <Activity className="h-3.5 w-3.5"/>Automation
+              </button>
+            </PageHeader>
+
+            {/* The agent's identity card: what it is, whether it is healthy, and
+                the four numbers that decide if it is doing its job. */}
+            <section className="agent-hero">
+              <div className="agent-hero-glow" aria-hidden="true"/>
+              <div className="relative flex flex-wrap items-start justify-between gap-4">
+                <div className="flex min-w-0 items-start gap-4">
+                  <span className="agent-orb"><Sparkles className="h-6 w-6"/></span>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-[18px] font-semibold tracking-[-0.01em] text-ink-900">Autopilot agent</h2>
+                      <span className="badge badge-sent">
+                        <span className="h-1.5 w-1.5 rounded-full bg-brand-600"/>{state.usage ? "Operational" : "Warming up"}
+                      </span>
+                    </div>
+                    <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-ink-500">
+                      Sources eligible contacts, drafts a personalised intro, sends inside the daily cap, then reads and answers replies — end to end, on every run.
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                      <span className="chip"><Users className="h-3 w-3"/>{state.contacts?.length||0} in audience</span>
+                      <span className="chip"><PenLine className="h-3 w-3"/>{state.templates?.length||0} template{(state.templates?.length||0)===1?"":"s"}</span>
+                      <span className="chip"><Send className="h-3 w-3"/>{state.usage?.today?.emails_sent||0} sent today</span>
+                      <span className="chip"><Inbox className="h-3 w-3"/>{state.usage?.today?.replies_received||0} replies today</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button onClick={run} className="btn-primary">
+                    <Play className="h-3.5 w-3.5"/>Run now
+                  </button>
+                </div>
+              </div>
+
+              <div className="relative mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                {[
+                  {label:"Drafts waiting", value: analytics.pending||0, icon:PenLine, tone:"text-brand-600"},
+                  {label:"Emails sent", value: analytics.sent||0, icon:Send, tone:"text-info-600"},
+                  {label:"Auto-replies", value: analytics.auto_replies||0, icon:Inbox, tone:"text-warn-600"},
+                  {label:"Follow-ups due", value: analytics.followups_due||0, icon:RefreshCw, tone:"text-ink-600"},
+                ].map((tile,i)=>(
+                  <div key={i} className="agent-tile">
+                    <div className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-400">
+                      <tile.icon className={"h-3.5 w-3.5 "+tile.tone}/>{tile.label}
+                    </div>
+                    <div className="mt-1.5 text-[26px] font-semibold leading-none tabular-nums text-ink-900">{tile.value}</div>
+                  </div>
+                ))}
+              </div>
+            </section>
 
             <LiveAgentActivity enabled={state.live_logs!==false}/>
 
             <Card title="Pipeline" subtitle="Runs on the schedule and whenever you press Run now">
-
-              <ol className="space-y-3">
-
+              <ol className="pipeline-rail space-y-4">
                 {[
-
-                  {icon:Users,title:"1. Audience",desc:"Every contact that is eligible for email and has no outreach yet is picked up for an intro.",value:`${analytics.pending||0} drafts waiting`},
-
-                  {icon:PenLine,title:"2. Drafting",desc:"The active intro template is rendered per contact, one draft per new contact.",value:`${state.templates?.length||0} templates`},
-
-                  {icon:Send,title:"3. Sending",desc:"The queue sends those drafts inside the daily limits and pacing, no approval step in between.",value:`${analytics.sent||0} sent`},
-
-                  {icon:Inbox,title:"4. Replies",desc:"New mail is pulled over IMAP, matched to the contact, classified and answered automatically.",value:`${analytics.auto_replies||0} auto-replies`},
-
-                  {icon:RefreshCw,title:"5. Follow-ups",desc:"Day-3 and day-5 follow-ups are drafted for threads without a reply and sent by the same queue.",value:`${analytics.followups_due||0} due`},
-
-                ].map(step=>(
-
+                  {icon:Users,title:"Audience",desc:"Every contact that is eligible for email and has no outreach yet is picked up for an intro.",value:`${analytics.pending||0} waiting`},
+                  {icon:PenLine,title:"Drafting",desc:"The active intro template is rendered per contact, one draft per new contact.",value:`${state.templates?.length||0} templates`},
+                  {icon:Send,title:"Sending",desc:"The queue sends those drafts inside the daily limits and pacing, no approval step in between.",value:`${analytics.sent||0} sent`},
+                  {icon:Inbox,title:"Replies",desc:"New mail is pulled over IMAP, matched to the contact, classified and answered automatically.",value:`${analytics.auto_replies||0} answered`},
+                  {icon:RefreshCw,title:"Follow-ups",desc:"Day-3 and day-5 follow-ups are drafted for threads without a reply and sent by the same queue.",value:`${analytics.followups_due||0} due`},
+                ].map((step,i)=>(
                   <li key={step.title} className="flex items-start gap-3">
-
-                    <span className="stat-icon shrink-0 bg-brand-50 text-brand-600"><step.icon className="h-4 w-4"/></span>
-
-                    <div className="min-w-0 flex-1">
-
-                      <div className="flex items-baseline justify-between gap-3">
-
+                    <span className="pipeline-dot"><step.icon className="h-4 w-4"/></span>
+                    <div className="min-w-0 flex-1 pt-0.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[10.5px] font-semibold tabular-nums text-ink-400">{String(i+1).padStart(2,"0")}</span>
                         <p className="text-[13px] font-semibold text-ink-900">{step.title}</p>
-
-                        <span className="shrink-0 text-[11px] tabular-nums text-ink-400">{step.value}</span>
-
+                        <span className="badge badge-sent">Active</span>
                       </div>
-
-                      <p className="mt-0.5 text-[12.5px] text-ink-500">{step.desc}</p>
-
+                      <p className="mt-0.5 text-[12.5px] leading-relaxed text-ink-500">{step.desc}</p>
                     </div>
-
+                    <span className="shrink-0 pt-1 text-[11.5px] tabular-nums text-ink-400">{step.value}</span>
                   </li>
-
                 ))}
-
               </ol>
-
             </Card>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
 
-              <Card title="Reply classification">
-
-                <p className="text-[13px] text-ink-500">Each reply is classified as positive, question, negative, unsubscribe or spam. Positive replies and questions get an answer; unsubscribe and spam are recorded and left alone.</p>
-
+              <Card
+                title="Reply classification"
+                action={<span className="badge badge-sent">Active</span>}
+              >
+                <div className="flex items-start gap-3">
+                  <span className="stat-icon shrink-0 bg-brand-50 text-brand-600"><Brain className="h-4 w-4"/></span>
+                  <p className="text-[13px] leading-relaxed text-ink-500">Each reply is classified as positive, question, negative, unsubscribe or spam. Positive replies and questions get an answer; unsubscribe and spam are recorded and left alone.</p>
+                </div>
               </Card>
 
-              <Card title="Calendar booking">
-
-                <p className="text-[13px] text-ink-500">Not connected. No calendar integration is installed, so this is not automated.</p>
-
+              <Card
+                title="Calendar booking"
+                action={<span className="badge badge-draft">Not connected</span>}
+              >
+                <div className="flex items-start gap-3">
+                  <span className="stat-icon shrink-0 bg-ink-200/60 text-ink-500"><Activity className="h-4 w-4"/></span>
+                  <p className="text-[13px] leading-relaxed text-ink-500">Not connected. No calendar integration is installed, so this is not automated.</p>
+                </div>
               </Card>
 
-              <Card title="Memory">
-
-                <p className="text-[13px] text-ink-500">Not implemented. Interaction history is stored as events, but the agent does not use it yet.</p>
-
+              <Card
+                title="Memory"
+                action={<span className="badge badge-draft">Planned</span>}
+              >
+                <div className="flex items-start gap-3">
+                  <span className="stat-icon shrink-0 bg-info-50 text-info-600"><Layers className="h-4 w-4"/></span>
+                  <p className="text-[13px] leading-relaxed text-ink-500">Not implemented. Interaction history is stored as events, but the agent does not use it yet.</p>
+                </div>
               </Card>
 
             </div>

@@ -422,6 +422,50 @@
     @apply inline-flex items-center gap-1 rounded-full border border-ink-200 bg-ink-100/70 px-2.5 py-0.5 text-[11px] font-medium text-ink-500;
   }
 
+  /* ------------------------------------------------------------ agents page */
+  /* A single high-contrast hero carries the agent's identity and the numbers
+     that prove it is working; everything below is supporting detail. */
+  .agent-hero {
+    @apply relative overflow-hidden rounded-card border border-ink-200 p-5 shadow-pop sm:p-6;
+    background:
+      radial-gradient(120% 150% at 0% 0%, rgb(var(--brand-500) / 0.12), transparent 55%),
+      linear-gradient(180deg, rgb(var(--ink-100)), rgb(var(--card)));
+  }
+
+  .agent-hero-glow {
+    @apply pointer-events-none absolute -right-24 -top-28 h-64 w-64 rounded-full;
+    background: radial-gradient(circle, rgb(var(--brand-500) / 0.26), transparent 70%);
+    filter: blur(12px);
+  }
+
+  .agent-orb {
+    @apply flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-2xl text-white;
+    background: linear-gradient(140deg, rgb(var(--brand-400)), rgb(var(--brand-700)));
+    box-shadow:
+      0 14px 30px -16px rgb(var(--brand-500) / 0.95),
+      inset 0 1px 0 rgb(255 255 255 / 0.35);
+  }
+
+  .agent-tile {
+    @apply rounded-xl border border-ink-200 bg-ink-100/60 px-3.5 py-3;
+  }
+
+  /* Vertical rail behind the pipeline steps, faded out at the last step. */
+  .pipeline-rail {
+    @apply relative;
+  }
+
+  .pipeline-rail::before {
+    content: "";
+    @apply absolute left-[19px] top-3 bottom-3 w-px;
+    background: linear-gradient(180deg, rgb(var(--brand-500) / 0.55), rgb(var(--ink-300)) 75%, transparent);
+  }
+
+  .pipeline-dot {
+    @apply relative z-[1] flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full border border-ink-300 bg-card text-brand-600;
+    box-shadow: 0 0 0 4px rgb(var(--card));
+  }
+
   .tag {
     @apply inline-flex items-center gap-1 rounded-md bg-ink-200/70 px-2 py-0.5 text-[11px] font-medium text-ink-600;
   }
