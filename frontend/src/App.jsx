@@ -12,7 +12,11 @@ function fmtDate(value) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString();
+  // Brevo format: day/month/year with 2-digit day and month
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
 }
 
 import { basicAuthHeader, getBasicAuth, requestCredentials, setBasicAuth } from "./auth.js";
