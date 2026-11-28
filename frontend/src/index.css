@@ -961,3 +961,52 @@
     filter: none;
   }
 }
+/* --------------------------------------------------- landing page extras */
+@layer components {
+  .lp-gradient-text {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(100deg, rgb(var(--brand-500)), rgb(var(--brand-700)));
+  }
+
+  .lp-window {
+    @apply relative overflow-hidden rounded-card border border-ink-200 bg-card;
+    box-shadow:
+      0 34px 70px -46px rgba(2, 10, 20, 0.6),
+      0 1px 0 rgb(255 255 255 / 0.05) inset;
+  }
+
+  .lp-window-bar {
+    @apply flex items-center gap-1.5 border-b border-ink-200 bg-ink-100/70 px-3 py-2;
+  }
+
+  .lp-bento {
+    @apply transition-all duration-200;
+  }
+
+  .lp-bento:hover {
+    transform: translateY(-2px);
+    border-color: rgb(var(--brand-400) / 0.55);
+    box-shadow: 0 22px 44px -34px rgba(2, 10, 20, 0.85);
+  }
+
+  .lp-flow-arrow {
+    @apply text-ink-300;
+  }
+
+  .lp-cta {
+    @apply relative rounded-card border border-ink-200;
+    background:
+      radial-gradient(80% 120% at 50% 0%, rgb(var(--brand-500) / 0.16), transparent 60%),
+      linear-gradient(180deg, rgb(var(--ink-100)), rgb(var(--card)));
+  }
+
+  .lp-cta .lp-glow {
+    @apply -top-24 left-1/2 h-64 w-[36rem] -translate-x-1/2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-bento:hover {
+    transform: none;
+  }
+}
