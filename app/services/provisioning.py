@@ -108,7 +108,7 @@ def normalize_template_categories(db, tenant_id: int) -> int:
     return changed
 
 
-def provision_tenant_defaults(db, tenant_id: int, inherit_environment: bool = None) -> None:
+def provision_tenant_defaults(db, tenant_id: int, inherit_environment: bool = False) -> None:
     """Create the per-tenant rows a new account needs.
 
     Idempotent: safe to call on every startup so tenants created before
@@ -119,11 +119,15 @@ def provision_tenant_defaults(db, tenant_id: int, inherit_environment: bool = No
     the implicit workspace of this no-login app, where it *is* the mailbox
     owner, and wrong for every other tenant: on a public deployment the
     environment holds the operator's own SMTP password, so copying it would let
-    anyone who registers send mail as that account. It defaults to on, and
-    ``app.main`` passes it explicitly so only the implicit workspace inherits.
+    anyone who registers send mail as that account.
+
+    It is therefore **off by default** and must be opted into explicitly by the
+    one caller that owns the environment (``app.main`` for the implicit
+    workspace). ``app.routers.auth.register`` passes ``False`` so a stranger who
+    signs up never inherits the operator's mailbox.
     """
     if inherit_environment is None:
-        inherit_environment = app_settings.SINGLE_USER_MODE
+        inherit_environment = False
 
     if not db.query(Settings).filter(Settings.tenant_id == tenant_id).first():
         db.add(

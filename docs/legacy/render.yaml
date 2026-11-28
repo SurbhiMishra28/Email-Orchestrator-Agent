@@ -33,7 +33,7 @@ services:
       sizeGB: 5
     envVars:
       - key: PYTHON_VERSION
-        value: "3.13.7"
+        value: "3.12"
       - key: DATABASE_URL
         # Four slashes: absolute path inside the mounted disk.
         value: sqlite:////var/data/email_orchestrator.db

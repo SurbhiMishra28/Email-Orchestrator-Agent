@@ -1,1 +1,5 @@
 providers = ["python", "node"]
+
+[environment]
+NIXPACKS_PYTHON_VERSION = "3.12"
+NIXPACKS_NODE_VERSION = "20"

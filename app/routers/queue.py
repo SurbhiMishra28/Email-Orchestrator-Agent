@@ -326,6 +326,14 @@ async def run_orchestration_async(
     async def runner():
         worker_db = SessionLocal()
         try:
+            # The campaign was loaded on the request session, which is closed by
+            # now. Re-load it here so ``worker_db.add`` receives a live instance
+            # instead of a detached one.
+            campaign = (
+                _load_campaign(worker_db, tenant_id, campaign_id)
+                if campaign_id is not None
+                else None
+            )
             template = _resolve_template(worker_db, tenant_id, resolved_template_id)
             contacts = _select_contacts(worker_db, tenant_id, contact_ids, list_id)
             if not contacts:
@@ -356,7 +364,6 @@ async def run_orchestration_async(
                 campaign.sent_at = datetime.now(timezone.utc)
                 campaign.total_recipients = len(contacts)
                 campaign.delivered = int(result.get("sent", 0) or 0)
-                worker_db.add(campaign)
 
             worker_db.add(
                 Log(

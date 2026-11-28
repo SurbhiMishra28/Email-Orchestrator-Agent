@@ -114,12 +114,13 @@ async def register(user_data: UserRegister):
         db.commit()
 
         # Provision per-tenant settings, SMTP and starter templates so a new
-        # account has a working workspace immediately. Inheritance defaults to
-        # on, which is right for this single-workspace build: the deployment's
-        # environment is the mailbox this app sends from.
+        # account has a working workspace immediately. ``inherit_environment``
+        # stays off: the deployment's environment holds the operator's own
+        # mailbox credentials, and a newly registered stranger must never
+        # inherit them.
         from app.services.provisioning import provision_tenant_defaults
 
-        provision_tenant_defaults(db, tenant.id)
+        provision_tenant_defaults(db, tenant.id, inherit_environment=False)
 
         # Create access token with 7-day expiry. The tenant claim lets the rate
         # limiter key on the tenant instead of a shared IP address.
@@ -140,6 +141,32 @@ async def register(user_data: UserRegister):
         db.rollback()
         logger.error(f"Registration failed: {e}")
         raise HTTPException(status_code=500, detail="Registration failed")
+    finally:
+        db.close()
+
+
+# ============ Demo Endpoint ============
+
+@router.post("/demo", response_model=TokenResponse)
+def demo_login():
+    """Open the seeded demo workspace without an account.
+
+    Public by design: it hands out a short-lived token for a throwaway tenant
+    that owns no sending credentials, so a visitor can click through the whole
+    product without an account and without touching the operator's data.
+    """
+    from app.services.demo import ensure_demo_tenant, ensure_demo_user
+
+    db = SessionLocal()
+    try:
+        tenant = ensure_demo_tenant(db)
+        user = ensure_demo_user(db, tenant)
+        access_token = create_access_token(
+            data={"sub": user.id, "tenant_id": tenant.id},
+            expires_delta=timedelta(days=1),
+        )
+        logger.info("Demo session issued for tenant %s", tenant.id)
+        return TokenResponse(access_token=access_token)
     finally:
         db.close()
 

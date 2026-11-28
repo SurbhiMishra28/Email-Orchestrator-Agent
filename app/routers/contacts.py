@@ -60,7 +60,7 @@ def get_db():
 @router.get("", response_model=List[ContactOut])
 def list_contacts(
     skip: int = 0,
-    limit: int = 1000,
+    limit: int = Query(1000, ge=1, le=1000),
     list_id: int = Query(None),
     tag: str = Query(None),
     search: str = Query(None),

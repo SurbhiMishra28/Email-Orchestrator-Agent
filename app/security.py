@@ -18,6 +18,15 @@ exempt, because they are not called by a browser holding credentials:
   recipient's mail client and browser.
 * ``/api/cron/*`` -- driven by an external scheduler that authenticates with
   ``X-Cron-Secret`` instead.
+
+Everything that is not under ``/api`` is exempt as well: the marketing page,
+the sign-in page and the built SPA bundle are static files that must render
+*before* any credential exists. The bundle holds no data; every value it shows
+comes from the gated API. ``POST /api/auth/demo`` is public for the same reason
+-- it is how a visitor obtains a session.
+
+A valid ``Authorization: Bearer <jwt>`` is accepted alongside Basic, which is
+what the sign-in page and the demo button use.
 """
 import base64
 import binascii
@@ -40,6 +49,7 @@ _EXEMPT_PREFIXES = (
     "/health",
     "/api/track",
     "/api/cron",
+    "/api/auth/demo",
     "/favicon.ico",
 )
 
@@ -53,12 +63,40 @@ def is_enabled() -> bool:
 
 
 def is_exempt(path: str) -> bool:
-    """True for routes that must answer without credentials."""
+    """True for routes that must answer without credentials.
+
+    Anything outside ``/api`` is the static shell (marketing page, sign-in page,
+    built assets, client-side routes such as ``/app``). It carries no tenant
+    data, and it has to render before a credential exists.
+    """
     normalized = path.rstrip("/") or "/"
+    if not normalized.startswith("/api"):
+        return True
     return any(
         normalized == prefix or normalized.startswith(prefix + "/")
         for prefix in _EXEMPT_PREFIXES
     )
+
+
+def _bearer_is_valid(authorization: str) -> bool:
+    """True when the header carries a JWT this process can verify.
+
+    The sign-in page and the demo button exchange credentials for a token, so
+    the gate has to accept it. An undecodable token is treated as absent rather
+    than as a server error.
+    """
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        return False
+    try:
+        from jose import jwt
+
+        from app.auth import ALGORITHM, SECRET_KEY
+
+        payload = jwt.decode(token.strip(), SECRET_KEY, algorithms=[ALGORITHM])
+        return payload.get("sub") is not None
+    except Exception:  # any decode failure means "no valid token"
+        return False
 
 
 def _unauthorized() -> JSONResponse:
@@ -103,6 +141,9 @@ def install(app: FastAPI) -> bool:
             return await call_next(request)
 
         provided = request.headers.get("authorization", "")
+        if _bearer_is_valid(provided):
+            return await call_next(request)
+
         credentials = _credentials_from_header(provided)
 
         expected_user = app_settings.BASIC_AUTH_USER.strip()

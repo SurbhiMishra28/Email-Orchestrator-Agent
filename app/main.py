@@ -896,11 +896,13 @@ async def _process_incoming_replies(tenant_id: Optional[int] = None) -> int:
             # here: recording in both places counted every reply twice.
             agent = ReplyAnalyzerAgent(contact_id=contact.id)
             try:
-                classification = agent.analyze_reply(
+                classification = await asyncio.to_thread(
+                    agent.analyze_reply,
                     subject=msg.subject or "",
                     body=msg.snippet or "",
                     sender_email=sender_email,
                     record_usage_metric=False,
+                    tenant_id=msg.tenant_id,
                 )
             except Exception:
                 logger.exception("Could not classify reply %s", msg_uid)
@@ -1021,6 +1023,36 @@ app.add_middleware(
 # HTTP Basic auth. Installed after CORS so a rejected request still carries the
 # CORS headers and the browser can report the 401 instead of a CORS error.
 security.install(app)
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Baseline hardening headers.
+
+    The SPA needs ``unsafe-inline`` for its pre-paint theme script and
+    ``connect-src`` for the live-log WebSocket, so the policy is tight but not
+    nonce-based. Without it the dashboard renders inside any iframe and is one
+    MIME-sniff away from being treated as another content type.
+    """
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
+        "img-src 'self' data:; "
+        "connect-src 'self' ws: wss:; "
+        "base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+    )
+    if request.url.scheme == "https":
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    return response
+
 
 # Cache the built SPA's content-hashed assets aggressively.
 #

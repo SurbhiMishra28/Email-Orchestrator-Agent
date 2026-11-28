@@ -195,14 +195,20 @@ def delete_template(template_id: int, tenant_id: int = Depends(current_tenant_id
         references = []
         campaign_count = (
             db.query(Campaign)
-            .filter(Campaign.template_id == template_id)
+            .filter(
+                Campaign.template_id == template_id,
+                Campaign.tenant_id == tenant_id,
+            )
             .count()
         )
         if campaign_count:
             references.append(f"{campaign_count} campaign(s)")
         ab_test_count = (
             db.query(ABTest)
-            .filter(ABTest.template_id == template_id)
+            .filter(
+                ABTest.template_id == template_id,
+                ABTest.tenant_id == tenant_id,
+            )
             .count()
         )
         if ab_test_count:

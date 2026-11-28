@@ -108,7 +108,8 @@ async def personalize_email(
             template_id=request.template_id
         )
         
-        result = agent.personalize(use_ai=request.use_ai)
+        # ``personalize`` may call the LLM, which blocks; keep the loop free.
+        result = await asyncio.to_thread(agent.personalize, use_ai=request.use_ai)
         agent.close()
         
         return {

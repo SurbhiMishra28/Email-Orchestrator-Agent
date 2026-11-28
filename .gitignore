@@ -37,6 +37,10 @@ Thumbs.db
 server.log
 *.log
 
+# Local scratch
+.agent-tmp/
+.tmp_*
+
 # Backups / junk
 *.bak
 *.bak2

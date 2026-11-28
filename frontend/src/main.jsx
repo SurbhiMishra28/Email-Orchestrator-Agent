@@ -1,126 +1,160 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
-import { getBasicAuth, requestCredentials, setBasicAuth } from './auth.js'
+import LoginPage from './LoginPage.jsx'
+import LandingPage from './LandingPage.jsx'
+import { authHeader, clearSession, getLastUser, getSession, setSession } from './auth.js'
 import './index.css'
 
-// The dashboard is a static shell with no sign-in screen, so this gate supplies
-// the credentials the API asks for. It appears only when a request comes back
-// 401, and disappears once they are stored.
-function LoginGate({ onSuccess }) {
-  const [user, setUser] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState(null)
-  const [busy, setBusy] = useState(false)
+// The app is a static SPA, so routing is the URL plus the History API. Keeping
+// it this small avoids pulling in a router for three screens.
+const normalize = (path) => {
+  const clean = (path || '/').replace(/\/+$/, '')
+  return clean || '/'
+}
 
-  const submit = async (event) => {
-    event.preventDefault()
-    setError(null)
-    setBusy(true)
-    const header = `Basic ${btoa(`${user.trim()}:${password}`)}`
-    try {
-      const response = await fetch('/api/state', { headers: { Authorization: header } })
-      if (response.ok) {
-        setBasicAuth(user.trim(), password)
-        onSuccess()
-        return
-      }
-      setError(response.status === 401 ? 'Invalid username or password.' : `Sign-in failed (${response.status}).`)
-    } catch {
-      setError('Could not reach the server. Check your connection.')
-    } finally {
-      setBusy(false)
+function useRoute() {
+  const [path, setPath] = useState(() => normalize(window.location.pathname))
+
+  useEffect(() => {
+    const onPop = () => {
+      setPath(normalize(window.location.pathname))
+      window.scrollTo(0, 0)
     }
-  }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
 
-  return (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <form
-        onSubmit={submit}
-        className="w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-sm"
-      >
-        <h1 className="text-lg font-semibold text-ink-900">Sign in</h1>
-        <p className="mt-1 text-[13px] text-ink-500">
-          This workspace is protected. Enter the dashboard credentials.
-        </p>
+  const navigate = useCallback((to) => {
+    const next = normalize(to)
+    if (next !== normalize(window.location.pathname)) {
+      window.history.pushState({}, '', next)
+    }
+    setPath(next)
+    window.scrollTo(0, 0)
+  }, [])
 
-        <label className="mt-5 block text-[12px] font-medium text-ink-600">
-          Username
-          <input
-            autoFocus
-            value={user}
-            onChange={(e) => setUser(e.target.value)}
-            className="mt-1 w-full rounded-md border border-border px-3 py-2 text-[13px]"
-            autoComplete="username"
-          />
-        </label>
-
-        <label className="mt-3 block text-[12px] font-medium text-ink-600">
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full rounded-md border border-border px-3 py-2 text-[13px]"
-            autoComplete="current-password"
-          />
-        </label>
-
-        {error && <p className="mt-3 text-[12px] text-danger-600">{error}</p>}
-
-        <button type="submit" disabled={busy} className="btn-primary btn mt-5 w-full">
-          {busy ? 'Signing in...' : 'Sign in'}
-        </button>
-      </form>
-    </div>
-  )
+  return [path, navigate]
 }
 
 function Root() {
-  // ``null`` means "still deciding". A workspace with no credentials configured
-  // must open straight into the app: showing the gate to every first-time
-  // visitor made an unprotected dashboard look broken. The gate appears only
-  // when the API actually answers 401.
-  const [needsAuth, setNeedsAuth] = useState(() => (getBasicAuth() ? false : null))
+  const [path, navigate] = useRoute()
+  const [session, setSessionState] = useState(() => getSession())
+  const [verifying, setVerifying] = useState(() => Boolean(getSession()))
+  const [reason, setReason] = useState(null)
+  const [demoBusy, setDemoBusy] = useState(false)
 
-  useEffect(() => {
-    const handler = () => setNeedsAuth(true)
-    window.addEventListener("mailmatrix:auth-required", handler)
-    return () => window.removeEventListener("mailmatrix:auth-required", handler)
-  }, [])
+  const isLogin = path === '/login'
+  const isApp = path === '/app' || path.startsWith('/app/')
 
+  // A stored session is verified once, so an expired or cleared credential
+  // lands on the sign-in page instead of an empty dashboard.
   useEffect(() => {
-    if (needsAuth !== null) return
+    if (!session) {
+      setVerifying(false)
+      return undefined
+    }
     let cancelled = false
-    fetch("/api/state")
+    setVerifying(true)
+    fetch('/api/state', { headers: { Authorization: authHeader() } })
       .then((response) => {
-        if (cancelled) return
-        // Only a rejected request means this workspace is protected.
-        setNeedsAuth(response.status === 401)
+        if (cancelled || response.status !== 401) return
+        clearSession()
+        setSessionState(null)
+        setReason('Your session expired. Sign in again to continue.')
       })
-      .catch(() => {
-        if (!cancelled) setNeedsAuth(false)
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setVerifying(false)
       })
     return () => {
       cancelled = true
     }
-  }, [needsAuth])
+  }, [session])
 
-  if (needsAuth === null) return <div className="min-h-screen" />
+  // The API wrapper emits this when a request is rejected.
+  useEffect(() => {
+    const handler = () => {
+      clearSession()
+      setSessionState(null)
+      setReason('Your session expired. Sign in again to continue.')
+      navigate('/login')
+    }
+    window.addEventListener('mailmatrix:auth-required', handler)
+    return () => window.removeEventListener('mailmatrix:auth-required', handler)
+  }, [navigate])
 
-  if (needsAuth) {
+  // Already signed in: /login is a dead end, send them to the product.
+  useEffect(() => {
+    if (isLogin && session && !verifying) navigate('/app')
+  }, [isLogin, session, verifying, navigate])
+
+  const openDemo = async () => {
+    if (demoBusy) return
+    setDemoBusy(true)
+    try {
+      const response = await fetch('/api/auth/demo', { method: 'POST' })
+      if (!response.ok) throw new Error(`Demo unavailable (${response.status})`)
+      const data = await response.json()
+      if (!data.access_token) throw new Error('Demo unavailable')
+      setSession({ token: data.access_token }, true)
+      setSessionState(getSession())
+      setReason(null)
+      navigate('/app')
+    } catch (error) {
+      setReason(error?.message || 'The demo workspace could not be opened.')
+      navigate('/login')
+    } finally {
+      setDemoBusy(false)
+    }
+  }
+
+  const handleSignedIn = ({ token, user, password, remember }) => {
+    setSession(token ? { token } : { user, password }, remember !== false)
+    setSessionState(getSession())
+    setReason(null)
+    navigate('/app')
+  }
+
+  if (verifying) return <div className="min-h-screen bg-ink-50" />
+
+  if (isApp && !session) {
     return (
-      <LoginGate
-        onSuccess={() => {
-          setNeedsAuth(false)
-          // Remount the app so every request picks up the new credentials.
-          window.location.reload()
-        }}
+      <LoginPage
+        initialUser={getLastUser()}
+        reason={reason || 'Sign in to open the control centre.'}
+        onSuccess={handleSignedIn}
+        onDemo={openDemo}
+        demoBusy={demoBusy}
+        onHome={() => navigate('/')}
       />
     )
   }
 
-  return <App />
+  if (isLogin) {
+    return (
+      <LoginPage
+        initialUser={getLastUser()}
+        reason={reason}
+        onSuccess={handleSignedIn}
+        onDemo={openDemo}
+        demoBusy={demoBusy}
+        onHome={() => navigate('/')}
+      />
+    )
+  }
+
+  if (isApp && session) {
+    return <App />
+  }
+
+  return (
+    <LandingPage
+      onSignIn={() => navigate('/login')}
+      onStart={() => navigate('/login')}
+      onDemo={openDemo}
+    />
+  )
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(

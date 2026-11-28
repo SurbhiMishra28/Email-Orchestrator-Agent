@@ -1,6 +1,6 @@
 """Router for email reply processing and classification (tenant-scoped)."""
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel
 
@@ -91,7 +91,8 @@ def analyze_reply(
         result = agent.analyze_reply(
             subject=request.subject,
             body=request.body,
-            sender_email=request.sender_email
+            sender_email=request.sender_email,
+            tenant_id=tenant_id,
         )
         
         agent.close()
@@ -105,7 +106,7 @@ def analyze_reply(
 @router.get("/events/{contact_id}", response_model=list[ReplyEventResponse])
 def get_reply_events(
     contact_id: int,
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=200),
     tenant_id: int = Depends(current_tenant_id),
 ):
     """Get reply events for a specific contact.

@@ -9,6 +9,7 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
 from jinja2 import Template as JinjaTemplate
 from dataclasses import dataclass, field
+from sqlalchemy import func
 
 logger = logging.getLogger(__name__)
 
@@ -418,16 +419,20 @@ class EmailAgent:
                         self.db, getattr(contact, "tenant_id", None), draft
                     )
 
-                    send_email(
+                    html_body = send_html_for_draft(
+                        self.db, draft, getattr(contact, "tenant_id", None)
+                    )
+
+                    # smtplib blocks; this coroutine runs on the event loop.
+                    await asyncio.to_thread(
+                        send_email,
                         smtp_config,
                         contact.email,
                         subject,
                         body,
                         alias_name or None,
                         alias_email or None,
-                        html_body=send_html_for_draft(
-                            self.db, draft, getattr(contact, "tenant_id", None)
-                        ),
+                        html_body,
                     )
                     draft.status = "sent"
                     draft.sent_at = datetime.now(timezone.utc)
@@ -915,6 +920,7 @@ Classify this email reply."""
         body: str,
         sender_email: str,
         record_usage_metric: bool = True,
+        tenant_id: int | None = None,
     ) -> Dict[str, Any]:
         """Full analysis workflow including database logging.
         
@@ -936,13 +942,27 @@ Classify this email reply."""
         contact = None
         event_id = None
         try:
+            # Every lookup is tenant-scoped. Without the filter a reply sent to
+            # the shared analyze endpoint could attach itself to another
+            # tenant's contact and write the event under their id.
             if self.contact_id:
-                contact = self.db.query(Contact).filter(Contact.id == self.contact_id).first()
+                contact_query = self.db.query(Contact).filter(Contact.id == self.contact_id)
+                if tenant_id is not None:
+                    contact_query = contact_query.filter(Contact.tenant_id == tenant_id)
+                contact = contact_query.first()
             elif sender_email:
-                contact = self.db.query(Contact).filter(Contact.email == sender_email).first()
+                contact_query = self.db.query(Contact).filter(
+                    func.lower(Contact.email) == sender_email.strip().lower()
+                )
+                if tenant_id is not None:
+                    contact_query = contact_query.filter(Contact.tenant_id == tenant_id)
+                contact = contact_query.first()
             
-            # Create event record
+            # Create event record. When no contact matched, the caller's tenant
+            # is the only safe owner for the event.
             reply_tenant = getattr(contact, "tenant_id", None)
+            if reply_tenant is None:
+                reply_tenant = tenant_id
             event = Event(
                 tenant_id=reply_tenant,
                 contact_id=contact.id if contact else None,

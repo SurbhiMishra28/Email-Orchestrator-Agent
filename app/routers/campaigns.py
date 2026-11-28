@@ -718,7 +718,16 @@ def update_campaign(
                 campaign.from_email = from_email
                 campaign.from_name = from_name
         if payload.status is not None:
-            campaign.status = _validate_status(payload.status)
+            requested = _validate_status(payload.status)
+            # Only the sending pipeline may move a campaign to sending/sent.
+            # Accepting it here let a client mark mail as delivered that never
+            # left the building.
+            if requested in ("sending", "sent"):
+                raise HTTPException(
+                    status_code=422,
+                    detail="Only the sending pipeline can move a campaign to sending or sent.",
+                )
+            campaign.status = requested
         scheduled = _scheduled_value(payload)
         if scheduled is not None:
             campaign.scheduled_at = scheduled

@@ -347,6 +347,9 @@ def _leading_variant(results: dict, metric: str) -> Optional[dict]:
 @router.get("/{test_id}/winner")
 def ab_test_winner(test_id: int, tenant_id: int = Depends(current_tenant_id)):
     """Preview which variant is ahead, without freezing the experiment."""
+    # A shared Pydantic instance as a default would be mutated across requests.
+    payload = payload or WinnerRequest()
+
     db = SessionLocal()
     try:
         test = _get_test(db, test_id, tenant_id)
@@ -370,7 +373,7 @@ def ab_test_winner(test_id: int, tenant_id: int = Depends(current_tenant_id)):
 @router.post("/{test_id}/winner")
 def decide_ab_test_winner(
     test_id: int,
-    payload: WinnerRequest = WinnerRequest(),
+    payload: WinnerRequest | None = None,
     tenant_id: int = Depends(current_tenant_id),
 ):
     """Select the winner and close the experiment.

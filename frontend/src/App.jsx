@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
-import { Mail, Users, FileText, Inbox, Settings, Play, BarChart3, Activity, Send, AlertCircle, Upload, Pencil, Sparkles, PenLine, Brain, Copy, Trash2, Shield, CheckCircle, XCircle, AlertTriangle, Loader2, RefreshCw, Filter, Search, Plus, Info, Check, TrendingUp, MoreHorizontal, Folder, FolderPlus, MoveRight, SlidersHorizontal, Menu, X, Moon, Sun, Layers } from "lucide-react";
+import { Mail, Users, FileText, Inbox, Settings, Play, BarChart3, Activity, Send, AlertCircle, Upload, Pencil, Sparkles, PenLine, Brain, Copy, Trash2, Shield, CheckCircle, XCircle, AlertTriangle, Loader2, RefreshCw, Search, Plus, Check, TrendingUp, MoreHorizontal, Folder, FolderPlus, MoveRight, SlidersHorizontal, Menu, X, Moon, Sun, Layers, Clock, ChevronRight, Zap, CalendarClock, LogIn, LogOut } from "lucide-react";
 
 
 
@@ -10,7 +10,9 @@ const BRAND_NAME = "MailMatrix";
 // timestamps render as an em dash rather than "Invalid Date".
 function fmtDate(value) {
   if (!value) return "-";
-  const date = new Date(value);
+  // A date-only value (2026-11-18) is parsed as UTC midnight, which renders
+  // as the previous day in any negative-offset timezone. Pin it to local time.
+  const date = new Date(value.length === 10 ? `${value}T00:00:00` : value);
   if (Number.isNaN(date.getTime())) return "-";
   // Brevo format: day/month/year with 2-digit day and month
   const day = String(date.getDate()).padStart(2, '0');
@@ -19,7 +21,13 @@ function fmtDate(value) {
   return `${day}/${month}/${year}`;
 }
 
-import { basicAuthHeader, getBasicAuth, requestCredentials, setBasicAuth } from "./auth.js";
+import {
+  authHeader as buildAuthHeader,
+  clearSession,
+  getSession,
+  requestCredentials,
+  setSession,
+} from "./auth.js";
 
 // Brevo-style opening screen: the wordmark dominates, then the app takes over.
 function Splash(){
@@ -40,7 +48,8 @@ const KNOWN_VIEWS = [
 
 const api = async (path, opts = {}) => {
 
-  const authHeader = basicAuthHeader();
+  // Resolved per request: the session can change without a page reload.
+  const authHeader = buildAuthHeader();
 
   const response = await fetch(path, {
 
@@ -274,150 +283,6 @@ function StatCard({label,value,icon:Icon,color="blue",hint}){
 
 
 
-function LiveAgentActivity({enabled=true}){
-
-  const [events,setEvents]=useState([]);
-
-  const [connected,setConnected]=useState(false);
-
-  const [paused,setPaused]=useState(false);
-
-  useEffect(()=>{
-
-    // A serverless host cannot hold a WebSocket open, so the API reports the
-    // capability in /api/state. Connecting anyway would produce a reconnect
-    // loop that fires every few seconds for the life of the page.
-    if(!enabled) return;
-
-    let socket=null;
-
-    let retry=null;
-
-    let closed=false;
-
-    let attempts=0;
-
-    const connect=()=>{
-
-      if(closed) return;
-
-      const proto=window.location.protocol==="https:"?"wss":"ws";
-
-      socket=new WebSocket(`${proto}://${window.location.host}/ws/live-logs`);
-
-      socket.onopen=()=>{ setConnected(true); attempts=0; };
-
-      socket.onmessage=(msg)=>{
-
-        try{
-
-          const event=JSON.parse(msg.data);
-
-          setEvents(prev=>[event,...prev].slice(0,60));
-
-        }catch{ /* ignore malformed frames */ }
-
-      };
-
-      socket.onclose=()=>{
-
-        setConnected(false);
-
-        if(!closed){
-
-          attempts+=1;
-
-          retry=setTimeout(connect,Math.min(30000,1000*attempts));
-
-        }
-
-      };
-
-      socket.onerror=()=>{ try{ socket.close(); }catch{} };
-
-    };
-
-    connect();
-
-    return ()=>{ closed=true; clearTimeout(retry); try{ socket?.close(); }catch{} };
-
-  },[enabled]);
-
-  const visible=paused?[]:events;
-
-  const running=new Set(visible.filter(e=>e.scope==="agent"&&e.status==="started").map(e=>e.agent));
-
-  const colour=(status)=>status==="completed"?"text-brand-600":status==="failed"?"text-danger-600":"text-info-600";
-
-  return (
-
-    <Card title="Live agent activity">
-
-      <div className="mb-3 flex items-center justify-between">
-
-        <div className="flex items-center gap-2 text-[12px]">
-
-          <span className={"h-2 w-2 rounded-full "+(enabled&&connected?"bg-brand-500":"bg-ink-300")}/>
-
-          <span className="text-ink-600">{!enabled?"Unavailable on this host":connected?"Streaming":"Disconnected"}</span>
-
-          {enabled&&running.size>0&&<span className="font-medium text-info-600">{running.size} running</span>}
-
-        </div>
-
-        <div className="flex items-center gap-1">
-
-          <button onClick={()=>setPaused(p=>!p)} className="btn-ghost btn-sm">
-
-            {paused?"Resume":"Pause"}
-
-          </button>
-
-          <button onClick={()=>setEvents([])} className="btn-ghost btn-sm">Clear</button>
-
-        </div>
-
-      </div>
-
-      {!enabled&&(
-
-        <p className="text-[12px] text-ink-500">
-          Live streaming needs a long-lived process. This deployment runs on a
-          serverless host, so activity is available from the activity log and
-          each send is reported in the queue results.
-        </p>
-
-      )}
-
-      {enabled&& (
-
-      <div className="max-h-80 space-y-1 overflow-y-auto font-mono text-[11.5px]">
-
-        {visible.map(event=>(
-
-          <div key={event.id} className="flex items-start gap-2 border-b border-ink-100 pb-1 last:border-0">
-
-            <span className="shrink-0 text-ink-400">{new Date(event.timestamp).toLocaleTimeString()}</span>
-
-            <span className={"shrink-0 font-medium "+colour(event.status)}>{event.status}</span>
-
-            <span className="truncate text-ink-800">{event.agent}{event.scope==="method"?`.${event.method}`:""}</span>
-
-          </div>
-
-        ))}
-
-        {visible.length===0&&<p className="text-ink-500">No agent activity yet. Run the queue or send an email to see events.</p>}
-
-      </div>
-
-      )}
-
-    </Card>
-
-  );
-
-}
 
 
 
@@ -1619,10 +1484,12 @@ function EmailHistoryView({state,api,reload,notify}){
     finally{ setBusyId(null); }
   };
 
+  // Computed from the unfiltered set: choosing a filter must not change the
+  // "Replied" and "Interested" totals shown above the table.
   const stats={
     total:sent.length,
-    replied:rows.filter(r=>r.reply).length,
-    interested:rows.filter(r=>r.interested).length,
+    replied:sent.filter(d=>replyByContact[d.contact_id]).length,
+    interested:sent.filter(d=>(contactById[d.contact_id]?.tags||[]).includes("interested")).length,
   };
 
   return (
@@ -3003,6 +2870,828 @@ function ExperimentsView({api}){
 
 
 
+// ---------------------------------------------------------------------------
+// Agent network
+// ---------------------------------------------------------------------------
+//
+// The Agents screen is a control room for the whole fleet, not a single bot.
+// Every agent the API reports becomes a card, the live socket feeds both the
+// roster and the stream, and the handoff path shows how work moves between
+// specialists. Everything degrades to the persisted history when the host
+// cannot hold a WebSocket open.
+
+const AGENT_TONES = {
+  brand: {
+    tile: "border-brand-300/50 bg-brand-500/10 text-brand-700",
+    dot: "bg-brand-500",
+    bar: "bg-brand-500",
+  },
+  info: {
+    tile: "border-info-200 bg-info-50 text-info-700",
+    dot: "bg-info-500",
+    bar: "bg-info-500",
+  },
+  neutral: {
+    tile: "border-ink-300 bg-ink-200/60 text-ink-600",
+    dot: "bg-ink-400",
+    bar: "bg-ink-400",
+  },
+};
+
+// Static class maps so Tailwind can see every class at build time; the
+// concatenated forms below would otherwise be purged from the bundle.
+const AGENT_PILL = {
+  ok: "agent-pill agent-pill-ok",
+  warn: "agent-pill agent-pill-warn",
+  off: "agent-pill agent-pill-off",
+  unknown: "agent-pill agent-pill-unknown",
+};
+
+const AGENT_DOT = {
+  ok: "agent-dot-ok",
+  info: "agent-dot-info",
+  danger: "agent-dot-danger",
+  neutral: "agent-dot-neutral",
+};
+
+const AGENT_STATUS = {
+  ok: "agent-status-ok",
+  info: "agent-status-info",
+  danger: "agent-status-danger",
+  neutral: "agent-status-neutral",
+};
+
+const AGENT_CLASS_TO_KEY = {
+  PersonalizedEmailAgent: "personalized_email",
+  EmailAgent: "personalized_email",
+  SenderAgent: "sender",
+  ReplyAnalyzerAgent: "reply_analyzer",
+  AutoResponder: "auto_responder",
+  AIBrainAgent: "ai_brain",
+  CalendarAgent: "calendar",
+  QueueManager: "queue",
+};
+
+const AGENT_CATALOG = [
+  {
+    key: "personalized_email",
+    name: "Composer",
+    className: "PersonalizedEmailAgent",
+    icon: PenLine,
+    tone: "brand",
+    role: "Renders the active template per contact and rewrites it with the LLM.",
+    capabilities: ["Jinja variables", "AI rewrite", "Footer compliance"],
+    view: "drafts",
+    action: "Open drafts",
+    metrics: (ctx) => [
+      { label: "Drafts waiting", value: ctx.a.pending || 0 },
+      { label: "Templates", value: ctx.templates },
+    ],
+    load: (ctx) => ({
+      label: "Queue share",
+      pct: pct(ctx.a.pending || 0, (ctx.a.pending || 0) + (ctx.a.sent || 0)),
+    }),
+  },
+  {
+    key: "sender",
+    name: "Sender",
+    className: "SenderAgent",
+    icon: Send,
+    tone: "info",
+    role: "Delivers through the configured transport and reports the real relay result.",
+    capabilities: ["SMTP / Gmail API", "Connection test", "Alias-aware From"],
+    view: "settings",
+    action: "Transport settings",
+    metrics: (ctx) => [
+      { label: "Sent", value: ctx.a.sent || 0 },
+      { label: "Today", value: ctx.usage?.today?.emails_sent ?? 0 },
+    ],
+    load: (ctx) => ({
+      label: "Daily cap",
+      pct: pct(ctx.usage?.today?.emails_sent || 0, ctx.usage?.daily_email_limit || 0),
+    }),
+  },
+  {
+    key: "reply_analyzer",
+    name: "Reply analyst",
+    className: "ReplyAnalyzerAgent",
+    icon: Brain,
+    tone: "brand",
+    role: "Classifies every inbound reply, scores confidence and flags human review.",
+    capabilities: ["5 reply classes", "Confidence score", "Review flag"],
+    view: "inbox",
+    action: "Open inbox",
+    metrics: (ctx) => [
+      { label: "Replies", value: ctx.a.replied || 0 },
+      { label: "Reply rate", value: (ctx.a.reply_rate || 0) + "%" },
+    ],
+    load: (ctx) => ({
+      label: "Reply rate",
+      pct: pct(ctx.a.replied || 0, ctx.a.sent || 0),
+    }),
+  },
+  {
+    key: "auto_responder",
+    name: "Auto responder",
+    className: "AutoResponder",
+    icon: Sparkles,
+    tone: "info",
+    role: "Answers positive replies and questions, and stays silent on opt-outs.",
+    capabilities: ["Meeting proposal", "Calendar link", "Opt-out respect"],
+    view: "inbox",
+    action: "Review replies",
+    metrics: (ctx) => [
+      { label: "Auto-replies", value: ctx.a.auto_replies || 0 },
+      { label: "Interested", value: ctx.a.interested || 0 },
+    ],
+    load: (ctx) => ({
+      label: "Coverage",
+      pct: pct(ctx.a.auto_replies || 0, ctx.a.replied || 0),
+    }),
+  },
+  {
+    key: "ai_brain",
+    name: "AI brain",
+    className: "AIBrainAgent",
+    icon: Zap,
+    tone: "brand",
+    role: "Optimises subject lines, bodies and threads with the configured model.",
+    capabilities: ["Subject enhance", "Body rewrite", "Thread summary"],
+    view: "templates",
+    action: "Open templates",
+    metrics: (ctx) => [
+      { label: "Model", value: ctx.model || "template" },
+      { label: "Engine", value: ctx.aiEnabled ? "Enabled" : "Off" },
+    ],
+    load: (ctx) => ({
+      label: "Interest lift",
+      pct: pct(ctx.a.interested || 0, ctx.a.replied || 0),
+    }),
+  },
+  {
+    key: "calendar",
+    name: "Scheduler",
+    className: "CalendarAgent",
+    icon: CalendarClock,
+    tone: "neutral",
+    role: "Turns call requests into bookings through the connected calendar.",
+    capabilities: ["Booking link", "Event creation", "Meeting links"],
+    view: "settings",
+    action: "Connect calendar",
+    metrics: (ctx) => [
+      { label: "Provider", value: ctx.calendarProvider || "Not set" },
+      { label: "Interested", value: ctx.a.interested || 0 },
+    ],
+    load: (ctx) => ({
+      label: "Meeting intent",
+      pct: pct(ctx.a.interested || 0, ctx.a.sent || 0),
+    }),
+  },
+  {
+    key: "queue",
+    name: "Queue manager",
+    className: "QueueManager",
+    icon: Layers,
+    tone: "info",
+    role: "Paces the queue, enforces caps and drains drafts in the background.",
+    capabilities: ["Daily caps", "Pacing", "Retries"],
+    view: "campaigns",
+    action: "Open campaigns",
+    metrics: (ctx) => [
+      { label: "Pending", value: ctx.sys?.pending_drafts ?? ctx.a.pending ?? 0 },
+      { label: "Follow-ups", value: ctx.a.followups_due || 0 },
+    ],
+    load: (ctx) => ({
+      label: "Queue depth",
+      pct: pct(ctx.a.pending || 0, (ctx.a.pending || 0) + (ctx.a.followups_due || 0)),
+    }),
+  },
+];
+
+function pct(n, d) {
+  if (!d || d <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((n / d) * 100)));
+}
+
+function timeAgo(ts, now) {
+  if (!ts) return "";
+  const then = new Date(ts).getTime();
+  if (Number.isNaN(then)) return "";
+  const secs = Math.max(0, Math.round((now - then) / 1000));
+  if (secs < 10) return "just now";
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function agentStatusTone(raw) {
+  const value = String(raw?.status || "").toLowerCase();
+  if (value === "available" || value === "configured" || value === "enabled") {
+    return { tone: "ok", label: value === "enabled" ? "Enabled" : value === "configured" ? "Configured" : "Ready" };
+  }
+  if (value === "disabled") return { tone: "off", label: "Disabled" };
+  if (value === "not_configured") return { tone: "warn", label: "Needs setup" };
+  return { tone: "unknown", label: raw?.status ? String(raw.status) : "Unknown" };
+}
+
+// The runtime socket is the only live signal; when the host cannot hold one
+// open the screen falls back to the persisted event log.
+function useAgentStream(enabled) {
+  const [events, setEvents] = useState([]);
+  const [connected, setConnected] = useState(false);
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+
+    let socket = null;
+    let retry = null;
+    let closed = false;
+    let attempts = 0;
+
+    const connect = () => {
+      if (closed) return;
+      const proto = window.location.protocol === "https:" ? "wss" : "ws";
+      try {
+        socket = new WebSocket(`${proto}://${window.location.host}/ws/live-logs`);
+      } catch {
+        return;
+      }
+
+      socket.onopen = () => {
+        setConnected(true);
+        attempts = 0;
+      };
+
+      socket.onmessage = (msg) => {
+        try {
+          const event = JSON.parse(msg.data);
+          setEvents((prev) => [event, ...prev].slice(0, 120));
+        } catch {
+          /* ignore malformed frames */
+        }
+      };
+
+      socket.onclose = () => {
+        setConnected(false);
+        if (!closed) {
+          attempts += 1;
+          retry = setTimeout(connect, Math.min(30000, 1000 * attempts));
+        }
+      };
+
+      socket.onerror = () => {
+        try {
+          socket.close();
+        } catch {
+          /* already closed */
+        }
+      };
+    };
+
+    connect();
+
+    return () => {
+      closed = true;
+      clearTimeout(retry);
+      try {
+        socket?.close();
+      } catch {
+        /* already closed */
+      }
+    };
+  }, [enabled]);
+
+  const clear = useCallback(() => setEvents([]), []);
+
+  return { events, connected, clear };
+}
+
+function AgentCard({ agent, now, selected, onSelect }) {
+  const tone = AGENT_TONES[agent.tone] || AGENT_TONES.brand;
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={"agent-card group " + (selected ? "agent-card-active" : "")}
+      aria-pressed={selected}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className={"agent-card-icon " + tone.tile}>
+            <agent.icon className="h-[18px] w-[18px]" />
+          </span>
+          <div className="min-w-0 text-left">
+            <div className="truncate text-[13.5px] font-semibold text-ink-900">{agent.name}</div>
+            <div className="truncate font-mono text-[10.5px] text-ink-400">{agent.className}</div>
+          </div>
+        </div>
+        <span className={AGENT_PILL[agent.statusTone] || AGENT_PILL.unknown}>
+          <span className={"h-1.5 w-1.5 rounded-full " + tone.dot} />
+          {agent.statusLabel}
+        </span>
+      </div>
+
+      <p className="mt-3 line-clamp-2 text-left text-[12.5px] leading-relaxed text-ink-500">{agent.role}</p>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        {agent.metrics.map((metric) => (
+          <div key={metric.label} className="agent-metric">
+            <div className="agent-metric-value">{metric.value}</div>
+            <div className="agent-metric-label">{metric.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3">
+        <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-400">
+          <span>{agent.load.label}</span>
+          <span className="tabular-nums">{agent.load.pct}%</span>
+        </div>
+        <div className="agent-load mt-1">
+          <span className={tone.bar} style={{ width: Math.max(2, agent.load.pct) + "%" }} />
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center justify-between border-t border-ink-200/70 pt-2.5 text-[11.5px] text-ink-400">
+        <span className="flex items-center gap-1.5">
+          <Clock className="h-3 w-3" />
+          {agent.last ? timeAgo(agent.last.ts, now) : "No activity yet"}
+        </span>
+        <span className="flex items-center gap-1 font-semibold text-brand-700 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+          Inspect
+          <ChevronRight className="h-3.5 w-3.5" />
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function AgentsView({ state, api, run, notify, setView, sys }) {
+  const analytics = state.analytics || {};
+  const usage = state.usage || {};
+  const enabled = state.live_logs !== false;
+
+  const { events, connected, clear } = useAgentStream(enabled);
+
+  const [agentStatus, setAgentStatus] = useState(null);
+  const [statusError, setStatusError] = useState(null);
+  const [loadingStatus, setLoadingStatus] = useState(true);
+  const [selected, setSelected] = useState(null);
+  const [filter, setFilter] = useState("all");
+  const [paused, setPaused] = useState(false);
+  const [frozen, setFrozen] = useState(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  const loadStatus = useCallback(async () => {
+    setLoadingStatus(true);
+    try {
+      const payload = await api("/api/agents/status");
+      setAgentStatus(payload);
+      setStatusError(null);
+    } catch (e) {
+      setStatusError(e?.message || String(e));
+    } finally {
+      setLoadingStatus(false);
+    }
+  }, [api]);
+
+  useEffect(() => {
+    loadStatus();
+  }, [loadStatus]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 20000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const liveItems = useMemo(
+    () =>
+      events
+        .filter((event) => event.scope !== "method")
+        .map((event) => ({
+          id: event.id,
+          ts: event.timestamp,
+          key: AGENT_CLASS_TO_KEY[event.agent] || "queue",
+          label: event.method ? `${event.method} ${event.status}` : event.status,
+          detail: event.message || "",
+          tone: event.status === "failed" ? "danger" : event.status === "completed" ? "ok" : "info",
+        })),
+    [events]
+  );
+
+  const historyItems = useMemo(() => {
+    const items = Array.isArray(state.events) ? state.events : [];
+    return items.slice(0, 24).map((entry) => {
+      if (entry.type === "reply_event") {
+        const replyType = entry.data?.classification?.reply_type;
+        return {
+          id: `history-${entry.id}`,
+          ts: entry.timestamp,
+          key: "reply_analyzer",
+          label: "reply analysed",
+          detail: replyType ? replyType.replace(/_/g, " ") : entry.event_type || "reply received",
+          tone: "info",
+        };
+      }
+      const message = entry.message || "";
+      const key = /reply|inbox|imap/i.test(message)
+        ? "reply_analyzer"
+        : /draft|template|personal/i.test(message)
+          ? "personalized_email"
+          : /sent|queue|smtp|deliver/i.test(message)
+            ? "sender"
+            : "queue";
+      return {
+        id: `history-${entry.id}`,
+        ts: entry.timestamp,
+        key,
+        label: "log",
+        detail: message,
+        tone: "neutral",
+      };
+    });
+  }, [state.events]);
+
+  const scoped = useMemo(() => {
+    const merged = [...liveItems, ...historyItems];
+    const seen = new Set();
+    const unique = merged.filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+    return (filter === "all" ? unique : unique.filter((item) => item.key === filter)).slice(0, 40);
+  }, [liveItems, historyItems, filter]);
+
+  const visible = paused && frozen ? frozen : scoped;
+
+  const ctx = {
+    a: analytics,
+    usage,
+    templates: state.templates?.length || 0,
+    sys,
+    model: (agentStatus?.ai_brain?.model || "gateway").split("/").pop(),
+    aiEnabled: agentStatus?.ai_brain?.status === "enabled",
+    calendarProvider: agentStatus?.calendar?.provider || null,
+  };
+
+  const roster = useMemo(
+    () =>
+      AGENT_CATALOG.map((def) => {
+        const raw = def.key === "queue" ? null : agentStatus?.[def.key];
+        const status =
+          def.key === "queue"
+            ? sys?.scheduler?.alive
+              ? { tone: "ok", label: "Running" }
+              : { tone: "warn", label: "Idle" }
+            : agentStatusTone(raw);
+        const last = [...liveItems, ...historyItems].find((item) => item.key === def.key);
+        return {
+          ...def,
+          statusTone: status.tone,
+          statusLabel: status.label,
+          metrics: def.metrics(ctx),
+          load: def.load(ctx),
+          last,
+          raw,
+        };
+      }),
+    [agentStatus, sys, liveItems, historyItems, analytics, usage, state.templates]
+  );
+
+  const active = roster.find((agent) => agent.key === selected) || null;
+  const online = roster.filter((agent) => agent.statusTone === "ok").length;
+
+  const testSmtp = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result = await api("/api/agents/test-smtp");
+      const ok = Boolean(result.success);
+      setTestResult({ ok, message: result.message || (ok ? "Connection verified" : "Check failed") });
+      notify(ok ? "SMTP connection verified" : result.message || "SMTP check failed");
+    } catch (e) {
+      const message = e?.message || String(e);
+      setTestResult({ ok: false, message });
+      notify(message);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const togglePause = () => {
+    if (!paused) setFrozen(scoped);
+    else setFrozen(null);
+    setPaused((value) => !value);
+  };
+
+  const runtimeRows = active
+    ? Object.entries(active.raw || {})
+        .filter(([key]) => !["description", "status"].includes(key))
+        .map(([key, value]) => [
+          key.replace(/_/g, " "),
+          value === null || value === undefined || value === "" ? "—" : String(value),
+        ])
+    : [];
+
+  const activeEvents = active ? visible.filter((item) => item.key === active.key).slice(0, 6) : [];
+
+  return (
+    <div className="space-y-4">
+      <PageHeader
+        title="Agents"
+        subtitle="A fleet of specialists — composer, sender, analyst, responder, scheduler — coordinated by one queue."
+        eyebrow="Workspace"
+      >
+        <button
+          onClick={() => {
+            loadStatus();
+            notify("Agent status refreshed");
+          }}
+          className="btn-ghost"
+          disabled={loadingStatus}
+        >
+          <RefreshCw className={"h-3.5 w-3.5 " + (loadingStatus ? "animate-spin" : "")} />
+          Refresh
+        </button>
+        <button onClick={run} className="btn-primary">
+          <Play className="h-3.5 w-3.5" />
+          Run pipeline
+        </button>
+      </PageHeader>
+
+      <section className="agent-hero">
+        <div className="agent-hero-glow" aria-hidden="true" />
+        <div className="relative flex flex-wrap items-start justify-between gap-5">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-[10.5px] font-semibold uppercase tracking-[0.16em] text-ink-400">
+              <span
+                className={
+                  "h-1.5 w-1.5 rounded-full " + (connected ? "bg-brand-500 agent-live-dot" : "bg-ink-400")
+                }
+              />
+              {connected ? "Live orchestration" : enabled ? "Reconnecting" : "Snapshot mode"}
+            </div>
+            <h2 className="mt-2 text-[22px] font-semibold leading-tight tracking-[-0.02em] text-ink-900">
+              Agent network
+            </h2>
+            <p className="mt-1.5 max-w-xl text-[13px] leading-relaxed text-ink-500">
+              Seven specialists share one queue: contacts are drafted, paced, delivered, read and
+              answered without a handoff. Select any agent to inspect its runtime.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {[
+              { label: "Online", value: `${online}/${roster.length}` },
+              { label: "In queue", value: analytics.pending || 0 },
+              { label: "Sent", value: analytics.sent || 0 },
+              { label: "Auto-replies", value: analytics.auto_replies || 0 },
+            ].map((tile) => (
+              <div key={tile.label} className="agent-tile">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.09em] text-ink-400">
+                  {tile.label}
+                </div>
+                <div className="mt-1.5 text-[22px] font-semibold leading-none tabular-nums text-ink-900">
+                  {tile.value}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {statusError && (
+          <p className="relative mt-4 rounded-lg border border-warn-200 bg-warn-50 px-3 py-2 text-[12px] text-warn-700">
+            Agent status could not be loaded ({statusError}). The roster below uses the last known
+            state.
+          </p>
+        )}
+      </section>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {roster.map((agent) => (
+          <AgentCard
+            key={agent.key}
+            agent={agent}
+            now={now}
+            selected={selected === agent.key}
+            onSelect={() => setSelected(selected === agent.key ? null : agent.key)}
+          />
+        ))}
+      </div>
+
+      {active && (
+        <section className="agent-inspector">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink-200 px-5 py-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className={"agent-card-icon " + (AGENT_TONES[active.tone] || AGENT_TONES.brand).tile}>
+                <active.icon className="h-[18px] w-[18px]" />
+              </span>
+              <div className="min-w-0">
+                <h3 className="truncate text-[15px] font-semibold text-ink-900">{active.name}</h3>
+                <p className="truncate font-mono text-[11px] text-ink-400">{active.className}</p>
+              </div>
+              <span className={AGENT_PILL[active.statusTone] || AGENT_PILL.unknown}>
+                <span className={"h-1.5 w-1.5 rounded-full " + (AGENT_TONES[active.tone] || AGENT_TONES.brand).dot} />
+                {active.statusLabel}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {active.key === "sender" && (
+                <button onClick={testSmtp} className="btn-ghost btn-sm" disabled={testing}>
+                  {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Shield className="h-3.5 w-3.5" />}
+                  Test connection
+                </button>
+              )}
+              {active.key === "queue" && (
+                <button onClick={run} className="btn-primary btn-sm">
+                  <Play className="h-3.5 w-3.5" />
+                  Run now
+                </button>
+              )}
+              <button onClick={() => setView(active.view)} className="btn-ghost btn-sm">
+                {active.action}
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+              <button onClick={() => setSelected(null)} className="icon-btn" title="Close inspector">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="grid gap-5 px-5 py-4 lg:grid-cols-3">
+            <div>
+              <div className="agent-section-label">Capabilities</div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {active.capabilities.map((capability) => (
+                  <span key={capability} className="chip">
+                    {capability}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-3 text-[12.5px] leading-relaxed text-ink-500">{active.role}</p>
+              {testResult && active.key === "sender" && (
+                <p
+                  className={
+                    "mt-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-[12px] " +
+                    (testResult.ok
+                      ? "border-brand-300/60 bg-brand-500/10 text-brand-700"
+                      : "border-danger-200 bg-danger-50 text-danger-600")
+                  }
+                >
+                  {testResult.ok ? (
+                    <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  )}
+                  {testResult.message}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <div className="agent-section-label">Runtime</div>
+              <dl className="mt-2 space-y-1.5">
+                {(runtimeRows.length > 0
+                  ? runtimeRows
+                  : [
+                      ["scheduler", sys?.scheduler?.alive ? "running" : "idle"],
+                      ["pending drafts", sys?.pending_drafts ?? analytics.pending ?? 0],
+                    ]
+                ).map(([key, value]) => (
+                  <div key={key} className="flex items-center justify-between gap-3 text-[12.5px]">
+                    <dt className="text-ink-500">{key}</dt>
+                    <dd className="min-w-0 truncate font-medium text-ink-800">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+
+            <div>
+              <div className="agent-section-label">Recent events</div>
+              <div className="mt-2 space-y-1.5">
+                {activeEvents.length === 0 && (
+                  <p className="text-[12.5px] text-ink-500">No events for this agent yet.</p>
+                )}
+                {activeEvents.map((item) => (
+                  <div key={item.id} className="flex items-start gap-2 text-[12px]">
+                    <span className={"mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full " + (AGENT_DOT[item.tone] || AGENT_DOT.neutral)} />
+                    <span className="min-w-0 flex-1 truncate text-ink-600">{item.detail || item.label}</span>
+                    <span className="shrink-0 tabular-nums text-ink-400">{timeAgo(item.ts, now)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      <Card title="Handoff path" subtitle="How a contact moves through the fleet">
+        <div className="agent-flow">
+          {AGENT_CATALOG.slice(0, 6).map((def, index) => (
+            <div key={def.key} className="flex min-w-0 flex-1 items-center gap-2">
+              {index > 0 && <span className="agent-flow-link hidden shrink-0 sm:block" aria-hidden="true" />}
+              <button
+                onClick={() => setSelected(def.key)}
+                className={"agent-flow-node min-w-0 flex-1 " + (selected === def.key ? "agent-flow-node-active" : "")}
+              >
+                <def.icon className="h-4 w-4 shrink-0" />
+                <span className="truncate">{def.name}</span>
+              </button>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card
+        title="Live activity"
+        subtitle={
+          enabled
+            ? connected
+              ? "Streaming from the agent runtime"
+              : "Reconnecting to the runtime"
+            : "Live streaming is unavailable on this host — showing recent history"
+        }
+        action={
+          <div className="flex flex-wrap items-center gap-1.5">
+            <select
+              className="select w-auto py-1 text-[12px]"
+              value={filter}
+              onChange={(event) => {
+                setFilter(event.target.value);
+                setFrozen(null);
+              }}
+              title="Filter by agent"
+            >
+              <option value="all">All agents</option>
+              {AGENT_CATALOG.map((def) => (
+                <option key={def.key} value={def.key}>
+                  {def.name}
+                </option>
+              ))}
+            </select>
+            <button onClick={togglePause} className="btn-ghost btn-sm">
+              {paused ? "Resume" : "Pause"}
+            </button>
+            <button
+              onClick={() => {
+                clear();
+                setFrozen([]);
+              }}
+              className="btn-ghost btn-sm"
+            >
+              Clear
+            </button>
+          </div>
+        }
+      >
+        <div className="agent-stream">
+          {visible.length === 0 && (
+            <div className="empty-state">
+              <span className="stat-icon mb-1 text-brand-600">
+                <Activity className="h-5 w-5" />
+              </span>
+              <p className="text-[14px] font-semibold text-ink-900">No agent activity yet</p>
+              <p className="max-w-md text-[13px] text-ink-500">
+                Run the pipeline to watch the fleet draft, send, classify and answer in real time.
+              </p>
+              <button onClick={run} className="btn-primary btn-sm mt-1">
+                <Play className="h-3.5 w-3.5" />
+                Run pipeline
+              </button>
+            </div>
+          )}
+
+          {visible.map((item) => (
+            <div key={item.id} className="agent-stream-row">
+              <span className="agent-stream-time">
+                {new Date(item.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+              </span>
+              <span className={"agent-stream-dot " + (AGENT_DOT[item.tone] || AGENT_DOT.neutral)} />
+              <button
+                onClick={() => setSelected(item.key)}
+                className="agent-stream-agent"
+                title="Inspect this agent"
+              >
+                {AGENT_CATALOG.find((def) => def.key === item.key)?.name || item.key}
+              </button>
+              <span className="agent-stream-detail">{item.detail || item.label}</span>
+              <span className={"agent-stream-status " + (AGENT_STATUS[item.tone] || AGENT_STATUS.neutral)}>{item.label}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+
 export default function App(){
 
   const [user,setUser]=useState(null);
@@ -3796,6 +4485,11 @@ export default function App(){
 
   const [addContactOpen, setAddContactOpen] = useState(false);
 
+  // Kept separate from the page-level ``error``: that one replaces the
+  // whole dashboard, so a form validation message must not use it.
+  const [formError, setFormError] = useState(null);
+  const [contactBusy, setContactBusy] = useState(false);
+
   const [addContactForm, setAddContactForm] = useState({email:"",name:""});
 
   const [sendSelectedOpen, setSendSelectedOpen] = useState(false);
@@ -4383,9 +5077,21 @@ export default function App(){
 
   const duplicateTemplate = async (tid) => {
 
-    await api(`/api/templates/${tid}/duplicate`, { method: "POST" });
+    setTemplateDraftError(null);
 
-    await loadTemplates();
+    try {
+
+      await api(`/api/templates/${tid}/duplicate`, { method: "POST" });
+
+      await loadTemplates();
+
+      setStatus("Template duplicated");
+
+    } catch (e) {
+
+      setTemplateDraftError(e?.message || "Could not duplicate template");
+
+    }
 
   };
 
@@ -4904,13 +5610,15 @@ export default function App(){
 
     };
 
-    const label = status.charAt(0).toUpperCase() + status.slice(1).replace("_", " ");
+    const safe = String(status || "not_checked");
+
+    const label = safe.charAt(0).toUpperCase() + safe.slice(1).replace(/_/g, " ");
 
     return (
 
-      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${styles[status] || styles.not_checked}`}>
+      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${styles[safe] || styles.not_checked}`}>
 
-        {icons[status] || icons.not_checked}
+        {icons[safe] || icons.not_checked}
 
         {label}
 
@@ -5057,8 +5765,6 @@ export default function App(){
             if (active) {
 
               setSmtpCheck(result);
-
-              console.log("Auto SMTP test result:", result);
 
             }
 
@@ -5231,13 +5937,19 @@ export default function App(){
 
   const addContact=async()=>{
 
+    if(contactBusy) return;
+
+    setFormError(null);
+
     if(!addContactForm.email.trim()){
 
-      setError("Email is required");
+      setFormError("Email is required");
 
       return;
 
     }
+
+    setContactBusy(true);
 
     try{
 
@@ -5262,6 +5974,8 @@ export default function App(){
 
       setAddContactForm({email:"",name:""});
 
+      setFormError(null);
+
       setStatus("Contact added successfully");
 
       setTimeout(()=>setStatus(null),2000);
@@ -5270,7 +5984,12 @@ export default function App(){
 
     }catch(e){
 
-      setError(e?.message||String(e));
+      // A failed add is a form problem, not a dead dashboard.
+      setFormError(e?.message||String(e));
+
+    }finally{
+
+      setContactBusy(false);
 
     }
 
@@ -5791,6 +6510,19 @@ export default function App(){
 
   const systemLive=health?.status==="healthy";
 
+  // Sign-out is offered whenever a session exists in this browser.
+  const authEnabled=Boolean(getSession());
+
+  const signOut=()=>{
+    clearSession();
+    // A full navigation returns to the marketing page and drops the SPA state.
+    window.location.assign("/");
+  };
+
+  const openSignIn=()=>{
+    window.location.assign("/login");
+  };
+
 
 
   useEffect(()=>{
@@ -5891,6 +6623,17 @@ export default function App(){
               <div className="truncate text-[12px] font-medium text-ink-800">{user?.name||user?.email}</div>
               <div className="truncate text-[11px] capitalize text-ink-400">{user?.role||"member"}</div>
             </div>
+            {/* Always offer the account action: with a session it signs out,
+                without one it opens the sign-in page. Single-user deployments
+                have no session, and still need a way back to /login. */}
+            <button
+              onClick={authEnabled ? signOut : openSignIn}
+              className="icon-btn h-7 w-7 shrink-0"
+              title={authEnabled ? "Sign out" : "Sign in"}
+              aria-label={authEnabled ? "Sign out of this workspace" : "Open the sign-in page"}
+            >
+              {authEnabled ? <LogOut className="h-3.5 w-3.5"/> : <LogIn className="h-3.5 w-3.5"/>}
+            </button>
           </div>
 
         </div>
@@ -5926,6 +6669,18 @@ export default function App(){
             <DefaultAliasChip aliases={state.aliases||[]}/>
 
             <ThemePicker/>
+
+            {/* Always-visible account action. The sidebar sits below the fold on
+                a laptop, so the sign-in / sign-out entry lives in the top bar
+                too. */}
+            <button
+              onClick={authEnabled ? signOut : openSignIn}
+              className="btn-ghost btn-sm"
+              title={authEnabled ? "Sign out" : "Sign in"}
+            >
+              {authEnabled ? <LogOut className="h-3.5 w-3.5"/> : <LogIn className="h-3.5 w-3.5"/>}
+              <span className="max-sm:hidden">{authEnabled ? "Sign out" : "Sign in"}</span>
+            </button>
 
             <button onClick={run} className="btn-primary btn-sm"><Play className="h-3.5 w-3.5"/><span className="max-sm:hidden">Run now</span><span className="sm:hidden">Run</span></button>
 
@@ -6135,18 +6890,22 @@ export default function App(){
 
                   <article
                     key={template.id}
-                    onClick={()=>openTemplateComposer(template)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e)=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openTemplateComposer(template);}}}
-                    className="surface flex cursor-pointer flex-col transition-colors hover:border-brand-300/60 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="surface flex flex-col transition-colors hover:border-brand-300/60"
                   >
 
                     <div className="flex items-start justify-between gap-3 border-b border-ink-100 px-4 py-3">
 
                       <div className="min-w-0">
 
-                        <h3 className="truncate text-[14px] font-semibold text-ink-900">{template.name}</h3>
+                        <h3 className="truncate text-[14px] font-semibold text-ink-900">
+                          <button
+                            onClick={()=>openTemplateComposer(template)}
+                            className="max-w-full truncate text-left hover:text-brand-700 focus:outline-none focus-visible:underline"
+                            title="Open this template"
+                          >
+                            {template.name}
+                          </button>
+                        </h3>
 
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
 
@@ -6166,7 +6925,7 @@ export default function App(){
 
                         <button onClick={(e)=>{e.stopPropagation();duplicateTemplate(template.id);}} className="icon-btn" title="Duplicate template"><Copy className="h-4 w-4"/></button>
 
-                        <button onClick={(e)=>{e.stopPropagation();deleteTemplate(template.id);}} className="icon-btn hover:bg-danger-50 hover:text-danger-600" title="Delete template"><Trash2 className="h-4 w-4"/></button>
+                        <button onClick={(e)=>{e.stopPropagation();confirmAction({title:`Delete "${template.name}"?`,message:"The template is removed for good. Campaigns that already used it keep their content.",onConfirm:()=>deleteTemplate(template.id)});}} className="icon-btn hover:bg-danger-50 hover:text-danger-600" title="Delete template"><Trash2 className="h-4 w-4"/></button>
 
                       </div>
 
@@ -6196,129 +6955,16 @@ export default function App(){
 
           )}
 
-          {view==="agents"&&(
-
-          <div className="space-y-4">
-
-            <PageHeader title="Agents" subtitle="The pipeline runs itself: contacts go in, replies come back answered." eyebrow="Workspace">
-              <button onClick={()=>setView("automation")} className="btn-ghost">
-                <Activity className="h-3.5 w-3.5"/>Automation
-              </button>
-            </PageHeader>
-
-            {/* The agent's identity card: what it is, whether it is healthy, and
-                the four numbers that decide if it is doing its job. */}
-            <section className="agent-hero">
-              <div className="agent-hero-glow" aria-hidden="true"/>
-              <div className="relative flex flex-wrap items-start justify-between gap-4">
-                <div className="flex min-w-0 items-start gap-4">
-                  <span className="agent-orb"><Sparkles className="h-6 w-6"/></span>
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-[18px] font-semibold tracking-[-0.01em] text-ink-900">Autopilot agent</h2>
-                      <span className="badge badge-sent">
-                        <span className="h-1.5 w-1.5 rounded-full bg-brand-600"/>{state.usage ? "Operational" : "Warming up"}
-                      </span>
-                    </div>
-                    <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-ink-500">
-                      Sources eligible contacts, drafts a personalised intro, sends inside the daily cap, then reads and answers replies — end to end, on every run.
-                    </p>
-                    <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                      <span className="chip"><Users className="h-3 w-3"/>{state.contacts?.length||0} in audience</span>
-                      <span className="chip"><PenLine className="h-3 w-3"/>{state.templates?.length||0} template{(state.templates?.length||0)===1?"":"s"}</span>
-                      <span className="chip"><Send className="h-3 w-3"/>{state.usage?.today?.emails_sent||0} sent today</span>
-                      <span className="chip"><Inbox className="h-3 w-3"/>{state.usage?.today?.replies_received||0} replies today</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <button onClick={run} className="btn-primary">
-                    <Play className="h-3.5 w-3.5"/>Run now
-                  </button>
-                </div>
-              </div>
-
-              <div className="relative mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-                {[
-                  {label:"Drafts waiting", value: analytics.pending||0, icon:PenLine, tone:"text-brand-600"},
-                  {label:"Emails sent", value: analytics.sent||0, icon:Send, tone:"text-info-600"},
-                  {label:"Auto-replies", value: analytics.auto_replies||0, icon:Inbox, tone:"text-warn-600"},
-                  {label:"Follow-ups due", value: analytics.followups_due||0, icon:RefreshCw, tone:"text-ink-600"},
-                ].map((tile,i)=>(
-                  <div key={i} className="agent-tile">
-                    <div className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-400">
-                      <tile.icon className={"h-3.5 w-3.5 "+tile.tone}/>{tile.label}
-                    </div>
-                    <div className="mt-1.5 text-[26px] font-semibold leading-none tabular-nums text-ink-900">{tile.value}</div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <LiveAgentActivity enabled={state.live_logs!==false}/>
-
-            <Card title="Pipeline" subtitle="Runs on the schedule and whenever you press Run now">
-              <ol className="pipeline-rail space-y-4">
-                {[
-                  {icon:Users,title:"Audience",desc:"Every contact that is eligible for email and has no outreach yet is picked up for an intro.",value:`${analytics.pending||0} waiting`},
-                  {icon:PenLine,title:"Drafting",desc:"The active intro template is rendered per contact, one draft per new contact.",value:`${state.templates?.length||0} templates`},
-                  {icon:Send,title:"Sending",desc:"The queue sends those drafts inside the daily limits and pacing, no approval step in between.",value:`${analytics.sent||0} sent`},
-                  {icon:Inbox,title:"Replies",desc:"New mail is pulled over IMAP, matched to the contact, classified and answered automatically.",value:`${analytics.auto_replies||0} answered`},
-                  {icon:RefreshCw,title:"Follow-ups",desc:"Day-3 and day-5 follow-ups are drafted for threads without a reply and sent by the same queue.",value:`${analytics.followups_due||0} due`},
-                ].map((step,i)=>(
-                  <li key={step.title} className="flex items-start gap-3">
-                    <span className="pipeline-dot"><step.icon className="h-4 w-4"/></span>
-                    <div className="min-w-0 flex-1 pt-0.5">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[10.5px] font-semibold tabular-nums text-ink-400">{String(i+1).padStart(2,"0")}</span>
-                        <p className="text-[13px] font-semibold text-ink-900">{step.title}</p>
-                        <span className="badge badge-sent">Active</span>
-                      </div>
-                      <p className="mt-0.5 text-[12.5px] leading-relaxed text-ink-500">{step.desc}</p>
-                    </div>
-                    <span className="shrink-0 pt-1 text-[11.5px] tabular-nums text-ink-400">{step.value}</span>
-                  </li>
-                ))}
-              </ol>
-            </Card>
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-
-              <Card
-                title="Reply classification"
-                action={<span className="badge badge-sent">Active</span>}
-              >
-                <div className="flex items-start gap-3">
-                  <span className="stat-icon shrink-0 bg-brand-50 text-brand-600"><Brain className="h-4 w-4"/></span>
-                  <p className="text-[13px] leading-relaxed text-ink-500">Each reply is classified as positive, question, negative, unsubscribe or spam. Positive replies and questions get an answer; unsubscribe and spam are recorded and left alone.</p>
-                </div>
-              </Card>
-
-              <Card
-                title="Calendar booking"
-                action={<span className="badge badge-draft">Not connected</span>}
-              >
-                <div className="flex items-start gap-3">
-                  <span className="stat-icon shrink-0 bg-ink-200/60 text-ink-500"><Activity className="h-4 w-4"/></span>
-                  <p className="text-[13px] leading-relaxed text-ink-500">Not connected. No calendar integration is installed, so this is not automated.</p>
-                </div>
-              </Card>
-
-              <Card
-                title="Memory"
-                action={<span className="badge badge-draft">Planned</span>}
-              >
-                <div className="flex items-start gap-3">
-                  <span className="stat-icon shrink-0 bg-info-50 text-info-600"><Layers className="h-4 w-4"/></span>
-                  <p className="text-[13px] leading-relaxed text-ink-500">Not implemented. Interaction history is stored as events, but the agent does not use it yet.</p>
-                </div>
-              </Card>
-
-            </div>
-
-          </div>
-
-        )}
+{view==="agents"&&(
+            <AgentsView
+              state={state}
+              api={api}
+              run={run}
+              notify={setStatus}
+              setView={setView}
+              sys={sys}
+            />
+          )}
 
         {view==="contacts"&&(
           <div className="flex h-full min-h-0 flex-col bg-ink-100">
@@ -6346,7 +6992,7 @@ export default function App(){
                   <Upload className="h-3.5 w-3.5"/>Import CSV
                 </button>
                 <button
-                  onClick={()=>{setAddContactOpen(true);setAddContactForm({email:"",name:""});}}
+                  onClick={()=>{setFormError(null);setAddContactOpen(true);setAddContactForm({email:"",name:""});}}
                   className="btn-primary"
                 >
                   <Plus className="h-3.5 w-3.5"/>Add contact
@@ -6513,7 +7159,7 @@ export default function App(){
                     placeholder="Search contacts..."
                     className="input py-1.5 pl-9 text-[12.5px]"
                     value={contactsSearch}
-                    onChange={e => setContactsSearch(e.target.value)}
+                    onChange={e => { setContactsSearch(e.target.value); setPage(1); }}
                   />
                 </div>
                 {selectedContacts.size > 0 && (
@@ -6710,7 +7356,7 @@ export default function App(){
                                   <Upload className="h-3.5 w-3.5"/>Import CSV
                                 </button>
                                 <button
-                                  onClick={()=>{setAddContactOpen(true);setAddContactForm({email:"",name:""});}}
+                                  onClick={()=>{setFormError(null);setAddContactOpen(true);setAddContactForm({email:"",name:""});}}
                                   className="btn-primary btn-sm"
                                 >
                                   <Plus className="h-3.5 w-3.5"/>Add contact
@@ -6737,7 +7383,7 @@ export default function App(){
                     {[10,20,50,100].map(n=><option key={n} value={n}>{n}</option>)}
                   </select>
                   <span className="tabular-nums text-ink-500">
-                    {filteredContactsCount===0 ? "0" : `${(page-1)*perPage+1}-${Math.min(page*perPage, filteredContactsCount)}`} of {filteredContactsCount}
+                    {filteredContactsCount===0 ? "0" : `${(currentPage-1)*perPage+1}-${Math.min(currentPage*perPage, filteredContactsCount)}`} of {filteredContactsCount}
                   </span>
                 </div>
                 <div className="flex items-center gap-1">
@@ -6881,8 +7527,8 @@ export default function App(){
                       </td>
                       <td className="text-right tabular-nums text-ink-700">{campaign.total_recipients}</td>
                       <td className="text-right tabular-nums text-ink-700">{campaign.delivered}</td>
-                      <td className="text-right tabular-nums text-ink-700">{campaign.opened}<span className="ml-1 text-[11px] text-ink-400">{campaign.open_rate}%</span></td>
-                      <td className="text-right tabular-nums text-ink-700">{campaign.clicked}<span className="ml-1 text-[11px] text-ink-400">{campaign.click_rate}%</span></td>
+                      <td className="text-right tabular-nums text-ink-700">{campaign.opened}<span className="ml-1 text-[11px] text-ink-400">{(campaign.open_rate ?? 0)}%</span></td>
+                      <td className="text-right tabular-nums text-ink-700">{campaign.clicked}<span className="ml-1 text-[11px] text-ink-400">{(campaign.click_rate ?? 0)}%</span></td>
                       <td className="whitespace-nowrap text-[11.5px] text-ink-500">{campaign.sent_at ? new Date(campaign.sent_at).toLocaleDateString() : "-"}</td>
                       <td className="text-right">
                         <div className="relative flex items-center justify-end gap-1">
@@ -8239,7 +8885,7 @@ export default function App(){
 
                 <h3 className="modal-title">Add Contact</h3>
 
-                <button onClick={()=>{setAddContactOpen(false);setAddContactForm({email:"",name:""});}} className="icon-btn" aria-label="Close"><XCircle className="h-5 w-5"/></button>
+                <button onClick={()=>{setFormError(null);setAddContactOpen(false);setAddContactForm({email:"",name:""});}} className="icon-btn" aria-label="Close"><XCircle className="h-5 w-5"/></button>
 
               </div>
 
@@ -8261,13 +8907,15 @@ export default function App(){
 
                 </label>
 
-                {error && <p className="notice-error">{error}</p>}
+                {formError && <p className="notice-error">{formError}</p>}
 
                 <div className="modal-foot -mx-5 -mb-4">
 
-                  <button onClick={()=>{setAddContactOpen(false);setAddContactForm({email:"",name:""});setError(null);}} className={btnGhost}>Cancel</button>
+                  <button onClick={()=>{setFormError(null);setAddContactOpen(false);setAddContactForm({email:"",name:""});}} className={btnGhost}>Cancel</button>
 
-                  <button onClick={addContact} className={btnPrimary}>Add Contact</button>
+                  <button onClick={addContact} className={btnPrimary} disabled={contactBusy}>
+                    {contactBusy ? "Adding…" : "Add Contact"}
+                  </button>
 
                 </div>
 

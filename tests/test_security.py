@@ -34,6 +34,30 @@ def _build_app() -> FastAPI:
     def health():
         return {"ok": True}
 
+    @app.get("/")
+    def index():
+        return {"ok": True}
+
+    @app.get("/index.html")
+    def index_html():
+        return {"ok": True}
+
+    @app.get("/assets/{asset}")
+    def asset(asset: str):
+        return {"ok": True, "asset": asset}
+
+    @app.get("/login")
+    def login_page():
+        return {"ok": True}
+
+    @app.get("/app")
+    def app_page():
+        return {"ok": True}
+
+    @app.post("/api/auth/demo")
+    def demo():
+        return {"access_token": "demo-token"}
+
     @app.get("/api/track/open/{token}")
     def track_open(token: str):
         return {"ok": True, "token": token}
@@ -147,6 +171,29 @@ def test_cron_route_is_exempt(monkeypatch):
     assert response.status_code == 200
 
 
+@pytest.mark.parametrize(
+    "path",
+    ["/", "/index.html", "/assets/index-abc123.js", "/assets/index-abc123.css"],
+)
+def test_static_shell_is_exempt(monkeypatch, path):
+    """The sign-in page must load before any credentials exist.
+
+    The bundle contains no tenant data — every value it renders comes from the
+    gated API — so serving it openly is what makes a custom login possible.
+    """
+    response = _client(monkeypatch).get(path)
+
+    assert response.status_code == 200, path
+
+
+def test_static_exemption_does_not_open_the_api(monkeypatch):
+    """Exempting the shell must not exempt the data behind it."""
+    client = _client(monkeypatch)
+
+    assert client.get("/").status_code == 200
+    assert client.get("/api/state").status_code == 401
+
+
 def test_exemption_does_not_leak_to_lookalike_paths(monkeypatch):
     """``/api/trackery`` must not be treated as ``/api/track``."""
     app = FastAPI()
@@ -167,3 +214,33 @@ def test_exemption_does_not_leak_to_lookalike_paths(monkeypatch):
 def test_trailing_slash_still_matches_an_exempt_prefix(monkeypatch):
     """FastAPI redirects ``/health/``; the gate must not 401 the redirect target."""
     assert _client(monkeypatch).get("/health/").status_code in (200, 307)
+
+@pytest.mark.parametrize("path", ["/login", "/app", "/assets/index-abc.js"])
+def test_spa_routes_are_exempt(monkeypatch, path):
+    """The marketing page, sign-in page and bundle load before credentials."""
+    assert _client(monkeypatch).get(path).status_code == 200, path
+
+
+def test_demo_endpoint_is_exempt(monkeypatch):
+    """The demo button has to work for a visitor with no account."""
+    assert _client(monkeypatch).post("/api/auth/demo").status_code == 200
+
+
+def test_valid_bearer_token_is_accepted(monkeypatch):
+    """The sign-in page exchanges credentials for a JWT."""
+    from app.auth import create_access_token
+
+    token = create_access_token({"sub": 1, "tenant_id": 1})
+    response = _client(monkeypatch).get(
+        "/api/state", headers={"Authorization": f"Bearer {token}"}
+    )
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "header",
+    ["Bearer nonsense", "Bearer", "Basic !!!not-base64!!!"],
+)
+def test_invalid_bearer_token_is_rejected(monkeypatch, header):
+    assert _client(monkeypatch).get("/api/state", headers={"Authorization": header}).status_code == 401

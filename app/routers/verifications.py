@@ -273,6 +273,21 @@ def check_single_email(
     """Verify a single email address."""
     db = SessionLocal()
     try:
+        # A client-supplied contact id is only accepted when it belongs to the
+        # caller; otherwise one tenant could alias another's contact into their
+        # verification history.
+        if request.contact_id is not None:
+            owned = (
+                db.query(Contact.id)
+                .filter(
+                    Contact.id == request.contact_id,
+                    Contact.tenant_id == tenant_id,
+                )
+                .first()
+            )
+            if not owned:
+                raise HTTPException(status_code=404, detail="Contact not found")
+
         result = verify_email(request.email, request.check_smtp, request.check_catch_all)
         
         # Save or update verification record
@@ -382,7 +397,7 @@ def get_bulk_job_status(
 @router.get("", response_model=List[EmailVerificationOut])
 def list_verifications(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=500),
     status: Optional[str] = Query(None, pattern="^(deliverable|undeliverable|risky|inconclusive|not_checked)$"),
     domain: Optional[str] = None,
     tenant_id: int = Depends(current_tenant_id),

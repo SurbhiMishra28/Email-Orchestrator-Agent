@@ -40,11 +40,32 @@ def _password_bytes(password: str) -> bytes:
 # JWT settings. A missing JWT_SECRET_KEY must never fall back to a publicly
 # known constant, or anyone could forge tokens. Generate an ephemeral secret
 # instead: auth works, but tokens do not survive a restart.
+def _is_public_deployment() -> bool:
+    """True when the app is reachable on a non-local origin.
+
+    ``PUBLIC_BASE_URL`` is resolved from the platform's own URL variables, so a
+    hosted deploy has a real host while local development stays on localhost.
+    """
+    base = (settings.PUBLIC_BASE_URL or "").strip().lower()
+    if not base:
+        return False
+    return not any(host in base for host in ("localhost", "127.0.0.1", "0.0.0.0", "::1"))
+
+
 SECRET_KEY = settings.JWT_SECRET_KEY or secrets.token_urlsafe(48)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
 if not settings.JWT_SECRET_KEY:
+    if _is_public_deployment():
+        # An ephemeral secret silently invalidates every token on each cold
+        # start and differs between instances, so a public deployment must fail
+        # loudly instead of "working" until the first restart.
+        raise RuntimeError(
+            "JWT_SECRET_KEY is not set on a public deployment. Set it to a long "
+            "random value so issued tokens survive restarts and are shared "
+            "across instances."
+        )
     logger.warning(
         "JWT_SECRET_KEY is not set; using an ephemeral secret. "
         "Set JWT_SECRET_KEY in .env so tokens survive restarts."

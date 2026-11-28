@@ -309,7 +309,7 @@ class Contact(Base):
     # contact can be subscribed but blacklisted after a hard bounce or a
     # complaint, and lists report those separately.
     email_blacklisted: Mapped[bool] = mapped_column(Boolean, default=False)
-    tags: Mapped[list] = mapped_column(JSON, default=[])
+    tags: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -428,8 +428,8 @@ class Campaign(Base):
     # Brevo lets one campaign target several lists at once and subtract an
     # exclusion list from the result. ``list_id`` stays the primary list so
     # existing sends and tests keep working; these carry the full selection.
-    list_ids: Mapped[list] = mapped_column(JSON, default=[])
-    exclude_list_ids: Mapped[list] = mapped_column(JSON, default=[])
+    list_ids: Mapped[list] = mapped_column(JSON, default=list)
+    exclude_list_ids: Mapped[list] = mapped_column(JSON, default=list)
     # marketing campaigns are opt-in audiences; transactional messages are
     # triggered by an event and ignore the marketing consent flags.
     campaign_type: Mapped[str] = mapped_column(String(50), default="marketing")
@@ -474,7 +474,7 @@ class Draft(Base):
     subject: Mapped[str] = mapped_column(String(500))
     body: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(50), default="draft")  # draft, sent, failed
-    variables: Mapped[dict] = mapped_column(JSON, default={})
+    variables: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc))
     sent_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -490,7 +490,7 @@ class Event(Base):
     )
     contact_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("contacts.id"), nullable=True)
     event_type: Mapped[str] = mapped_column(String(100))  # email_opened, link_clicked, reply_received
-    data: Mapped[dict] = mapped_column(JSON, default={})
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
     timestamp: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc), index=True)
 
 
@@ -583,7 +583,7 @@ class APIKey(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(255))
     key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    permissions: Mapped[list] = mapped_column(JSON, default=[])
+    permissions: Mapped[list] = mapped_column(JSON, default=list)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc))
@@ -646,7 +646,7 @@ class ToolUse(Base):
         Integer, ForeignKey("tenants.id"), nullable=True, index=True
     )
     tool_name: Mapped[str] = mapped_column(String(100))
-    parameters: Mapped[dict] = mapped_column(JSON, default={})
+    parameters: Mapped[dict] = mapped_column(JSON, default=dict)
     result: Mapped[Optional[str]] = mapped_column(Text)
     success: Mapped[bool] = mapped_column(Boolean, default=True)
     timestamp: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc), index=True)
@@ -664,8 +664,8 @@ class Template(Base):
     subject_template: Mapped[str] = mapped_column(String(500))
     body_template: Mapped[str] = mapped_column(Text)
     footer_template: Mapped[str] = mapped_column(Text, default="")
-    variables: Mapped[dict] = mapped_column(JSON, default={})
-    tags: Mapped[list] = mapped_column(JSON, default=[])
+    variables: Mapped[dict] = mapped_column(JSON, default=dict)
+    tags: Mapped[list] = mapped_column(JSON, default=list)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
